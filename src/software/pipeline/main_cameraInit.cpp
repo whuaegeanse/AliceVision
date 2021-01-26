@@ -455,6 +455,7 @@ int aliceVision_main(int argc, char **argv)
 
     IndexT intrinsicId = view.getIntrinsicId();
     double sensorWidth = -1;
+    double sensorHeight = -1;
     enum class ESensorWidthSource {
         FROM_DB,
         FROM_METADATA_ESTIMATION,
@@ -478,7 +479,7 @@ int aliceVision_main(int argc, char **argv)
       camera::Pinhole* intrinsic = dynamic_cast<camera::Pinhole*>(intrinsicBase);
       if(intrinsic != nullptr)
       {
-        if(intrinsic->getFocalLengthPix() > 0)
+        if(intrinsic->getFocalLengthPixX() > 0)
         {
           // the view intrinsic is initialized
           #pragma omp atomic
@@ -500,14 +501,15 @@ int aliceVision_main(int argc, char **argv)
         ALICEVISION_LOG_TRACE("Sensor width found in database: " << std::endl
                               << "\t- brand: " << make << std::endl
                               << "\t- model: " << model << std::endl
-                              << "\t- sensor width: " << datasheet._sensorSize << " mm");
+                              << "\t- sensor width: " << datasheet._sensorWidth << " mm");
 
         if(datasheet._model != model) {
           // the camera model in database is slightly different
           unsureSensors.emplace(std::make_pair(make, model), std::make_pair(view.getImagePath(), datasheet)); // will throw a warning message
         }
 
-        sensorWidth = datasheet._sensorSize;
+        sensorWidth = datasheet._sensorWidth;
+        sensorHeight = datasheet._sensorHeight;
         sensorWidthSource = ESensorWidthSource::FROM_DB;
 
         if(focalLengthmm > 0.0) {
@@ -588,13 +590,21 @@ int aliceVision_main(int argc, char **argv)
     intrinsic->setInitializationMode(intrinsicInitMode);
 
     // Set sensor size
-    if (imageRatio > 1.0) {
+    if (sensorHeight > 0.0) 
+    {
       intrinsicBase->setSensorWidth(sensorWidth);
-      intrinsicBase->setSensorHeight(sensorWidth / imageRatio);
+      intrinsicBase->setSensorHeight(sensorHeight);
     }
-    else {
-      intrinsicBase->setSensorWidth(sensorWidth);
-      intrinsicBase->setSensorHeight(sensorWidth * imageRatio);
+    else 
+    {
+      if (imageRatio > 1.0) {
+        intrinsicBase->setSensorWidth(sensorWidth);
+        intrinsicBase->setSensorHeight(sensorWidth / imageRatio);
+      }
+      else {
+        intrinsicBase->setSensorWidth(sensorWidth);
+        intrinsicBase->setSensorHeight(sensorWidth * imageRatio);
+      }
     }
 
     if(intrinsic && intrinsic->isValid())
@@ -737,7 +747,8 @@ int aliceVision_main(int argc, char **argv)
                         << "\t- image camera model: " << unsureSensor.first.second <<  std::endl
                         << "\t- database camera brand: " << unsureSensor.second.second._brand <<  std::endl
                         << "\t- database camera model: " << unsureSensor.second.second._model << std::endl
-                        << "\t- database camera sensor size: " << unsureSensor.second.second._sensorSize << " mm");
+                        << "\t- database camera sensor width: " << unsureSensor.second.second._sensorWidth << std::endl
+                        << "\t- database camera sensor height: " << unsureSensor.second.second._sensorHeight << " mm");
     ALICEVISION_LOG_WARNING("Please check and correct camera model(s) name in the database." << std::endl);
   }
 
