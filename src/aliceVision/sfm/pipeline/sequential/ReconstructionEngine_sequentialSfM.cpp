@@ -615,7 +615,7 @@ bool ReconstructionEngine_sequentialSfM::bundleAdjustment(std::set<IndexT>& newR
   BundleAdjustment::ERefineOptions refineOptions = BundleAdjustment::REFINE_ROTATION | BundleAdjustment::REFINE_TRANSLATION | BundleAdjustment::REFINE_STRUCTURE;
 
   if(!isInitialPair && !_params.lockAllIntrinsics)
-    refineOptions |= BundleAdjustment::REFINE_INTRINSICS_FOCAL | BundleAdjustment::REFINE_INTRINSICS_OPTICALCENTER_IF_ENOUGH_DATA;
+    refineOptions |= BundleAdjustment::REFINE_INTRINSICS_ALL;
 
   const std::size_t nbOutliersThreshold = (isInitialPair) ? 0 : 50;
   std::size_t iteration = 0;
