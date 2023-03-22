@@ -38,7 +38,7 @@ struct AlembicExporter::DataImpl
     _mvgPointCloud = Alembic::AbcGeom::OXform(_mvgCloud, "mvgPointCloud");
 
     // add version as custom property
-    const std::vector<::uint32_t> abcVersion = {1, 1};
+    const std::vector<::uint32_t> abcVersion = {ALICEVISION_SFMDATAIO_VERSION_MAJOR, ALICEVISION_SFMDATAIO_VERSION_MINOR, ALICEVISION_SFMDATAIO_VERSION_REVISION};
     const std::vector<::uint32_t> aliceVisionVersion = {ALICEVISION_VERSION_MAJOR, ALICEVISION_VERSION_MINOR, ALICEVISION_VERSION_REVISION};
 
     auto userProps = _mvgRoot.getProperties();
@@ -109,33 +109,29 @@ void AlembicExporter::DataImpl::addCamera(const std::string& name,
   {
     OBoolProperty(userProps, "mvg_poseLocked").set(pose->isLocked());
 
-    const Mat3& R = pose->getTransform().rotation();
-    const Vec3& center = pose->getTransform().center();
+    // Convert from computer vision convention to computer graphics (opengl-like)
+    Eigen::Matrix4d M = Eigen::Matrix4d::Identity();
+    M(1, 1) = -1;
+    M(2, 2) = -1;
+
+    Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+    T.block<3, 3>(0, 0) = pose->getTransform().rotation();
+    T.block<3, 1>(0, 3) = pose->getTransform().translation();
+
+    Eigen::Matrix4d T2 = (M * T * M).inverse();
+    
 
     // compensate translation with rotation
     // build transform matrix
     Abc::M44d xformMatrix;
-    xformMatrix[0][0] = R(0, 0);
-    xformMatrix[0][1] = R(0, 1);
-    xformMatrix[0][2] = R(0, 2);
-    xformMatrix[1][0] = R(1, 0);
-    xformMatrix[1][1] = R(1, 1);
-    xformMatrix[1][2] = R(1, 2);
-    xformMatrix[2][0] = R(2, 0);
-    xformMatrix[2][1] = R(2, 1);
-    xformMatrix[2][2] = R(2, 2);
-    xformMatrix[3][0] = center(0);
-    xformMatrix[3][1] = center(1);
-    xformMatrix[3][2] = center(2);
-    xformMatrix[3][3] = 1.0;
+    for (int i = 0; i < 4; i++)
+    {
+      for (int j = 0; j < 4; j++)
+      {
+        xformMatrix[j][i] = T2(i, j);
+      }
+    }
 
-    // correct camera orientation for alembic
-    M44d scale; // by default this is an identity matrix
-    scale[0][0] = 1;
-    scale[1][1] = -1;
-    scale[2][2] = -1;
-
-    xformMatrix = scale * xformMatrix;
     xformsample.setMatrix(xformMatrix);
   }
 
@@ -176,6 +172,9 @@ void AlembicExporter::DataImpl::addCamera(const std::string& name,
     OStringArrayProperty(userProps, "mvg_metadata").set(rawMetadata);
   }
 
+  //Export ancestors
+  OUInt32ArrayProperty(userProps, "mvg_ancestorsParams").set(view.getAncestors());
+
   // set intrinsic properties
   std::shared_ptr<camera::IntrinsicsScaleOffset> intrinsicCasted = std::dynamic_pointer_cast<camera::IntrinsicsScaleOffset>(intrinsic);
   if(intrinsicCasted)
@@ -188,8 +187,10 @@ void AlembicExporter::DataImpl::addCamera(const std::string& name,
     const float sensorWidth = intrinsicCasted->sensorWidth();
     const float sensorHeight = intrinsicCasted->sensorHeight();
     const float sensorWidth_pix = std::max(imgWidth, imgHeight);
-    const float focalLength_pix = static_cast<const float>(intrinsicCasted->getScale()(0));
-    const float focalLength_mm = sensorWidth * focalLength_pix / sensorWidth_pix;
+    const float focalLengthX_pix = static_cast<const float>(intrinsicCasted->getScale()(0));
+    const float focalLengthY_pix = static_cast<const float>(intrinsicCasted->getScale()(1));
+    const float focalLength_mm = sensorWidth * focalLengthX_pix / sensorWidth_pix;
+    const float squeeze = focalLengthX_pix / focalLengthY_pix;
     const float pix2mm = sensorWidth / sensorWidth_pix;
 
     // aliceVision: origin is (top,left) corner and orientation is (bottom,right)
@@ -201,18 +202,23 @@ void AlembicExporter::DataImpl::addCamera(const std::string& name,
     camSample.setFocalLength(focalLength_mm);
     camSample.setHorizontalAperture(haperture_cm);
     camSample.setVerticalAperture(vaperture_cm);
+    camSample.setLensSqueezeRatio(squeeze);
 
     // Add sensor width (largest image side) in pixels as custom property
     std::vector<::uint32_t> sensorSize_pix = {intrinsicCasted->w(), intrinsicCasted->h()};
     std::vector<double> sensorSize_mm = {sensorWidth, sensorHeight};
 
+    double initialFocalLength = (intrinsicCasted->getInitialScale().x() > 0)?(intrinsicCasted->getInitialScale().x() * sensorWidth / double(intrinsicCasted->w())):-1;
+
     OUInt32ArrayProperty(userProps, "mvg_sensorSizePix").set(sensorSize_pix);
     ODoubleArrayProperty(userProps, "mvg_sensorSizeMm").set(sensorSize_mm);
     OStringProperty(userProps, "mvg_intrinsicType").set(intrinsicCasted->getTypeStr());
-    OStringProperty(userProps, "mvg_intrinsicInitializationMode").set(camera::EIntrinsicInitMode_enumToString(intrinsicCasted->getInitializationMode()));
-    ODoubleProperty(userProps, "mvg_initialFocalLengthPix").set(intrinsicCasted->initialScale());
+    OStringProperty(userProps, "mvg_intrinsicInitializationMode").set(camera::EInitMode_enumToString(intrinsicCasted->getInitializationMode()));
+    OStringProperty(userProps, "mvg_intrinsicDistortionInitializationMode").set(camera::EInitMode_enumToString(intrinsicCasted->getDistortionInitializationMode()));
+    ODoubleProperty(userProps, "mvg_initialFocalLength").set(initialFocalLength);
     ODoubleArrayProperty(userProps, "mvg_intrinsicParams").set(intrinsicCasted->getParams());
     OBoolProperty(userProps, "mvg_intrinsicLocked").set(intrinsicCasted->isLocked());
+    OBoolProperty(userProps, "mvg_intrinsicPixelRatioLocked").set(intrinsicCasted->isRatioLocked());
 
     camObj.getSchema().set(camSample);
   }
@@ -326,26 +332,27 @@ void AlembicExporter::addSfMCameraRig(const sfmData::SfMData& sfmData, IndexT ri
     const geometry::Pose3& rigTransform = rigPose.getTransform();
     rigPoseLocked = rigPose.isLocked();
 
-    const aliceVision::Mat3& R = rigTransform.rotation();
-    const aliceVision::Vec3& center = rigTransform.center();
+    Eigen::Matrix4d M = Eigen::Matrix4d::Identity();
+    M(1, 1) = -1;
+    M(2, 2) = -1;
 
-    Abc::M44d xformMatrix;
+    Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+    T.block<3, 3>(0, 0) = rigPose.getTransform().rotation();
+    T.block<3, 1>(0, 3) = rigPose.getTransform().translation();
+
+    Eigen::Matrix4d T2 = (M * T * M).inverse();
+
 
     // compensate translation with rotation
     // build transform matrix
-    xformMatrix[0][0] = R(0, 0);
-    xformMatrix[0][1] = R(0, 1);
-    xformMatrix[0][2] = R(0, 2);
-    xformMatrix[1][0] = R(1, 0);
-    xformMatrix[1][1] = R(1, 1);
-    xformMatrix[1][2] = R(1, 2);
-    xformMatrix[2][0] = R(2, 0);
-    xformMatrix[2][1] = R(2, 1);
-    xformMatrix[2][2] = R(2, 2);
-    xformMatrix[3][0] = center(0);
-    xformMatrix[3][1] = center(1);
-    xformMatrix[3][2] = center(2);
-    xformMatrix[3][3] = 1.0;
+    Abc::M44d xformMatrix;
+    for (int i = 0; i < 4; i++)
+    {
+        for (int j = 0; j < 4; j++)
+        {
+            xformMatrix[j][i] = T2(i, j);
+        }
+    }
 
     xformsample.setMatrix(xformMatrix);
   }
@@ -406,7 +413,8 @@ void AlembicExporter::addLandmarks(const sfmData::Landmarks& landmarks, const sf
   {
     const Vec3& pt = landmark.second.X;
     const image::RGBColor& color = landmark.second.rgb;
-    positions.emplace_back(pt[0], pt[1], pt[2]);
+    // convert position from computer vision convention to computer graphics (opengl-like)
+    positions.emplace_back(pt[0], -pt[1], -pt[2]);
     colors.emplace_back(color.r()/255.f, color.g()/255.f, color.b()/255.f);
     descTypes.emplace_back(static_cast<Alembic::Util::uint8_t>(landmark.second.descType));
   }
@@ -562,81 +570,75 @@ void AlembicExporter::addCameraKeyframe(const geometry::Pose3& pose,
                                         IndexT intrinsicId,
                                         float sensorWidthMM)
 {
-  const aliceVision::Mat3& R = pose.rotation();
-  const aliceVision::Vec3& center = pose.center();
-  // POSE
-  // Compensate translation with rotation
-  // Build transform matrix
-  Abc::M44d xformMatrix;
-  xformMatrix[0][0] = R(0, 0);
-  xformMatrix[0][1] = R(0, 1);
-  xformMatrix[0][2] = R(0, 2);
-  xformMatrix[1][0] = R(1, 0);
-  xformMatrix[1][1] = R(1, 1);
-  xformMatrix[1][2] = R(1, 2);
-  xformMatrix[2][0] = R(2, 0);
-  xformMatrix[2][1] = R(2, 1);
-  xformMatrix[2][2] = R(2, 2);
-  xformMatrix[3][0] = center(0);
-  xformMatrix[3][1] = center(1);
-  xformMatrix[3][2] = center(2);
-  xformMatrix[3][3] = 1.0;
+    Eigen::Matrix4d M = Eigen::Matrix4d::Identity();
+    M(1, 1) = -1;
+    M(2, 2) = -1;
 
-  // Correct camera orientation for alembic
-  M44d scale;
-  scale[0][0] = 1;
-  scale[1][1] = -1;
-  scale[2][2] = -1;
-  xformMatrix = scale*xformMatrix;
+    Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+    T.block<3, 3>(0, 0) = pose.rotation();
+    T.block<3, 1>(0, 3) = pose.translation();
 
-  // Create the XformSample
-  XformSample xformsample;
-  xformsample.setMatrix(xformMatrix);
+    Eigen::Matrix4d T2 = (M * T * M).inverse();
+
+    // compensate translation with rotation
+    // build transform matrix
+    Abc::M44d xformMatrix;
+    for (int i = 0; i < 4; i++)
+    {
+        for (int j = 0; j < 4; j++)
+        {
+            xformMatrix[j][i] = T2(i, j);
+        }
+    }
+
+    // Create the XformSample
+    XformSample xformsample;
+    xformsample.setMatrix(xformMatrix);
   
-  // Attach it to the schema of the OXform
-  _dataImpl->_xform.getSchema().set(xformsample);
+    // Attach it to the schema of the OXform
+    _dataImpl->_xform.getSchema().set(xformsample);
   
-  // Camera intrinsic parameters
-  CameraSample camSample;
+    // Camera intrinsic parameters
+    CameraSample camSample;
 
-  // Take the max of the image size to handle the case where the image is in portrait mode 
-  const float imgWidth = cam->w();
-  const float imgHeight = cam->h();
-  const float sensorWidth_pix = std::max(imgWidth, imgHeight);
-  const float focalLength_pix = static_cast<const float>(cam->getScale()(0));
-  const float focalLength_mm = sensorWidthMM * focalLength_pix / sensorWidth_pix;
-  const float pix2mm = sensorWidthMM / sensorWidth_pix;
+    // Take the max of the image size to handle the case where the image is in portrait mode 
+    const float imgWidth = cam->w();
+    const float imgHeight = cam->h();
+    const float sensorWidth_pix = std::max(imgWidth, imgHeight);
+    const float focalLength_pix = static_cast<const float>(cam->getScale()(0));
+    const float focalLength_mm = sensorWidthMM * focalLength_pix / sensorWidth_pix;
+    const float pix2mm = sensorWidthMM / sensorWidth_pix;
 
-  // aliceVision: origin is (top,left) corner and orientation is (bottom,right)
-  // ABC: origin is centered and orientation is (up,right)
-  // Following values are in cm, hence the 0.1 multiplier
-  const float haperture_cm = static_cast<const float>(0.1 * imgWidth * pix2mm);
-  const float vaperture_cm = static_cast<const float>(0.1 * imgHeight * pix2mm);
+    // aliceVision: origin is (top,left) corner and orientation is (bottom,right)
+    // ABC: origin is centered and orientation is (up,right)
+    // Following values are in cm, hence the 0.1 multiplier
+    const float haperture_cm = static_cast<const float>(0.1 * imgWidth * pix2mm);
+    const float vaperture_cm = static_cast<const float>(0.1 * imgHeight * pix2mm);
 
-  camSample.setFocalLength(focalLength_mm);
-  camSample.setHorizontalAperture(haperture_cm);
-  camSample.setVerticalAperture(vaperture_cm);
+    camSample.setFocalLength(focalLength_mm);
+    camSample.setHorizontalAperture(haperture_cm);
+    camSample.setVerticalAperture(vaperture_cm);
   
-  // Add sensor size in pixels as custom property
-  std::vector<::uint32_t> sensorSize_pix = {cam->w(), cam->h()};
-  _dataImpl->_propSensorSize_pix.set(sensorSize_pix);
+    // Add sensor size in pixels as custom property
+    std::vector<::uint32_t> sensorSize_pix = {cam->w(), cam->h()};
+    _dataImpl->_propSensorSize_pix.set(sensorSize_pix);
   
-  // Set custom attributes
-  // Image path
-  _dataImpl->_imagePlane.set(imagePath);
+    // Set custom attributes
+    // Image path
+    _dataImpl->_imagePlane.set(imagePath);
 
-  // View id
-  _dataImpl->_propViewId.set(viewId);
-  // Intrinsic id
-  _dataImpl->_propIntrinsicId.set(intrinsicId);
-  // Intrinsic type
-  _dataImpl->_mvgIntrinsicType.set(cam->getTypeStr());
-  // Intrinsic parameters
-  std::vector<double> intrinsicParams = cam->getParams();
-  _dataImpl->_mvgIntrinsicParams.set(intrinsicParams);
+    // View id
+    _dataImpl->_propViewId.set(viewId);
+    // Intrinsic id
+    _dataImpl->_propIntrinsicId.set(intrinsicId);
+    // Intrinsic type
+    _dataImpl->_mvgIntrinsicType.set(cam->getTypeStr());
+    // Intrinsic parameters
+    std::vector<double> intrinsicParams = cam->getParams();
+    _dataImpl->_mvgIntrinsicParams.set(intrinsicParams);
   
-  // Attach intrinsic parameters to camera object
-  _dataImpl->_camObj.getSchema().set(camSample);
+    // Attach intrinsic parameters to camera object
+    _dataImpl->_camObj.getSchema().set(camSample);
 }
 
 void AlembicExporter::jumpKeyframe(const std::string& imagePath)

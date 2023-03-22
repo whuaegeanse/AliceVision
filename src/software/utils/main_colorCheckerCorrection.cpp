@@ -116,33 +116,29 @@ void saveImage(image::Image<image::RGBAfColor>& image, const std::string& inputP
     // Read metadata based on a filepath
     oiio::ParamValueList metadata = image::readImageMetadata(metadataFilePath);
 
+    image::ImageWriteOptions options;
+
     if(isEXR)
     {
         // Select storage data type
-        metadata.push_back(
-            oiio::ParamValue("AliceVision:storageDataType", image::EStorageDataType_enumToString(storageDataType)));
+        options.storageDataType(storageDataType);
     }
 
     // Save image
     ALICEVISION_LOG_TRACE("Export image: '" << outputPath << "'.");
 
-    image::writeImage(outputPath, image, image::EImageColorSpace::AUTO, metadata);
+    image::writeImage(outputPath, image, options, metadata);
 }
 
 
 int aliceVision_main(int argc, char** argv)
 {
     // command-line parameters
-    std::string verboseLevel = system::EVerboseLevel_enumToString(system::Logger::getDefaultVerboseLevel());
     std::string inputExpression;
     std::string inputData;
     std::string extension;
     image::EStorageDataType storageDataType = image::EStorageDataType::Float;
     std::string outputPath;
-
-    po::options_description allParams(
-        "This program is used to perform color correction based on a color checker\n"
-        "AliceVision colorCheckerCorrection");
 
     po::options_description requiredParams("Required parameters");
     requiredParams.add_options()
@@ -161,44 +157,14 @@ int aliceVision_main(int argc, char** argv)
         "extension", po::value<std::string>(&extension)->default_value(extension),
          "Output image extension (like exr, or empty to keep the original source file format.");
 
-    po::options_description logParams("Log parameters");
-    logParams.add_options()
-        ("verboseLevel,v", po::value<std::string>(&verboseLevel)->default_value(verboseLevel),
-         "verbosity level (fatal, error, warning, info, debug, trace).")
-        ;
-
-    allParams.add(requiredParams).add(optionalParams).add(logParams);
-
-    po::variables_map vm;
-    try
+    CmdLine cmdline("This program is used to perform color correction based on a color checker.\n"
+                    "AliceVision colorCheckerCorrection");
+    cmdline.add(requiredParams);
+    cmdline.add(optionalParams);
+    if (!cmdline.execute(argc, argv))
     {
-        po::store(po::parse_command_line(argc, argv, allParams), vm);
-
-        if(vm.count("help") || (argc == 1))
-        {
-            ALICEVISION_COUT(allParams);
-            return EXIT_SUCCESS;
-        }
-        po::notify(vm);
-    }
-    catch(boost::program_options::required_option& e)
-    {
-        ALICEVISION_CERR("ERROR: " << e.what());
-        ALICEVISION_COUT("Usage:\n\n" << allParams);
         return EXIT_FAILURE;
     }
-    catch(boost::program_options::error& e)
-    {
-        ALICEVISION_CERR("ERROR: " << e.what());
-        ALICEVISION_COUT("Usage:\n\n" << allParams);
-        return EXIT_FAILURE;
-    }
-
-    ALICEVISION_COUT("Program called with the following parameters:");
-    ALICEVISION_COUT(vm);
-
-    // set verbose level
-    system::Logger::get()->setLogLevel(verboseLevel);
 
     // check user choose an input
     if(inputExpression.empty())
@@ -269,8 +235,8 @@ int aliceVision_main(int argc, char** argv)
 
                 // Read image options and load image
                 image::ImageReadOptions options;
-                options.outputColorSpace = image::EImageColorSpace::NO_CONVERSION;
-                options.applyWhiteBalance = view.getApplyWhiteBalance();
+                options.workingColorSpace = image::EImageColorSpace::NO_CONVERSION;
+                options.rawColorInterpretation = image::ERawColorInterpretation_stringToEnum(view.getRawColorInterpretation());
 
                 image::Image<image::RGBAfColor> image;
                 image::readImage(viewPath, image, options);

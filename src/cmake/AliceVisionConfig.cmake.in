@@ -31,6 +31,7 @@
 # defines some properties and option with which the library was built:
 #
 # ALICEVISION_HAVE_CCTAG   -  TRUE if the library is built with CCTAG support
+# ALICEVISION_HAVE_APRILTAG-  TRUE if the library is built with AprilTag support
 # ALICEVISION_HAVE_POPSIFT -  TRUE if the library is built with PopSift support
 # ALICEVISION_HAVE_OPENCV  -  TRUE if the library is built with OpenCV support
 # ALICEVISION_HAVE_OPENMP  -  TRUE if the library is built with openMP support
@@ -47,12 +48,22 @@ include(CMakeFindDependencyMacro)
 set(Ceres_DIR @Ceres_DIR@)
 find_dependency(Ceres)
 
+find_dependency(OpenImageIO 2.1)
+
 # whether it is built with CCTags
 set(ALICEVISION_HAVE_CCTAG @ALICEVISION_HAVE_CCTAG@)
 
 if(ALICEVISION_HAVE_CCTAG)
   set(CCTag_DIR @CCTag_DIR@)
   find_dependency(CCTag 1.0.0)
+endif()
+
+# whether it is built with AprilTag
+set(ALICEVISION_HAVE_APRILTAG @ALICEVISION_HAVE_APRILTAG@)
+
+if(ALICEVISION_HAVE_APRILTAG)
+  set(apriltag_DIR @apriltag_DIR@)
+  find_dependency(apriltag)
 endif()
 
 # whether it is built with Popsift
@@ -92,9 +103,25 @@ if(BOOST_NO_CXX11)
  add_definitions(-DBOOST_NO_CXX11_SCOPED_ENUMS)
 endif()
 
+set(ALICEVISION_BUILD_SFM @ALICEVISION_BUILD_SFM@)
+if(ALICEVISION_BUILD_SFM)
+  find_dependency(CoinUtils REQUIRED)
+  find_dependency(Clp REQUIRED)
+  find_dependency(Osi REQUIRED)
+endif()
+
+set(ALICEVISION_BUILD_MVS @ALICEVISION_BUILD_MVS@)
+if(ALICEVISION_BUILD_MVS)
+  find_dependency(ZLIB REQUIRED)
+endif()
+
 # propagate other building options
 set(ALICEVISION_HAVE_OPENGV @ALICEVISION_HAVE_OPENGV@)
 set(ALICEVISION_HAVE_ALEMBIC @ALICEVISION_HAVE_ALEMBIC@)
+
+if(ALICEVISION_HAVE_ALEMBIC)
+  find_dependency(Alembic)
+endif()
 
 message(STATUS "Found AliceVision version: ${@exportedProjectName@_VERSION}")
 

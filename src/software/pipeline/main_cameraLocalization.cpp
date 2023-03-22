@@ -22,9 +22,9 @@
 #include <aliceVision/system/Logger.hpp>
 #include <aliceVision/system/main.hpp>
 #include <aliceVision/system/cmdline.hpp>
+#include <aliceVision/utils/convert.hpp>
 
 #include <boost/filesystem.hpp>
-#include <boost/progress.hpp>
 #include <boost/program_options.hpp> 
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics/stats.hpp>
@@ -53,13 +53,6 @@ using namespace aliceVision;
 namespace bfs = boost::filesystem;
 namespace bacc = boost::accumulators;
 namespace po = boost::program_options;
-
-std::string myToString(std::size_t i, std::size_t zeroPadding)
-{
-  std::stringstream ss;
-  ss << std::setw(zeroPadding) << std::setfill('0') << i;
-  return ss.str();
-}
 
 int aliceVision_main(int argc, char** argv)
 {
@@ -134,9 +127,6 @@ int aliceVision_main(int argc, char** argv)
   std::string visualDebug = "";
   int randomSeed = std::mt19937::default_seed;
 
-  po::options_description allParams(
-      "This program takes as input a media (image, image sequence, video) and a database (vocabulary tree, 3D scene data) \n"
-      "and returns for each frame a pose estimation for the camera.");
 
   po::options_description inputParams("Required input parameters");
   
@@ -240,35 +230,20 @@ int aliceVision_main(int argc, char** argv)
 
       ;
   
-  allParams.add(inputParams).add(outputParams).add(commonParams).add(voctreeParams).add(bundleParams);
 
-  po::variables_map vm;
-
-  try
+  CmdLine cmdline("This program takes as input a media (image, image sequence, video) and a database (vocabulary tree, 3D scene data) \n"
+                  "and returns for each frame a pose estimation for the camera.\n"
+                  "AliceVision cameraLocalization");
+  cmdline.add(inputParams);
+  cmdline.add(outputParams);
+  cmdline.add(commonParams);
+  cmdline.add(voctreeParams);
+  cmdline.add(bundleParams);
+  if (!cmdline.execute(argc, argv))
   {
-    po::store(po::parse_command_line(argc, argv, allParams), vm);
-
-    if(vm.count("help") || (argc == 1))
-    {
-      ALICEVISION_COUT(allParams);
-      return EXIT_SUCCESS;
-    }
-
-    po::notify(vm);
+      return EXIT_FAILURE;
   }
-  catch(boost::program_options::required_option& e)
-  {
-    ALICEVISION_CERR("ERROR: " << e.what() << std::endl);
-    ALICEVISION_COUT("Usage:\n\n" << allParams);
-    return EXIT_FAILURE;
-  }
-  catch(boost::program_options::error& e)
-  {
-    ALICEVISION_CERR("ERROR: " << e.what() << std::endl);
-    ALICEVISION_COUT("Usage:\n\n" << allParams);
-    return EXIT_FAILURE;
-  }
-
+  
   std::mt19937 generator(randomSeed == -1 ? std::random_device()() : randomSeed);
 
   const double defaultLoRansacMatchingError = 4.0;
@@ -291,8 +266,6 @@ int aliceVision_main(int argc, char** argv)
   
   // the bundle adjustment can be run for now only if the refine intrinsics option is not set
   globalBundle = (globalBundle && !refineIntrinsics);
-  ALICEVISION_COUT("Program called with the following parameters:");
-  ALICEVISION_COUT(vm);
 
   // if the provided folder for visual debugging does not exist create it
   // recursively
@@ -418,7 +391,7 @@ int aliceVision_main(int argc, char** argv)
   while(feed.readImage(imageGrey, queryIntrinsics, currentImgName, hasIntrinsics))
   {
     ALICEVISION_COUT("******************************");
-    ALICEVISION_COUT("FRAME " << myToString(frameCounter,4));
+    ALICEVISION_COUT("FRAME " << utils::toStringZeroPadded(frameCounter, 4));
     ALICEVISION_COUT("******************************");
     localization::LocalizationResult localizationResult;
     auto detect_start = std::chrono::steady_clock::now();

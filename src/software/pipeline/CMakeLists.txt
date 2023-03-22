@@ -17,10 +17,26 @@ if(ALICEVISION_BUILD_SFM)
           aliceVision_feature
           aliceVision_sfmData
           aliceVision_sfmDataIO
+          aliceVision_lensCorrectionProfile
           Boost::program_options
           Boost::filesystem
           Boost::boost
   )
+
+  # Image processing
+  if(ALICEVISION_HAVE_OPENCV)
+    alicevision_add_software(aliceVision_imageMasking
+      SOURCE main_imageMasking.cpp
+      FOLDER ${FOLDER_SOFTWARE_PIPELINE}
+      LINKS aliceVision_image
+            aliceVision_imageMasking
+            aliceVision_system
+            aliceVision_sfmData
+            aliceVision_sfmDataIO
+            ${OpenCV_LIBRARIES}
+            ${Boost_LIBRARIES}
+    )
+  endif()
 
   # Make sure all images are defined the same way
   alicevision_add_software(aliceVision_panoramaPrepareImages
@@ -61,6 +77,8 @@ if(ALICEVISION_BUILD_SFM)
     SOURCE main_imageMatching.cpp
     FOLDER ${FOLDER_SOFTWARE_PIPELINE}
     LINKS aliceVision_system
+          aliceVision_imageMatching
+          aliceVision_matchingImageCollection
           aliceVision_sfm
           aliceVision_sfmData
           aliceVision_sfmDataIO
@@ -97,6 +115,20 @@ if(ALICEVISION_BUILD_SFM)
           aliceVision_sfmDataIO
           Boost::program_options
           Boost::filesystem
+  )
+
+  # SfM Triangulation
+  alicevision_add_software(aliceVision_sfmTriangulation
+  SOURCE main_sfmTriangulation.cpp
+  FOLDER ${FOLDER_SOFTWARE_PIPELINE}
+  LINKS aliceVision_system
+        aliceVision_image
+        aliceVision_feature
+        aliceVision_sfm
+        aliceVision_sfmData
+        aliceVision_sfmDataIO
+        Boost::program_options
+        Boost::filesystem
   )
 
   # Global SfM
@@ -145,6 +177,13 @@ if(ALICEVISION_BUILD_SFM)
           aliceVision_sfmData
           aliceVision_sfmDataIO
           aliceVision_panorama
+          ${Boost_LIBRARIES}
+  )
+  alicevision_add_software(aliceVision_panoramaPostProcessing
+    SOURCE main_panoramaPostProcessing.cpp
+    FOLDER ${FOLDER_SOFTWARE_PIPELINE}
+    LINKS aliceVision_system
+          aliceVision_image
           ${Boost_LIBRARIES}
   )
   alicevision_add_software(aliceVision_panoramaCompositing
@@ -206,6 +245,19 @@ if(ALICEVISION_BUILD_SFM)
     )
   endif()
 
+  alicevision_add_software(aliceVision_distortionCalibration
+    SOURCE main_distortionCalibration.cpp
+    FOLDER ${FOLDER_SOFTWARE_PIPELINE}
+    LINKS aliceVision_dataio
+          aliceVision_image
+          aliceVision_calibration
+          aliceVision_system
+          aliceVision_sfmDataIO
+          Boost::program_options
+          Boost::filesystem
+          Boost::boost
+  )
+
   # Calibrate a rig
   alicevision_add_software(aliceVision_rigCalibration
     SOURCE main_rigCalibration.cpp
@@ -222,7 +274,7 @@ if(ALICEVISION_BUILD_SFM)
   )
 
   if(ALICEVISION_HAVE_CCTAG)
-    target_link_libraries(aliceVision_rigCalibration PUBLIC CCTag::CCTag)
+    target_link_libraries(aliceVision_rigCalibration_exe PUBLIC CCTag::CCTag)
   endif()
 
   # Localize a camera
@@ -240,7 +292,7 @@ if(ALICEVISION_BUILD_SFM)
   )
 
   if(ALICEVISION_HAVE_CCTAG)
-    target_link_libraries(aliceVision_cameraLocalization PUBLIC CCTag::CCTag)
+    target_link_libraries(aliceVision_cameraLocalization_exe PUBLIC CCTag::CCTag)
   endif()
 
   # Localize a rig
@@ -259,7 +311,7 @@ if(ALICEVISION_BUILD_SFM)
   )
 
   if(ALICEVISION_HAVE_CCTAG)
-    target_link_libraries(aliceVision_rigLocalization PUBLIC CCTag::CCTag)
+    target_link_libraries(aliceVision_rigLocalization_exe PUBLIC CCTag::CCTag)
   endif()
 
   # Prepare dense scene for MVS
@@ -365,6 +417,20 @@ if(ALICEVISION_BUILD_MVS)
           Boost::filesystem
   )
 
+  # Mesh Masking
+  alicevision_add_software(aliceVision_meshMasking
+    SOURCE main_meshMasking.cpp
+    FOLDER ${FOLDER_SOFTWARE_PIPELINE}
+    LINKS aliceVision_system
+          aliceVision_sfmMvsUtils
+          aliceVision_mvsUtils
+          aliceVision_mesh
+          aliceVision_sfmData
+          aliceVision_sfmDataIO
+          Boost::program_options
+          Boost::filesystem
+  )
+
   # Mesh Resampling
   alicevision_add_software(aliceVision_meshResampling
     SOURCE main_meshResampling.cpp
@@ -382,6 +448,7 @@ if(ALICEVISION_BUILD_MVS)
     FOLDER ${FOLDER_SOFTWARE_PIPELINE}
     LINKS aliceVision_system
           aliceVision_mvsData
+          aliceVision_sfmMvsUtils
           aliceVision_mvsUtils
           aliceVision_mesh
           aliceVision_sfmData
@@ -431,4 +498,4 @@ alicevision_add_software(aliceVision_LdrToHdrMerge
         Boost::filesystem
 )
 
-endif() 
+endif()

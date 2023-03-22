@@ -28,9 +28,10 @@ using namespace aliceVision::image;
 using namespace aliceVision::camera;
 using namespace aliceVision::geometry;
 using namespace svg;
-using namespace std;
 
 namespace fs = boost::filesystem;
+
+namespace {
 
 /// Read intrinsic K matrix from a file (ASCII)
 /// F 0 ppx
@@ -43,12 +44,14 @@ bool exportToPly(const std::vector<Vec3> & vec_points,
   const std::vector<Vec3> & vec_camPos,
   const std::string & sFileName);
 
+} // namespace
+
 int main() {
 
   std::mt19937 randomNumberGenerator;
-  const std::string sInputDir = string("../") + string(THIS_SOURCE_DIR) + "/imageData/SceauxCastle/";
-  const string jpg_filenameL = sInputDir + "100_7101.jpg";
-  const string jpg_filenameR = sInputDir + "100_7102.jpg";
+  const std::string sInputDir = std::string("../") + std::string(THIS_SOURCE_DIR) + "/imageData/SceauxCastle/";
+  const std::string jpg_filenameL = sInputDir + "100_7101.jpg";
+  const std::string jpg_filenameR = sInputDir + "100_7102.jpg";
 
   Image<unsigned char> imageL, imageR;
   readImage(jpg_filenameL, imageL, image::EImageColorSpace::NO_CONVERSION);
@@ -74,8 +77,9 @@ int main() {
   {
     Image<unsigned char> concat;
     ConcatH(imageL, imageR, concat);
-    string out_filename = "01_concat.jpg";
-    writeImage(out_filename, concat, image::EImageColorSpace::NO_CONVERSION);
+    std::string out_filename = "01_concat.jpg";
+    writeImage(out_filename, concat,
+               image::ImageWriteOptions().toColorSpace(image::EImageColorSpace::NO_CONVERSION));
   }
 
   //- Draw features on the two image (side by side)
@@ -92,8 +96,9 @@ int main() {
       const PointFeature point = regionsR->Features()[i];
       DrawCircle(point.x()+imageL.Width(), point.y(), point.scale(), 255, &concat);
     }
-    string out_filename = "02_features.jpg";
-    writeImage(out_filename, concat, image::EImageColorSpace::NO_CONVERSION);
+    std::string out_filename = "02_features.jpg";
+    writeImage(out_filename, concat,
+               image::ImageWriteOptions().toColorSpace(image::EImageColorSpace::NO_CONVERSION));
   }
 
   std::vector<IndMatch> vec_PutativeMatches;
@@ -117,7 +122,7 @@ int main() {
       << vec_PutativeMatches.size() << " #matches with Distance Ratio filter" << std::endl;
 
     // Draw correspondences after Nearest Neighbor ratio filter
-    svgDrawer svgStream( imageL.Width() + imageR.Width(), max(imageL.Height(), imageR.Height()));
+    svgDrawer svgStream(imageL.Width() + imageR.Width(), std::max(imageL.Height(), imageR.Height()));
     svgStream.drawImage(jpg_filenameL, imageL.Width(), imageL.Height());
     svgStream.drawImage(jpg_filenameR, imageR.Width(), imageR.Height(), imageL.Width());
     for (size_t i = 0; i < vec_PutativeMatches.size(); ++i) {
@@ -172,7 +177,7 @@ int main() {
       << std::endl;
 
     // Show Essential validated point
-    svgDrawer svgStream( imageL.Width() + imageR.Width(), max(imageL.Height(), imageR.Height()));
+    svgDrawer svgStream(imageL.Width() + imageR.Width(), std::max(imageL.Height(), imageR.Height()));
     svgStream.drawImage(jpg_filenameL, imageL.Width(), imageL.Height());
     svgStream.drawImage(jpg_filenameR, imageR.Width(), imageR.Height(), imageL.Width());
     for (size_t i = 0; i < relativePose_info.vec_inliers.size(); ++i)  {
@@ -193,8 +198,8 @@ int main() {
     std::vector<Vec3> vec_3DPoints;
 
     // Setup camera intrinsic and poses
-    Pinhole intrinsic0(imageL.Width(), imageL.Height(), K(0, 0), K(0, 2), K(1, 2));
-    Pinhole intrinsic1(imageR.Width(), imageR.Height(), K(0, 0), K(0, 2), K(1, 2));
+    Pinhole intrinsic0(imageL.Width(), imageL.Height(), K(0, 0), K(1, 1), K(0, 2), K(1, 2));
+    Pinhole intrinsic1(imageR.Width(), imageR.Height(), K(0, 0), K(1, 1), K(0, 2), K(1, 2));
 
     const Pose3 pose0 = Pose3(Mat3::Identity(), Vec3::Zero());
     const Pose3 pose1 = relativePose_info.relativePose;
@@ -214,8 +219,8 @@ int main() {
       if (pose0.depth(X) < 0 && pose1.depth(X) < 0)
         continue;
 
-      const Vec2 residual0 = intrinsic0.residual(pose0, X, LL.coords().cast<double>());
-      const Vec2 residual1 = intrinsic1.residual(pose1, X, RR.coords().cast<double>());
+      const Vec2 residual0 = intrinsic0.residual(pose0, X.homogeneous(), LL.coords().cast<double>());
+      const Vec2 residual1 = intrinsic1.residual(pose1, X.homogeneous(), RR.coords().cast<double>());
       vec_residuals.push_back(fabs(residual0(0)));
       vec_residuals.push_back(fabs(residual0(1)));
       vec_residuals.push_back(fabs(residual1(0)));
@@ -238,11 +243,13 @@ int main() {
   return EXIT_SUCCESS;
 }
 
+namespace {
+
 bool readIntrinsic(const std::string & fileName, Mat3 & K)
 {
   // Load the K matrix
-  ifstream in;
-  in.open( fileName.c_str(), ifstream::in);
+  std::ifstream in;
+  in.open(fileName.c_str(), std::ifstream::in);
   if(in.is_open())  {
     for (int j=0; j < 3; ++j)
       for (int i=0; i < 3; ++i)
@@ -289,3 +296,5 @@ bool exportToPly(const std::vector<Vec3> & vec_points,
   outfile.close();
   return bOk;
 }
+
+} // namespace

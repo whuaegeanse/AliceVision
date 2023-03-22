@@ -7,7 +7,7 @@
 
 #include "regionsIO.hpp"
 
-#include <boost/progress.hpp>
+#include <aliceVision/system/ProgressDisplay.hpp>
 #include <boost/filesystem.hpp>
 
 #include <atomic>
@@ -128,6 +128,58 @@ std::unique_ptr<feature::Regions> loadFeatures(const std::vector<std::string>& f
   return regionsPtr;
 }
 
+bool loadFeaturesPerDescPerView(std::vector<std::vector<std::unique_ptr<feature::Regions>>>& featuresPerDescPerView,
+                                const std::vector<IndexT>& viewIds, const std::vector<std::string>& folders,
+                                const std::vector<feature::EImageDescriberType>& imageDescriberTypes)
+{
+  if(folders.empty())
+  {
+    ALICEVISION_LOG_ERROR("Cannot load features, no folders provided");
+    return false;
+  }
+  if(viewIds.empty())
+  {
+    ALICEVISION_LOG_ERROR("Cannot load features, no view ids provided");
+    return false;
+  }
+  if(imageDescriberTypes.empty())
+  {
+    ALICEVISION_LOG_ERROR("Cannot load features, no image desciber types provided");
+    return false;
+  }
+
+  std::vector<std::unique_ptr<feature::ImageDescriber>> imageDescribers;
+  imageDescribers.resize(imageDescriberTypes.size());
+
+  for(std::size_t i = 0; i < imageDescriberTypes.size(); ++i)
+      imageDescribers.at(i) = createImageDescriber(imageDescriberTypes.at(i));
+
+  featuresPerDescPerView.resize(imageDescribers.size());
+
+  std::atomic_bool loadingSuccess(true);
+
+  for(int descIdx = 0; descIdx < imageDescribers.size(); ++descIdx)
+  {
+    std::vector<std::unique_ptr<feature::Regions>>& featuresPerView = featuresPerDescPerView.at(descIdx);
+    featuresPerView.resize(viewIds.size());
+
+#pragma omp parallel for
+    for(int viewIdx = 0; viewIdx < viewIds.size(); ++viewIdx)
+    {
+      try
+      {
+        featuresPerView.at(viewIdx) = loadFeatures(folders, viewIds.at(viewIdx), *imageDescribers.at(descIdx));
+      }
+      catch(const std::exception& e)
+      {
+        loadingSuccess = false;
+      }
+    }
+  }
+
+  return loadingSuccess;
+}
+
 bool loadRegionsPerView(feature::RegionsPerView& regionsPerView,
             const SfMData& sfmData,
             const std::vector<std::string>& folders,
@@ -139,7 +191,9 @@ bool loadRegionsPerView(feature::RegionsPerView& regionsPerView,
   auto last = std::unique(featuresFolders.begin(), featuresFolders.end());
   featuresFolders.erase(last, featuresFolders.end());
 
-  boost::progress_display progressBar(sfmData.getViews().size() * imageDescriberTypes.size(), std::cout, "Loading regions\n");
+  auto progressDisplay =
+          system::createConsoleProgressDisplay(sfmData.getViews().size() * imageDescriberTypes.size(),
+                                               std::cout, "Loading regions\n");
 
   std::atomic_bool invalid(false);
 
@@ -164,7 +218,7 @@ bool loadRegionsPerView(feature::RegionsPerView& regionsPerView,
 #pragma omp critical
            {
              regionsPerView.addRegions(iter->second.get()->getViewId(), imageDescriberTypes.at(i), regionsPtr.release());
-             ++progressBar;
+             ++progressDisplay;
            }
          }
          else
@@ -187,7 +241,8 @@ bool loadFeaturesPerView(feature::FeaturesPerView& featuresPerView,
   std::vector<std::string> featuresFolders = sfmData.getFeaturesFolders(); // add sfm features folders
   featuresFolders.insert(featuresFolders.end(), folders.begin(), folders.end()); // add user features folders
 
-  boost::progress_display progressBar(sfmData.getViews().size(), std::cout, "Loading features\n");
+  auto progressDisplay = system::createConsoleProgressDisplay(sfmData.getViews().size(), std::cout,
+                                                              "Loading features\n");
 
   // read for each view the corresponding features and store them as PointFeatures
   std::atomic_bool invalid(false);
@@ -211,7 +266,7 @@ bool loadFeaturesPerView(feature::FeaturesPerView& featuresPerView,
         {
           // save loaded Features as PointFeature
           featuresPerView.addFeatures(iter->second.get()->getViewId(), imageDescriberTypes[i], regionsPtr->GetRegionsPositions());
-          ++progressBar;
+          ++progressDisplay;
         }
       }
     }

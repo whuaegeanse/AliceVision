@@ -6,10 +6,11 @@
 
 #include "fileIO.hpp"
 #include <aliceVision/system/Logger.hpp>
+#include <aliceVision/image/Image.hpp>
+#include <aliceVision/image/imageAlgo.hpp>
+#include <aliceVision/image/io.hpp>
 #include <aliceVision/mvsUtils/common.hpp>
 #include <aliceVision/mvsUtils/MultiViewParams.hpp>
-#include <aliceVision/mvsData/imageAlgo.hpp>
-#include <aliceVision/mvsData/Image.hpp>
 
 #include <boost/filesystem/operations.hpp>
 #include <boost/filesystem/path.hpp>
@@ -17,22 +18,18 @@
 namespace aliceVision {
 namespace mvsUtils {
 
-bool FileExists(const std::string& filePath)
+std::string getFileNameFromViewId(const MultiViewParams& mp, int viewId, EFileType fileType, int scale, const std::string& customSuffix, int tileBeginX, int tileBeginY)
 {
-    return boost::filesystem::exists(filePath);
-}
-
-bool FolderExists(const std::string& folderPath)
-{
-    return boost::filesystem::is_directory(folderPath);
-}
-
-std::string getFileNameFromViewId(const MultiViewParams* mp, int viewId, EFileType fileType, int scale)
-{
-  std::string folder = mp->_imagesFolder;
+  std::string folder = mp._imagesFolder;
   std::string suffix;
+  std::string tileSuffix;
   std::string ext;
 
+  if(tileBeginX >= 0 && tileBeginY >= 0)
+  {
+      tileSuffix = std::string("_" + std::to_string(tileBeginX) + "_" + std::to_string(tileBeginY));
+  }
+  
   switch(fileType)
   {
       case EFileType::P:
@@ -218,16 +215,16 @@ std::string getFileNameFromViewId(const MultiViewParams* mp, int viewId, EFileTy
       case EFileType::depthMap:
       {
           if(scale == 0)
-              folder = mp->getDepthMapsFilterFolder();
+              folder = mp.getDepthMapsFilterFolder();
           else
-              folder = mp->getDepthMapsFolder();
+              folder = mp.getDepthMapsFolder();
           suffix = "_depthMap";
           ext = "exr";
           break;
       }
       case EFileType::normalMap:
       {
-          folder = mp->getDepthMapsFilterFolder();
+          folder = mp.getDepthMapsFilterFolder();
           suffix = "_normalMap";
           ext = "exr";
           break;
@@ -235,9 +232,9 @@ std::string getFileNameFromViewId(const MultiViewParams* mp, int viewId, EFileTy
       case EFileType::simMap:
       {
           if(scale == 0)
-              folder = mp->getDepthMapsFilterFolder();
+              folder = mp.getDepthMapsFilterFolder();
           else
-              folder = mp->getDepthMapsFolder();
+              folder = mp.getDepthMapsFolder();
           suffix = "_simMap";
           ext = "exr";
           break;
@@ -262,7 +259,7 @@ std::string getFileNameFromViewId(const MultiViewParams* mp, int viewId, EFileTy
       }
       case EFileType::nmodMap:
       {
-          folder = mp->getDepthMapsFilterFolder();
+          folder = mp.getDepthMapsFilterFolder();
           suffix = "_nmodMap";
           ext = "png";
           break;
@@ -273,24 +270,52 @@ std::string getFileNameFromViewId(const MultiViewParams* mp, int viewId, EFileTy
           ext = "txt";
           break;
       }
+      case EFileType::volume:
+      {
+          folder = mp.getDepthMapsFolder();
+          suffix = "_volume";
+          ext = "abc";
+          break;
+      }
+      case EFileType::volumeCross:
+      {
+          folder = mp.getDepthMapsFolder();
+          suffix = "_volume-cross";
+          ext = "abc";
+          break;
+      }
+      case EFileType::stats9p:
+      {
+          folder = mp.getDepthMapsFolder();
+          suffix = "_9p";
+          ext = "csv";
+          break;
+      }
+      case EFileType::tilePattern:
+      {
+          folder = mp.getDepthMapsFolder();
+          suffix = "_tilePattern";
+          ext = "obj";
+          break;
+      }
   }
   if(scale > 1)
   {
       suffix += "_scale" + num2str(scale);
   }
 
-  std::string fileName = folder + std::to_string(viewId) + suffix + "." + ext;
+  std::string fileName = folder + std::to_string(viewId) + suffix + customSuffix + tileSuffix + "." + ext;
   return fileName;
 }
 
-std::string getFileNameFromIndex(const MultiViewParams* mp, int index, EFileType mv_file_type, int scale)
+std::string getFileNameFromIndex(const MultiViewParams& mp, int index, EFileType mv_file_type, int scale, const std::string& customSuffix, int tileBeginX, int tileBeginY)
 {
-    return getFileNameFromViewId(mp, mp->getViewId(index), mv_file_type, scale);
+    return getFileNameFromViewId(mp, mp.getViewId(index), mv_file_type, scale, customSuffix, tileBeginX, tileBeginY);
 }
 
-FILE* mv_openFile(const MultiViewParams* mp, int index, EFileType mv_file_type, const char* readWrite)
+FILE* mv_openFile(const MultiViewParams& mp, int index, EFileType mv_file_type, const char* readWrite)
 {
-    const std::string fileName = getFileNameFromIndex(mp, index, mv_file_type);
+    const std::string fileName = getFileNameFromIndex(mp, index, mv_file_type, 0, "");
     FILE* out = fopen(fileName.c_str(), readWrite);
     if (out==NULL)
         throw std::runtime_error(std::string("Cannot create file: ") + fileName);
@@ -298,23 +323,23 @@ FILE* mv_openFile(const MultiViewParams* mp, int index, EFileType mv_file_type, 
 }
 
 
-Matrix3x4 load3x4MatrixFromFile(FILE* fi)
+Matrix3x4 load3x4MatrixFromFile(std::istream& in)
 {
     Matrix3x4 m;
 
     // M[col*3 + row]
     float a, b, c, d;
-    fscanf(fi, "%f %f %f %f \n", &a, &b, &c, &d);
+    in >> a >> b >> c >> d;
     m.m11 = a;
     m.m12 = b;
     m.m13 = c;
     m.m14 = d;
-    fscanf(fi, "%f %f %f %f \n", &a, &b, &c, &d);
+    in >> a >> b >> c >> d;
     m.m21 = a;
     m.m22 = b;
     m.m23 = c;
     m.m24 = d;
-    fscanf(fi, "%f %f %f %f \n", &a, &b, &c, &d);
+    in >> a >> b >> c >> d;
     m.m31 = a;
     m.m32 = b;
     m.m33 = c;
@@ -323,34 +348,35 @@ Matrix3x4 load3x4MatrixFromFile(FILE* fi)
     return m;
 }
 
-void loadImage(const std::string& path, const MultiViewParams* mp, int camId, Image& img, imageIO::EImageColorSpace colorspace, ImagesCache::ECorrectEV correctEV)
+template<class Image>
+void loadImage(const std::string& path, const MultiViewParams& mp, int camId, Image& img,
+               image::EImageColorSpace colorspace, ECorrectEV correctEV)
 {
     // check image size
     auto checkImageSize = [&path, &mp, camId, &img](){
-        if((mp->getOriginalWidth(camId) != img.width()) || (mp->getOriginalHeight(camId) != img.height()))
+        if((mp.getOriginalWidth(camId) != img.Width()) || (mp.getOriginalHeight(camId) != img.Height()))
         {
             std::stringstream s;
             s << "Bad image dimension for camera : " << camId << "\n";
             s << "\t- image path : " << path << "\n";
-            s << "\t- expected dimension : " << mp->getOriginalWidth(camId) << "x" << mp->getOriginalHeight(camId) << "\n";
-            s << "\t- real dimension : " << img.width() << "x" << img.height() << "\n";
+            s << "\t- expected dimension : " << mp.getOriginalWidth(camId) << "x" << mp.getOriginalHeight(camId) << "\n";
+            s << "\t- real dimension : " << img.Width() << "x" << img.Height() << "\n";
             throw std::runtime_error(s.str());
         }
     };
 
-    if(correctEV == ImagesCache::ECorrectEV::NO_CORRECTION)
+    if(correctEV == ECorrectEV::NO_CORRECTION)
     {
-        imageIO::readImage(path, img, colorspace);
+        image::readImage(path, img, colorspace);
         checkImageSize();
     }
     // if exposure correction, apply it in linear colorspace and then convert colorspace
     else
     {
-        imageIO::readImage(path, img, imageIO::EImageColorSpace::LINEAR);
+        image::readImage(path, img, image::EImageColorSpace::LINEAR);
         checkImageSize();
 
-        oiio::ParamValueList metadata;
-        imageIO::readImageMetadata(path, metadata);
+        const auto metadata = image::readImageMetadata(path);
 
         float exposureCompensation = metadata.get_float("AliceVision:EVComp", -1);
 
@@ -363,30 +389,31 @@ void loadImage(const std::string& path, const MultiViewParams* mp, int camId, Im
         {
             ALICEVISION_LOG_INFO("  exposure compensation for image " << camId + 1 << ": " << exposureCompensation);
 
-            for(int pix = 0; pix < img.size(); ++pix)
-                img[pix] = img[pix] * exposureCompensation;
+            for (std::size_t i = 0; i < img.size(); ++i)
+                img(i) = img(i) * exposureCompensation;
 
-            imageAlgo::colorconvert(img, imageIO::EImageColorSpace::LINEAR, colorspace);
+            imageAlgo::colorconvert(img, image::EImageColorSpace::LINEAR, colorspace);
         }
     }
 
     // scale choosed by the user and apply during the process
-    const int processScale = mp->getProcessDownscale();
+    const int processScale = mp.getProcessDownscale();
 
     if(processScale > 1)
     {
-        ALICEVISION_LOG_DEBUG("Downscale (x" << processScale << ") image: " << mp->getViewId(camId) << ".");
+        ALICEVISION_LOG_DEBUG("Downscale (x" << processScale << ") image: " << mp.getViewId(camId) << ".");
         Image bmpr;
         imageAlgo::resizeImage(processScale, img, bmpr);
         img.swap(bmpr);
     }
 }
 
-bool DeleteDirectory(const std::string& sPath)
-{
-    boost::filesystem::remove_all(sPath);
-    return true;
-}
+template void loadImage<image::Image<image::RGBfColor>>(const std::string& path, const MultiViewParams& mp, int camId,
+                                                        image::Image<image::RGBfColor>& img,
+                                                        image::EImageColorSpace colorspace, ECorrectEV correctEV);
+template void loadImage<image::Image<image::RGBAfColor>>(const std::string& path, const MultiViewParams& mp, int camId,
+                                                         image::Image<image::RGBAfColor>& img,
+                                                         image::EImageColorSpace colorspace, ECorrectEV correctEV);
 
 } // namespace mvsUtils
 } // namespace aliceVision

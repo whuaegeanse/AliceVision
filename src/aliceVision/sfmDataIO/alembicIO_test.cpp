@@ -15,6 +15,7 @@
 #include <boost/test/tools/floating_point_comparison.hpp>
 
 #include <iostream>
+#include <aliceVision/sfm/liealgebra.hpp>
 
 using namespace aliceVision;
 using namespace aliceVision::sfmData;
@@ -47,7 +48,7 @@ SfMData createTestScene(IndexT singleViewsCount,
     sfm_data.views[id_view] = view;
 
     // Add poses
-    const Mat3 r = Mat3::Random();
+    const Mat3 r = SO3::expm(Vec3::Random());
     const Vec3 c = Vec3::Random();
     sfm_data.setPose(*view, CameraPose(geometry::Pose3(r, c)));
 
@@ -56,12 +57,12 @@ SfMData createTestScene(IndexT singleViewsCount,
     {
       if(i == 0)
       {
-        sfm_data.intrinsics[0] = std::make_shared<camera::Pinhole>(1000, 1000, 36.0, std::rand()%10000, std::rand()%10000);
+        sfm_data.intrinsics[0] = std::make_shared<camera::Pinhole>(1000, 1000, 36.0, 36.0, std::rand()%10000, std::rand()%10000);
       }
     }
     else
     {
-      sfm_data.intrinsics[i] = std::make_shared<camera::Pinhole>(1000, 1000, 36.0, std::rand()%10000, std::rand()%10000);
+      sfm_data.intrinsics[i] = std::make_shared<camera::Pinhole>(1000, 1000, 36.0, 36.0, std::rand()%10000, std::rand()%10000);
     }
   }
 
@@ -79,12 +80,12 @@ SfMData createTestScene(IndexT singleViewsCount,
     for(IndexT subPoseId = 0; subPoseId < subPoseCount; ++subPoseId)
     {
       {
-        const Mat3 r = Mat3::Random();
+        const Mat3 r = SO3::expm(Vec3::Random());
         const Vec3 c = Vec3::Random();
         rig.setSubPose(subPoseId, RigSubPose(geometry::Pose3(r, c), ERigSubPoseStatus::ESTIMATED));
       }
 
-      sfm_data.intrinsics[nbIntrinsics + subPoseId] = std::make_shared<camera::Pinhole>(1000, 1000, 36.0, std::rand()%10000, std::rand()%10000);
+      sfm_data.intrinsics[nbIntrinsics + subPoseId] = std::make_shared<camera::Pinhole>(1000, 1000, 36.0, 36.0, std::rand()%10000, std::rand()%10000);
 
       for(std::size_t pose = 0; pose < nbRigPoses; ++pose)
       {
@@ -102,7 +103,7 @@ SfMData createTestScene(IndexT singleViewsCount,
 
         if(subPoseId == 0)
         {
-          const Mat3 r = Mat3::Random();
+          const Mat3 r = SO3::expm(Vec3::Random());
           const Vec3 c = Vec3::Random();
           sfm_data.setPose(*view, CameraPose(geometry::Pose3(r, c)));
         }
@@ -146,6 +147,7 @@ SfMData createTestScene(IndexT singleViewsCount,
 // - Import to .json
 //-----------------
 BOOST_AUTO_TEST_CASE(AlembicImporter_importExport) {
+    makeRandomOperationsReproducible();
 
     int flags = ALL;
 
@@ -159,7 +161,7 @@ BOOST_AUTO_TEST_CASE(AlembicImporter_importExport) {
     {
         BOOST_CHECK(Save(
         sfmData,
-        jsonFile.c_str(),
+        jsonFile,
         ESfMData(flags)));
     }
 
@@ -177,7 +179,7 @@ BOOST_AUTO_TEST_CASE(AlembicImporter_importExport) {
     {
         BOOST_CHECK(Save(
         sfmData,
-        abcFile.c_str(),              
+        abcFile,              
         ESfMData(flags)));
     }
 
@@ -188,7 +190,7 @@ BOOST_AUTO_TEST_CASE(AlembicImporter_importExport) {
         std::string abcFile2 = "abcToJson.sfm";
         BOOST_CHECK(Save(
         sfmAbcToAbc,
-        abcFile2.c_str(),
+        abcFile2,
         ESfMData(flags)));
         BOOST_CHECK(sfmData == sfmAbcToAbc);
     }
@@ -198,7 +200,7 @@ BOOST_AUTO_TEST_CASE(AlembicImporter_importExport) {
     {
         BOOST_CHECK(Save(
         sfmAbcToAbc,
-        abcFile2.c_str(),
+        abcFile2,
         ESfMData(flags)));
     }
 
@@ -209,7 +211,7 @@ BOOST_AUTO_TEST_CASE(AlembicImporter_importExport) {
     {
         BOOST_CHECK(Save(
         sfmData,
-        jsonFile3.c_str(),
+        jsonFile3,
         ESfMData(flags)));
     }
 
@@ -229,7 +231,7 @@ BOOST_AUTO_TEST_CASE(AlembicImporter_importExport) {
     {
         BOOST_CHECK(Save(
         sfmJsonToABC,
-        abcFile3.c_str(),
+        abcFile3,
         ESfMData(flags)));
     }
 
@@ -249,7 +251,7 @@ BOOST_AUTO_TEST_CASE(AlembicImporter_importExport) {
     {
         BOOST_CHECK(Save(
         sfmJsonToABC2,
-        abcFile4.c_str(),
+        abcFile4,
         ESfMData(flags)));
     }
 
@@ -269,7 +271,7 @@ BOOST_AUTO_TEST_CASE(AlembicImporter_importExport) {
     {
         BOOST_CHECK(Save(
         sfmJsonToABC3,
-        jsonFile4.c_str(),
+        jsonFile4,
         ESfMData(flags)));
     }
 

@@ -14,6 +14,7 @@
 #include <aliceVision/image/all.hpp>
 #include <aliceVision/matching/svgVisualization.hpp>
 #include <aliceVision/system/Logger.hpp>
+#include <aliceVision/system/ProgressDisplay.hpp>
 #include <aliceVision/system/cmdline.hpp>
 #include <aliceVision/system/main.hpp>
 
@@ -21,7 +22,6 @@
 
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
-#include <boost/progress.hpp>
 
 #include <cstdlib>
 #include <string>
@@ -75,8 +75,6 @@ void hslToRgb(float h, float s, float l,
 int aliceVision_main(int argc, char ** argv)
 {
   // command-line parameters
-
-  std::string verboseLevel = system::EVerboseLevel_enumToString(system::Logger::getDefaultVerboseLevel());
   std::string sfmDataFilename;
   std::string outputFolder;
   std::vector<std::string> featuresFolders;
@@ -85,8 +83,6 @@ int aliceVision_main(int argc, char ** argv)
   // user optional parameters
 
   std::string describerTypesName = EImageDescriberType_enumToString(EImageDescriberType::SIFT);
-
-  po::options_description allParams("AliceVision exportMatches");
 
   po::options_description requiredParams("Required parameters");
   requiredParams.add_options()
@@ -104,43 +100,13 @@ int aliceVision_main(int argc, char ** argv)
     ("describerTypes,d", po::value<std::string>(&describerTypesName)->default_value(describerTypesName),
       EImageDescriberType_informations().c_str());
 
-  po::options_description logParams("Log parameters");
-  logParams.add_options()
-    ("verboseLevel,v", po::value<std::string>(&verboseLevel)->default_value(verboseLevel),
-      "verbosity level (fatal,  error, warning, info, debug, trace).");
-
-  allParams.add(requiredParams).add(optionalParams).add(logParams);
-
-  po::variables_map vm;
-  try
+  CmdLine cmdline("AliceVision exportMatches");
+  cmdline.add(requiredParams);
+  cmdline.add(optionalParams);
+  if (!cmdline.execute(argc, argv))
   {
-    po::store(po::parse_command_line(argc, argv, allParams), vm);
-
-    if(vm.count("help") || (argc == 1))
-    {
-      ALICEVISION_COUT(allParams);
-      return EXIT_SUCCESS;
-    }
-    po::notify(vm);
+      return EXIT_FAILURE;
   }
-  catch(boost::program_options::required_option& e)
-  {
-    ALICEVISION_CERR("ERROR: " << e.what());
-    ALICEVISION_COUT("Usage:\n\n" << allParams);
-    return EXIT_FAILURE;
-  }
-  catch(boost::program_options::error& e)
-  {
-    ALICEVISION_CERR("ERROR: " << e.what());
-    ALICEVISION_COUT("Usage:\n\n" << allParams);
-    return EXIT_FAILURE;
-  }
-
-  ALICEVISION_COUT("Program called with the following parameters:");
-  ALICEVISION_COUT(vm);
-
-  // set verbose level
-  system::Logger::get()->setLogLevel(verboseLevel);
 
   if (outputFolder.empty())
   {
@@ -182,7 +148,7 @@ int aliceVision_main(int argc, char ** argv)
   fs::create_directory(outputFolder);
   ALICEVISION_LOG_INFO("Export pairwise matches");
   const PairSet pairs = matching::getImagePairs(pairwiseMatches);
-  boost::progress_display myProgressBar(pairs.size());
+  auto myProgressBar = system::createConsoleProgressDisplay(pairs.size(), std::cout);
   for (PairSet::const_iterator iter = pairs.begin(); iter != pairs.end(); ++iter, ++myProgressBar)
   {
     const std::size_t I = iter->first;
@@ -202,7 +168,8 @@ int aliceVision_main(int argc, char ** argv)
     image::Image<image::RGBfColor> originalImage;
     image::readImage(viewImagePathI, originalImage, image::EImageColorSpace::LINEAR);
     destFilename_I = (fs::path(outputFolder) / (origFilename + ".png")).string();
-    image::writeImage(destFilename_I, originalImage, image::EImageColorSpace::SRGB);
+    image::writeImage(destFilename_I, originalImage,
+                      image::ImageWriteOptions().toColorSpace(image::EImageColorSpace::SRGB));
     }
 
     {
@@ -211,7 +178,8 @@ int aliceVision_main(int argc, char ** argv)
     image::Image<image::RGBfColor> originalImage;
     image::readImage(viewImagePathJ, originalImage, image::EImageColorSpace::LINEAR);
     destFilename_J = (fs::path(outputFolder) / (origFilename + ".png")).string();
-    image::writeImage(destFilename_J, originalImage, image::EImageColorSpace::SRGB);
+    image::writeImage(destFilename_J, originalImage,
+                      image::ImageWriteOptions().toColorSpace(image::EImageColorSpace::SRGB));
     }
 
     const std::pair<size_t, size_t> dimImageI = std::make_pair(viewI->getWidth(), viewI->getHeight());

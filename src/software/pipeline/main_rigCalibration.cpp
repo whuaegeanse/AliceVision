@@ -19,9 +19,9 @@
 #include <aliceVision/system/Logger.hpp>
 #include <aliceVision/system/cmdline.hpp>
 #include <aliceVision/system/main.hpp>
+#include <aliceVision/utils/convert.hpp>
 
 #include <boost/filesystem.hpp>
-#include <boost/progress.hpp>
 #include <boost/program_options.hpp> 
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics/stats.hpp>
@@ -50,14 +50,6 @@ using namespace aliceVision;
 namespace bfs = boost::filesystem;
 namespace bacc = boost::accumulators;
 namespace po = boost::program_options;
-
-std::string myToString(std::size_t i, std::size_t zeroPadding)
-{
-  std::stringstream ss;
-  ss << std::setw(zeroPadding) << std::setfill('0') << i;
-  return ss.str();
-}
-
 
 int aliceVision_main(int argc, char** argv)
 {
@@ -119,9 +111,6 @@ int aliceVision_main(int argc, char** argv)
   int randomSeed = std::mt19937::default_seed;
 
   std::size_t numCameras = 0;
-  po::options_description allParams("This program is used to calibrate a camera rig composed of internally calibrated cameras."
-  "It takes as input a synchronized sequence of N cameras and it saves the estimated "
-  "rig calibration to a text file");
 
   po::options_description ioParams("Required input and output parameters");  
   ioParams.add_options()
@@ -198,35 +187,19 @@ int aliceVision_main(int argc, char** argv)
           "It also saves a file for each camera named 'filename.cam##.abc'.")
 #endif
           ;
-  
-  allParams.add(ioParams).add(outputParams).add(commonParams).add(voctreeParams);
-  
-  po::variables_map vm;
-
-  try
+    
+  CmdLine cmdline("This program is used to calibrate a camera rig composed of internally calibrated cameras."
+                  "It takes as input a synchronized sequence of N cameras and it saves the estimated "
+                  "rig calibration to a text file.\n"
+                  "AliceVision rigCalibration");
+  cmdline.add(ioParams);
+  cmdline.add(outputParams);
+  cmdline.add(commonParams);
+  cmdline.add(voctreeParams);
+  if (!cmdline.execute(argc, argv))
   {
-    po::store(po::parse_command_line(argc, argv, allParams), vm);
-
-    if(vm.count("help") || (argc == 1))
-    {
-      ALICEVISION_COUT(allParams);
-      return EXIT_SUCCESS;
-    }
-
-    po::notify(vm);
-  }
-  catch(po::required_option& e)
-  {
-    ALICEVISION_CERR("ERROR: " << e.what() << std::endl);
-    ALICEVISION_COUT("Usage:\n\n" << allParams);
     return EXIT_FAILURE;
-  }
-  catch(po::error& e)
-  {
-    ALICEVISION_CERR("ERROR: " << e.what() << std::endl);
-    ALICEVISION_COUT("Usage:\n\n" << allParams);
-    return EXIT_FAILURE;
-  }
+  }	
 
   const double defaultLoRansacMatchingError = 4.0;
   const double defaultLoRansacResectionError = 4.0;
@@ -254,8 +227,6 @@ int aliceVision_main(int argc, char** argv)
                         (matchDescTypes.front() == feature::EImageDescriberType::CCTAG4)));
 #endif
 
-  ALICEVISION_COUT("Program called with the following parameters:");
-  ALICEVISION_COUT(vm);
 
   std::mt19937 randomNumberGenerator(randomSeed == -1 ? std::random_device()() : randomSeed);
 
@@ -386,7 +357,8 @@ int aliceVision_main(int argc, char** argv)
     while(feed.readImage(imageGrey, *queryIntrinsics, currentImgName, hasIntrinsics))
     {
       ALICEVISION_COUT("******************************");
-      ALICEVISION_COUT("Stream " << idCamera << " Frame " << myToString(currentFrame, 4) << "/" << nbFrames << " : (" << iInputFrame << "/" << nbFramesToProcess << ")");
+      ALICEVISION_COUT("Stream " << idCamera << " Frame " << utils::toStringZeroPadded(currentFrame, 4)
+                       << "/" << nbFrames << " : (" << iInputFrame << "/" << nbFramesToProcess << ")");
       ALICEVISION_COUT("******************************");
       auto detect_start = std::chrono::steady_clock::now();
       localization::LocalizationResult localizationResult;
@@ -408,7 +380,7 @@ int aliceVision_main(int argc, char** argv)
 #if ALICEVISION_IS_DEFINED(ALICEVISION_HAVE_ALEMBIC)
       if(localizationResult.isValid())
       {
-        exporter.addCamera("camera"+std::to_string(idCamera)+"."+myToString(currentFrame,4),
+        exporter.addCamera("camera"+std::to_string(idCamera)+"." + utils::toStringZeroPadded(currentFrame, 4),
                            sfmData::View(subMediaFilepath, currentFrame, currentFrame),
                            &pose,
                            queryIntrinsics);
@@ -416,7 +388,7 @@ int aliceVision_main(int argc, char** argv)
       else
       {
         // @fixme for now just add a fake camera so that it still can be see in MAYA
-        exporter.addCamera("camera"+std::to_string(idCamera)+".V."+myToString(currentFrame,4),
+        exporter.addCamera("camera"+std::to_string(idCamera)+".V." + utils::toStringZeroPadded(currentFrame, 4),
                            sfmData::View(subMediaFilepath, currentFrame, currentFrame),
                            &pose,
                            queryIntrinsics);

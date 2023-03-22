@@ -10,6 +10,7 @@
 #include <aliceVision/mvsData/Point2d.hpp>
 #include <aliceVision/mvsData/Point3d.hpp>
 #include <aliceVision/mvsData/Pixel.hpp>
+#include <aliceVision/mvsData/ROI.hpp>
 #include <aliceVision/mvsData/StaticVector.hpp>
 #include <aliceVision/mvsData/structures.hpp>
 
@@ -29,7 +30,8 @@ class SfMData;
 
 namespace mvsUtils {
 
-enum class EFileType {
+enum class EFileType
+{
     P = 0,
     K = 1,
     iK = 2,
@@ -68,6 +70,10 @@ enum class EFileType {
     nmodMap = 41,
     D = 42,
     normalMap = 43,
+    volume = 44,
+    volumeCross = 45,
+    stats9p = 46,
+    tilePattern = 47
 };
 
 class MultiViewParams
@@ -105,8 +111,7 @@ public:
                     const std::string& depthMapsFolder = "",
                     const std::string& depthMapsFilterFolder = "",
                     bool readFromDepthMaps = false,
-                    int downscale = 1,
-                    StaticVector<CameraMatrices>* cameras = nullptr);
+                    int downscale = 1);
 
     ~MultiViewParams();
 
@@ -175,14 +180,24 @@ public:
         return _processDownscale;
     }
 
-    inline int getMaxImageWidth() const
+    inline int getMaxImageOriginalWidth() const
     {
         return _maxImageWidth;
     }
 
-    inline int getMaxImageHeight() const
+    inline int getMaxImageOriginalHeight() const
     {
         return _maxImageHeight;
+    }
+
+    inline int getMaxImageWidth() const
+    {
+        return _maxImageWidth / getProcessDownscale();
+    }
+
+    inline int getMaxImageHeight() const
+    {
+        return _maxImageHeight / getProcessDownscale();
     }
 
     inline int getNbCameras() const
@@ -211,7 +226,8 @@ public:
         const Matrix3x4& p34 = camArr.at(index); // projection matrix (3x4) scale = getDownscaleFactor()
         const int downscale = getDownscaleFactor(index);
         p44.assign(p34.m, p34.m + 12);
-        std::transform(p44.begin(), p44.begin() + 8, p44.begin(), std::bind1st(std::multiplies<double>(),downscale));
+        std::transform(p44.begin(), p44.begin() + 8, p44.begin(),
+                       [&](double p){ return p * downscale; });
         p44.push_back(0);
         p44.push_back(0);
         p44.push_back(0);
@@ -238,7 +254,6 @@ public:
 
     bool is3DPointInFrontOfCam(const Point3d* X, int rc) const;
 
-    void getMinMaxMidNbDepth(int index, float& min, float& max, float& mid, std::size_t& nbDepths, float percentile = 0.999f) const;
     void getPixelFor3DPoint(Point2d* out, const Point3d& X, const Matrix3x4& P) const;
     void getPixelFor3DPoint(Point2d* out, const Point3d& X, int rc) const;
     void getPixelFor3DPoint(Pixel* out, const Point3d& X, int rc) const;
@@ -249,7 +264,7 @@ public:
     double getCamPixelSizePlaneSweepAlpha(const Point3d& p, int rc, StaticVector<int>* tcams, int scale, int step) const;
 
     double getCamsMinPixelSize(const Point3d& x0, std::vector<unsigned short>* tcams) const;
-    double getCamsMinPixelSize(const Point3d& x0, StaticVector<int>& tcams) const;
+    double getCamsMinPixelSize(const Point3d& x0, const StaticVector<int>& tcams) const;
 
     bool isPixelInSourceImage(const Pixel& pixRC, int camId, int margin) const;
     bool isPixelInImage(const Pixel& pix, int camId, int margin) const;
@@ -281,6 +296,15 @@ public:
      */
     StaticVector<int> findNearestCamsFromLandmarks(int rc, int nbNearestCams) const;
 
+    /**
+     * @brief Find nearest cameras for a given tile
+     * @param[in] rc R camera id
+     * @param[in] nbNearestCams maximum number of desired nearest cameras
+     * @param[in] tCams a given list of pre-selected nearest cameras
+     * @param[in] roi the tile 2d region of interest
+     * @return nearest cameras list for the given tile
+     */
+    std::vector<int> findTileNearestCams(int rc, int nbNearestCams, const std::vector<int>& tCams, const ROI& roi) const;
 
     inline void setMinViewAngle(float minViewAngle)
     {

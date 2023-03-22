@@ -35,6 +35,8 @@
 
 #include <sstream>
 
+#include <fstream>
+
 
 // These constants define the current software version.
 // They must be updated when the command line is changed.
@@ -42,26 +44,27 @@
 #define ALICEVISION_SOFTWARE_VERSION_MINOR 1
 
 using namespace aliceVision;
+using namespace aliceVision::hdr;
 
 namespace po = boost::program_options;
 namespace fs = boost::filesystem;
 
 int aliceVision_main(int argc, char** argv)
 {
-    std::string verboseLevel = system::EVerboseLevel_enumToString(system::Logger::getDefaultVerboseLevel());
     std::string sfmInputDataFilename;
     std::string outputFolder;
     int nbBrackets = 0;
     int channelQuantizationPower = 10;
+    ECalibrationMethod calibrationMethod = ECalibrationMethod::DEBEVEC;
+    image::EImageColorSpace workingColorSpace = image::EImageColorSpace::SRGB;
     hdr::Sampling::Params params;
+    bool byPass = false;
     bool debug = false;
 
     int rangeStart = -1;
     int rangeSize = 1;
 
     // Command line parameters
-    po::options_description allParams("Extract stable samples from multiple LDR images with different bracketing.\n"
-                                      "AliceVision LdrToHdrSampling");
 
     po::options_description requiredParams("Required parameters");
     requiredParams.add_options()
@@ -74,8 +77,14 @@ int aliceVision_main(int argc, char** argv)
     optionalParams.add_options()
         ("nbBrackets,b", po::value<int>(&nbBrackets)->default_value(nbBrackets),
          "bracket count per HDR image (0 means automatic).")
+        ("byPass", po::value<bool>(&byPass)->default_value(byPass),
+         "bypass HDR creation and use a single bracket as input for next steps")
         ("channelQuantizationPower", po::value<int>(&channelQuantizationPower)->default_value(channelQuantizationPower),
          "Quantization level like 8 bits or 10 bits.")
+        ("workingColorSpace", po::value<image::EImageColorSpace>(&workingColorSpace)->default_value(workingColorSpace),
+         ("Working color space: " + image::EImageColorSpace_informations()).c_str())
+        ("calibrationMethod,m", po::value<ECalibrationMethod>(&calibrationMethod)->default_value(calibrationMethod),
+         "Name of method used for camera calibration: linear, debevec, grossberg, laguerre.")
         ("blockSize", po::value<int>(&params.blockSize)->default_value(params.blockSize),
          "Size of the image tile to extract a sample.")
         ("radius", po::value<int>(&params.radius)->default_value(params.radius),
@@ -89,42 +98,19 @@ int aliceVision_main(int argc, char** argv)
         ("rangeSize", po::value<int>(&rangeSize)->default_value(rangeSize),
           "Range size.");
 
-    po::options_description logParams("Log parameters");
-    logParams.add_options()
-        ("verboseLevel,v", po::value<std::string>(&verboseLevel)->default_value(verboseLevel),
-         "verbosity level (fatal, error, warning, info, debug, trace).");
-
-    allParams.add(requiredParams).add(optionalParams).add(logParams);
-
-    po::variables_map vm;
-    try
+    CmdLine cmdline("This program extracts stable samples from multiple LDR images with different bracketing.\n"
+                    "AliceVision LdrToHdrSampling");
+                  
+    cmdline.add(requiredParams);
+    cmdline.add(optionalParams);
+    if (!cmdline.execute(argc, argv))
     {
-        po::store(po::parse_command_line(argc, argv, allParams), vm);
-
-        if(vm.count("help") || (argc == 1))
-        {
-            ALICEVISION_COUT(allParams);
-            return EXIT_SUCCESS;
-        }
-        po::notify(vm);
-    }
-    catch(boost::program_options::required_option& e)
-    {
-        ALICEVISION_CERR("ERROR: " << e.what());
-        ALICEVISION_COUT("Usage:\n\n" << allParams);
-        return EXIT_FAILURE;
-    }
-    catch(boost::program_options::error& e)
-    {
-        ALICEVISION_CERR("ERROR: " << e.what());
-        ALICEVISION_COUT("Usage:\n\n" << allParams);
         return EXIT_FAILURE;
     }
 
-    ALICEVISION_COUT("Program called with the following parameters:");
-    ALICEVISION_COUT(vm);
-
-    system::Logger::get()->setLogLevel(verboseLevel);
+    // set maxThreads
+    HardwareContext hwc = cmdline.getHardwareContext();
+    omp_set_num_threads(hwc.getMaxThreads());
 
     const std::size_t channelQuantization = std::pow(2, channelQuantizationPower);
 
@@ -173,6 +159,10 @@ int aliceVision_main(int argc, char** argv)
         else
         {
             ALICEVISION_LOG_ERROR("Exposure groups do not have a consistent number of brackets.");
+            for(auto& group : groupedViews)
+            {
+                ALICEVISION_LOG_ERROR(" * " << group.size());
+            }
             return EXIT_FAILURE;
         }
     }
@@ -202,23 +192,42 @@ int aliceVision_main(int argc, char** argv)
     for(std::size_t groupIdx = rangeStart; groupIdx < rangeStart + rangeSize; ++groupIdx)
     {
         auto & group = groupedViews[groupIdx];
+        ALICEVISION_LOG_INFO("Extracting samples from group " << groupIdx);
 
         std::vector<std::string> paths;
-        std::vector<float> exposures;
+        std::vector<sfmData::ExposureSetting> exposuresSetting;
+        std::vector<IndexT> viewIds;
 
-        bool applyWhiteBalance = true;
+        image::ERawColorInterpretation rawColorInterpretation = image::ERawColorInterpretation::LibRawWhiteBalancing;
+        std::string colorProfileFileName = "";
 
         for (auto & v : group)
         {
             paths.push_back(v->getImagePath());
-            exposures.push_back(v->getCameraExposureSetting());
+            exposuresSetting.push_back(v->getCameraExposureSetting());
+            viewIds.push_back(v->getViewId());
 
-            applyWhiteBalance = applyWhiteBalance && v->getApplyWhiteBalance();
+            const std::string rawColorInterpretation_str = v->getRawColorInterpretation();
+            rawColorInterpretation = image::ERawColorInterpretation_stringToEnum(rawColorInterpretation_str);
+            colorProfileFileName = v->getColorProfileFileName();
+
+            ALICEVISION_LOG_INFO("Image: " << paths.back() << ", exposure: " << exposuresSetting.back() << ", raw color interpretation: " << rawColorInterpretation_str);
         }
+        if(!sfmData::hasComparableExposures(exposuresSetting))
+        {
+            ALICEVISION_THROW_ERROR("Camera exposure settings are inconsistent.");
+        }
+        std::vector<double> exposures = getExposures(exposuresSetting);
 
-        ALICEVISION_LOG_INFO("Extracting samples from group " << groupIdx);
+        image::ImageReadOptions imgReadOptions;
+        imgReadOptions.workingColorSpace = workingColorSpace;
+        imgReadOptions.rawColorInterpretation = rawColorInterpretation;
+        imgReadOptions.colorProfileFileName = colorProfileFileName;
+
+        const bool simplifiedSampling = byPass || (calibrationMethod == ECalibrationMethod::LINEAR);
+
         std::vector<hdr::ImageSample> out_samples;
-        const bool res = hdr::Sampling::extractSamplesFromImages(out_samples, paths, exposures, width, height, channelQuantization, image::EImageColorSpace::SRGB, applyWhiteBalance, params);
+        const bool res = hdr::Sampling::extractSamplesFromImages(out_samples, paths, viewIds, exposures, width, height, channelQuantization, imgReadOptions, params, simplifiedSampling);
         if (!res)
         {
             ALICEVISION_LOG_ERROR("Error while extracting samples from group " << groupIdx);
@@ -248,8 +257,8 @@ int aliceVision_main(int argc, char** argv)
             for(const hdr::ImageSample& sample: out_samples)
             {
                 const float score = float(sample.descriptions.size()) / float(usedNbBrackets);
-                const Color color = getColorFromJetColorMap(score);
-                selectedPixels(sample.y, sample.x) = image::RGBfColor(color.r, color.g, color.b);
+                const image::RGBfColor color = getColorFromJetColorMap(score);
+                selectedPixels(sample.y, sample.x) = image::RGBfColor(color.r(), color.g(), color.b());
             }
             oiio::ParamValueList metadata;
             metadata.push_back(oiio::ParamValue("AliceVision:nbSelectedPixels", int(selectedPixels.size())));
@@ -259,7 +268,7 @@ int aliceVision_main(int argc, char** argv)
             metadata.push_back(oiio::ParamValue("AliceVision:medianNbUsedBrackets", extract::median(acc_nbUsedBrackets)));
 
             image::writeImage((fs::path(outputFolder) / (std::to_string(groupIdx) + "_selectedPixels.png")).string(),
-                              selectedPixels, image::EImageColorSpace::AUTO, metadata);
+                              selectedPixels, image::ImageWriteOptions(), metadata);
 
         }
 

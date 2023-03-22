@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.11)
+cmake_minimum_required(VERSION 3.12)
 
 # ==============================================================================
 # AliceVision version
@@ -40,8 +40,8 @@ function(trilean_option NAME DESCRIPTION DEFAULT_VALUE)
   endif()
 endfunction()
 
-# C++11
-set(CMAKE_CXX_STANDARD 11)
+# C++14
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ==============================================================================
@@ -57,12 +57,14 @@ trilean_option(ALICEVISION_BUILD_DOC "Build AliceVision documentation" AUTO)
 
 trilean_option(ALICEVISION_USE_OPENMP "Enable OpenMP parallelization" ON)
 trilean_option(ALICEVISION_USE_CCTAG "Enable CCTAG markers" AUTO)
+trilean_option(ALICEVISION_USE_APRILTAG "Enable AprilTag markers" AUTO)
 trilean_option(ALICEVISION_USE_POPSIFT "Enable GPU SIFT implementation" AUTO)
 trilean_option(ALICEVISION_USE_OPENGV "Enable use of OpenGV algorithms" AUTO)
 trilean_option(ALICEVISION_USE_ALEMBIC "Enable Alembic I/O" AUTO)
 trilean_option(ALICEVISION_USE_UNCERTAINTYTE "Enable Uncertainty computation" AUTO)
 trilean_option(ALICEVISION_USE_CUDA "Enable CUDA" ON)
-trilean_option(ALICEVISION_USE_OPENCV "Build opencv+aliceVision samples programs" OFF)
+trilean_option(ALICEVISION_USE_OPENCV "Enable use of OpenCV algorithms" OFF)
+trilean_option(ALICEVISION_USE_OPENCV_CONTRIB "Enable use of OpenCV algorithms from extra modules" AUTO)
 option(ALICEVISION_USE_OCVSIFT "Add or not OpenCV SIFT in available features" OFF)
 mark_as_advanced(FORCE ALICEVISION_USE_OCVSIFT)
 
@@ -124,6 +126,10 @@ if(WIN32)
   endif()
 endif()
 
+# Avoids deprecation warning caused by internals of json_parser. This is properly fixed in
+# Boost 1.76.0: https://github.com/boostorg/property_tree/commit/d1c8825a45a0717e1ad79583d3283b0e5e32831e
+add_definitions(-DBOOST_BIND_GLOBAL_PLACEHOLDERS=1)
+
 # Folders
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "_CMakePredefinedTargets")
@@ -166,7 +172,7 @@ endmacro(add_target_properties)
 # ==============================================================================
 # Check that submodule have been initialized and updated
 # ==============================================================================
-if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/osi_clp/CoinUtils)
+if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/flann/src)
   message(FATAL_ERROR
     "\n submodule(s) are missing, please update your repository:\n"
     "  > git submodule update -i\n")
@@ -200,17 +206,24 @@ if(CMAKE_COMPILER_IS_GNUCXX)
   AddCompilerFlag("-Werror=return-local-addr")
 endif()
 
-# ==============================================================================
-# Check C++11 support
-# ==============================================================================
-include(CXX11)
-check_for_cxx11_compiler(CXX11_COMPILER)
-
-if(NOT CXX11_COMPILER)
-  message(FATAL_ERROR "The compiler does not support the CXX11 standard.")
-endif(NOT CXX11_COMPILER)
-set(CMAKE_CXX_STANDARD 11)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# Eigen requires overaligned buffers for maximum efficiency (e.g. on AVX512 buffers may need to
+# be aligned to 64 bytes). AliceVision currently does not support this. Fortunately this is fixed
+# in C++17. While we can't upgrade to C++17 just yet, some compilers support overaligned
+# allocation feature with a separate flag, so use it if alignment is enabled in Eigen.
+# See https://eigen.tuxfamily.org/dox/group__TopicUnalignedArrayAssert.html
+if(AV_EIGEN_MEMORY_ALIGNMENT)
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 7.1)
+    AddCompilerFlag("-faligned-new")
+  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 6.0)
+    AddCompilerFlag("-faligned-new")
+  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 10.0)
+    AddCompilerFlag("-faligned-new")
+  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 19.12)
+    AddCompilerFlag("/Zc:alignedNew")
+  else()
+    message(FATAL_ERROR "AV_EIGEN_MEMORY_ALIGNMENT is only supported starting GCC 7.1, Clang 6.0 and MSVC 2017 15.5")
+  endif()
+endif()
 
 # ==============================================================================
 # Enable code coverage generation (only with GCC)
@@ -272,8 +285,15 @@ else()
   message(SEND_ERROR "${Boost_ERROR_REASON}")
 endif()
 
-# Disable BOOST autolink
-add_definitions(-DBOOST_ALL_NO_LIB)
+
+if(WIN32)
+  # Disable BOOST autolink
+  add_definitions(-DBOOST_ALL_NO_LIB)
+
+  #To be removed later, a bug to make things work with current vcpkg
+  #https://github.com/microsoft/vcpkg/issues/22495
+  add_definitions(-DBOOST_USE_WINAPI_VERSION=BOOST_WINAPI_VERSION_WIN7)
+endif()
 
 if(BUILD_SHARED_LIBS)
   # Force BOOST to use dynamic libraries (avoid link error with boost program_options)
@@ -292,20 +312,17 @@ endif()
 
 
 # ==============================================================================
-# OpenEXR
+# OpenEXR >= 2.5
 # ==============================================================================
-find_package(OpenEXR)
-if(TARGET OpenEXR::IlmImf)
-  message(STATUS "OpenEXR found. (Version ${OpenEXR_VERSION})")
-else()
-  # fallback for old openexr versions (<2.5)
-  set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/openexr)
-  find_package(OpenEXR REQUIRED)
-  if(OPENEXR_FOUND)
-    message(STATUS "OpenEXR found (without config). (Version ${OPENEXR_VERSION})")
+find_package(OpenEXR REQUIRED)
+if(TARGET OpenEXR::OpenEXR OR TARGET IlmBase::Half)
+  if(OpenEXR_VERSION VERSION_GREATER_EQUAL 2.5)
+    message(STATUS "OpenEXR found. (Version ${OpenEXR_VERSION})")
   else()
-    message(SEND_ERROR "Failed to find OpenEXR.")
+    message(SEND_ERROR "OpenEXR: Version found is ${OpenEXR_VERSION}, the minimal version required is 2.5.")
   endif()
+else()
+  message(SEND_ERROR "Failed to find OpenEXR.")
 endif()
 
 # ==============================================================================
@@ -314,12 +331,18 @@ endif()
 find_package(OpenImageIO 2.0.9 REQUIRED)
 if(OPENIMAGEIO_FOUND OR OpenImageIO_FOUND)
   message(STATUS "OpenImageIO found.")
-  if(UNIX)
-    # Add DL dependency on linux
-    set(OPENIMAGEIO_LIBRARIES "${OPENIMAGEIO_LIBRARIES};dl")
-  endif()
 else()
   message(SEND_ERROR "Failed to find OpenImageIO.")
+endif()
+
+# ==============================================================================
+# Expat
+# ==============================================================================
+find_package(expat CONFIG REQUIRED)
+if(EXPAT_FOUND OR expat_FOUND OR TARGET expat::expat)
+  message(STATUS "Expat found.")
+else()
+  message(SEND_ERROR "Failed to find Expat.")
 endif()
 
 # ==============================================================================
@@ -330,12 +353,7 @@ set(ALICEVISION_HAVE_MOSEK 0)
 if(ALICEVISION_BUILD_SFM)
   find_package(Mosek)
   if(MOSEK_FOUND)
-    set(ALICEVISION_HAVE_MOSEK 1)
-    set(LP_INCLUDE_DIRS
-      ${MOSEK_INCLUDE}
-      ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/osi_clp/Osi/src/OsiMsk/
-    )
-    include_directories(${LP_INCLUDE_DIRS})
+    find_package(Coin::OsiMsk)
   endif()
 
   #Install RULES
@@ -353,8 +371,11 @@ endif()
 find_package(Eigen3 3.3 REQUIRED)
 if(Eigen3_FOUND OR EIGEN3_FOUND)
   # message(STATUS "EIGEN_INCLUDE_DIR: ${EIGEN_INCLUDE_DIR}")
-  # See https://eigen.tuxfamily.org/dox/group__TopicUnalignedArrayAssert.html
-  set(AV_EIGEN_DEFINITIONS -DEIGEN_MAX_ALIGN_BYTES=0 -DEIGEN_MAX_STATIC_ALIGN_BYTES=0)
+  if(AV_EIGEN_MEMORY_ALIGNMENT)
+    set(AV_EIGEN_DEFINITIONS -DALICEVISION_EIGEN_REQUIRE_ALIGNMENT=1)
+  else()
+    set(AV_EIGEN_DEFINITIONS -DEIGEN_MAX_ALIGN_BYTES=0 -DEIGEN_MAX_STATIC_ALIGN_BYTES=0)
+  endif()
 else()
   message(FATAL_ERROR " EIGEN NOT FOUND. EIGEN_INCLUDE_DIR: ${EIGEN_INCLUDE_DIR}")
 endif()
@@ -416,72 +437,12 @@ if(ALICEVISION_BUILD_SFM)
 endif()
 
 # ==============================================================================
-# CoinUtils
-# ==============================================================================
-# - internal by default (CoinUtils),
-# - external if COINUTILS_INCLUDE_DIR_HINTS and a valid CoinUtils setup is found
+# CoinUtils, Clp, Osi
 # ==============================================================================
 if(ALICEVISION_BUILD_SFM)
-  if(NOT DEFINED COINUTILS_INCLUDE_DIR_HINTS)
-    set(COINUTILS_INCLUDE_DIR_HINTS ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/osi_clp/CoinUtils/src/)
-    set(ALICEVISION_USE_INTERNAL_COINUTILS ON)
-  endif()
-  find_package(CoinUtils QUIET)
-  if(NOT COINUTILS_FOUND OR ALICEVISION_USE_INTERNAL_COINUTILS)
-    set(COINUTILS_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/osi_clp/CoinUtils/src/)
-    set(COINUTILS_LIBRARY lib_CoinUtils)
-  endif()
-endif()
-
-## ==============================================================================
-## Clp
-## ==============================================================================
-## - internal by default (Clp),
-## - external if CLP_INCLUDE_DIR_HINTS and a valid Clp setup is found
-## ==============================================================================
-if(ALICEVISION_BUILD_SFM)
-  if(NOT DEFINED CLP_INCLUDE_DIR_HINTS)
-    set(CLP_INCLUDE_DIR_HINTS ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/osi_clp/Clp/src/)
-    set(ALICEVISION_USE_INTERNAL_CLP ON)
-  endif()
-  find_package(Clp QUIET)
-  if(NOT CLP_FOUND OR ALICEVISION_USE_INTERNAL_CLP)
-    set(CLP_INCLUDE_DIRS
-       ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/osi_clp/Clp/src/
-       ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/osi_clp/Clp/src/OsiClp/)
-    set(CLP_LIBRARIES lib_clp lib_OsiClpSolver)
-  endif()
-endif()
-
-# ==============================================================================
-# Osi
-# ==============================================================================
-# - internal by default (Osi),
-# - external if OSI_INCLUDE_DIR_HINTS and a valid Osi setup is found
-# ==============================================================================
-if(ALICEVISION_BUILD_SFM)
-  if(NOT DEFINED OSI_INCLUDE_DIR_HINTS)
-    set(OSI_INCLUDE_DIR_HINTS ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/osi_clp/Osi/src/)
-    set(ALICEVISION_USE_INTERNAL_OSI ON)
-  endif()
-  find_package(Osi QUIET)
-  if(NOT OSI_FOUND OR ALICEVISION_USE_INTERNAL_OSI)
-    set(OSI_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/osi_clp/Osi/src/Osi/)
-    set(OSI_LIBRARY lib_Osi)
-  endif()
-endif()
-
-# ==============================================================================
-# Internal CLP/OSI/COINUTILS libraries
-# ==============================================================================
-if(ALICEVISION_BUILD_SFM)
-  if(ALICEVISION_USE_INTERNAL_OSI AND ALICEVISION_USE_INTERNAL_CLP AND ALICEVISION_USE_INTERNAL_COINUTILS)
-    add_subdirectory(dependencies/osi_clp/)
-    set_property(TARGET lib_clp PROPERTY FOLDER Dependencies/Lib_clp)
-    set_property(TARGET lib_CoinUtils PROPERTY FOLDER Dependencies/Lib_CoinUtils)
-    set_property(TARGET lib_Osi PROPERTY FOLDER Dependencies/Lib_Osi)
-    set_property(TARGET lib_OsiClpSolver PROPERTY FOLDER Dependencies/Lib_OsiClpSolver)
-  endif()
+  find_package(CoinUtils REQUIRED)
+  find_package(Clp REQUIRED)
+  find_package(Osi REQUIRED)
 endif()
 
 # ==============================================================================
@@ -504,6 +465,15 @@ if(ALICEVISION_BUILD_SFM)
   endif()
 endif()
 
+
+# ==============================================================================
+# Assimp
+# ==============================================================================
+if(ALICEVISION_BUILD_MVS)
+  find_package(assimp REQUIRED)
+  message(STATUS "Assimp: ${ASSIMP_LIBRARIES}, ${ASSIMP_INCLUDE_DIRS}, ${ASSIMP_LIBRARY_DIRS}")
+endif()
+
 # ==============================================================================
 # OpenCV
 # ==============================================================================
@@ -511,18 +481,19 @@ endif()
 # ==============================================================================
 set(ALICEVISION_HAVE_OPENCV 0)
 set(ALICEVISION_HAVE_OCVSIFT 0)
+set(ALICEVISION_HAVE_OPENCV_CONTRIB 0)
 
 if(ALICEVISION_BUILD_SFM)
   if(NOT ALICEVISION_USE_OPENCV STREQUAL "OFF")
-    find_package(OpenCV COMPONENTS core imgproc video imgcodecs videoio features2d xfeatures2d)
+    find_package(OpenCV COMPONENTS core imgproc video imgcodecs videoio features2d optflow photo)
 
     if(OpenCV_FOUND)
       # We do not set the minimal version directly in find_package
       # due to this issue in opencv: https://github.com/opencv/opencv/issues/5931
       # which considers major version as exact requirement.
-      if(OpenCV_VERSION VERSION_LESS "3.2.0")
+      if(OpenCV_VERSION VERSION_LESS "3.4.11")
         if(ALICEVISION_USE_OPENCV STREQUAL "ON")
-          message(SEND_ERROR "Failed to find OpenCV 3.2.0+")
+          message(SEND_ERROR "Failed to find OpenCV 3.4.11+")
         endif()
       else()
         set(ALICEVISION_HAVE_OPENCV 1)
@@ -535,6 +506,16 @@ if(ALICEVISION_BUILD_SFM)
   endif()
 
   if(ALICEVISION_HAVE_OPENCV)
+    if(NOT ALICEVISION_USE_OPENCV_CONTRIB STREQUAL "OFF")
+      find_package(OpenCV COMPONENTS mcc)
+      if(OpenCV_FOUND)
+        set(ALICEVISION_HAVE_OPENCV_CONTRIB 1)
+        message(STATUS "OpenCV contrib found.")
+      elseif(ALICEVISION_USE_OPENCV_CONTRIB STREQUAL "ON")
+        message(SEND_ERROR "Failed to find OpenCV.")
+      endif()
+    endif()
+
     include_directories(${OpenCV_INCLUDE_DIRS})
     # add a definition that allows the conditional compiling
     if(ALICEVISION_USE_OCVSIFT)
@@ -563,50 +544,6 @@ if(ALICEVISION_BUILD_SFM) # or ALICEVISION_BUILD_MVS
       )
     elseif(ALICEVISION_USE_ALEMBIC STREQUAL "ON")
       message(SEND_ERROR "Failed to find Alembic.")
-    endif()
-  endif()
-endif()
-
-# ==============================================================================
-# CCTag
-# ==============================================================================
-# - optional, only external and enabled only if ALICEVISION_USE_CCTAG is ON
-# ==============================================================================
-set(ALICEVISION_HAVE_CCTAG 0)
-
-if(ALICEVISION_BUILD_SFM)
-  if(NOT ALICEVISION_USE_CCTAG STREQUAL "OFF")
-    if(ALICEVISION_HAVE_OPENCV)
-      find_package(CCTag 1.0.0 CONFIG)
-
-      if(CCTag_FOUND)
-        set(ALICEVISION_HAVE_CCTAG 1)
-        message(STATUS "CCTAG ${CCTag_VERSION} found.")
-      elseif(ALICEVISION_USE_CCTAG STREQUAL "ON")
-        message(SEND_ERROR "Failed to find CCTAG.")
-      endif()
-    elseif(ALICEVISION_USE_CCTAG STREQUAL "ON")
-      message(SEND_ERROR "Can't use CCTAG without OPENCV.")
-    endif()
-  endif()
-endif()
-
-# ==============================================================================
-# PopSift
-# ==============================================================================
-# - optional, only external and enabled only if ALICEVISION_USE_POPSIFT is ON
-# ==============================================================================
-set(ALICEVISION_HAVE_POPSIFT 0)
-
-if(ALICEVISION_BUILD_SFM)
-  if(NOT ALICEVISION_USE_POPSIFT STREQUAL "OFF")
-    find_package(PopSift CONFIG)
-
-    if(PopSift_FOUND)
-      set(ALICEVISION_HAVE_POPSIFT 1)
-      message(STATUS "PopSIFT found.")
-    elseif(ALICEVISION_USE_POPSIFT STREQUAL "ON")
-      message(SEND_ERROR "Failed to find PopSIFT.")
     endif()
   endif()
 endif()
@@ -733,7 +670,13 @@ if(ALICEVISION_HAVE_CUDA)
 
   set(CUDA_NVCC_FLAGS_DEBUG   "${CUDA_NVCC_FLAGS_DEBUG};-G;-g")
   # set(CUDA_NVCC_FLAGS_RELEASE "${CUDA_NVCC_FLAGS_RELEASE};-O3")
-  if(CUDA_VERSION VERSION_GREATER_EQUAL 11.1)
+  if(CUDA_VERSION_MAJOR VERSION_GREATER_EQUAL 12)
+    set(ALICEVISION_CUDA_CC_LIST_BASIC 50 52 60 61 62 70 72 75 80 86 87 89 90)
+  elseif(CUDA_VERSION VERSION_GREATER_EQUAL 11.8)
+    set(ALICEVISION_CUDA_CC_LIST_BASIC 35 50 52 60 61 62 70 72 75 80 86 87 89 90)
+  elseif(CUDA_VERSION VERSION_GREATER_EQUAL 11.5)
+    set(ALICEVISION_CUDA_CC_LIST_BASIC 35 50 52 60 61 62 70 72 75 80 86 87)
+  elseif(CUDA_VERSION VERSION_GREATER_EQUAL 11.1)
     set(ALICEVISION_CUDA_CC_LIST_BASIC 35 50 52 60 61 62 70 72 75 80 86)
   elseif(CUDA_VERSION_MAJOR GREATER_EQUAL 11)
     set(ALICEVISION_CUDA_CC_LIST_BASIC 35 50 52 60 61 62 70 72 75 80)
@@ -795,6 +738,71 @@ if(ALICEVISION_HAVE_CUDA)
     add_definitions(-DALICEVISION_USE_NVTX)
     include_directories(${CUDA_INCLUDE_DIRS})
     set(ALICEVISION_NVTX_LIBRARY ${CUDA_NVTX_LIBRARY})
+  endif()
+endif()
+
+
+# ==============================================================================
+# CCTag
+# ==============================================================================
+# - optional, only external and enabled only if ALICEVISION_USE_CCTAG is ON
+# ==============================================================================
+set(ALICEVISION_HAVE_CCTAG 0)
+
+if(ALICEVISION_BUILD_SFM)
+  if(NOT ALICEVISION_USE_CCTAG STREQUAL "OFF")
+    if(ALICEVISION_HAVE_OPENCV)
+      find_package(CCTag 1.0.0 CONFIG)
+
+      if(CCTag_FOUND)
+        set(ALICEVISION_HAVE_CCTAG 1)
+        message(STATUS "CCTAG ${CCTag_VERSION} found.")
+      elseif(ALICEVISION_USE_CCTAG STREQUAL "ON")
+        message(SEND_ERROR "Failed to find CCTAG.")
+      endif()
+    elseif(ALICEVISION_USE_CCTAG STREQUAL "ON")
+      message(SEND_ERROR "Can't use CCTAG without OPENCV.")
+    endif()
+  endif()
+endif()
+
+# ==============================================================================
+# AprilTag
+# ==============================================================================
+# - optional, only external and enabled only if ALICEVISION_USE_APRILTAG is ON
+# ==============================================================================
+set(ALICEVISION_HAVE_APRILTAG 0)
+
+if(ALICEVISION_BUILD_SFM)
+  if(NOT ALICEVISION_USE_APRILTAG STREQUAL "OFF")
+    find_package(apriltag CONFIG)
+
+    if(apriltag_FOUND)
+      set(ALICEVISION_HAVE_APRILTAG 1)
+      message(STATUS "AprilTag found.")
+    elseif(ALICEVISION_USE_APRILTAG STREQUAL "ON")
+      message(SEND_ERROR "Failed to find AprilTag.")
+    endif()
+  endif()
+endif()
+
+# ==============================================================================
+# PopSift
+# ==============================================================================
+# - optional, only external and enabled only if ALICEVISION_USE_POPSIFT is ON
+# ==============================================================================
+set(ALICEVISION_HAVE_POPSIFT 0)
+
+if(ALICEVISION_BUILD_SFM)
+  if(NOT ALICEVISION_USE_POPSIFT STREQUAL "OFF")
+    find_package(PopSift CONFIG)
+
+    if(PopSift_FOUND)
+      set(ALICEVISION_HAVE_POPSIFT 1)
+      message(STATUS "PopSIFT found.")
+    elseif(ALICEVISION_USE_POPSIFT STREQUAL "ON")
+      message(SEND_ERROR "Failed to find PopSIFT.")
+    endif()
   endif()
 endif()
 
@@ -898,7 +906,9 @@ else()
               PROPERTY FOLDER AliceVision
               )
 
-      install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/doc  DESTINATION ${CMAKE_INSTALL_DOCDIR})
+      if(EXISTS ${CMAKE_CURRENT_BINARY_DIR}/doc)
+        install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/doc  DESTINATION ${CMAKE_INSTALL_DOCDIR})
+      endif()
 
     endif()
   endif()
@@ -926,6 +936,7 @@ message("** Use CUDA: " ${ALICEVISION_HAVE_CUDA})
 message("** Use OpenCV SIFT features: " ${ALICEVISION_HAVE_OCVSIFT})
 message("** Use PopSift feature extractor: " ${ALICEVISION_HAVE_POPSIFT})
 message("** Use CCTAG markers: " ${ALICEVISION_HAVE_CCTAG})
+message("** Use AprilTag markers: " ${ALICEVISION_HAVE_APRILTAG})
 message("** Use OpenGV for rig localization: " ${ALICEVISION_HAVE_OPENGV})
 message("\n")
 
@@ -940,23 +951,9 @@ if(ALICEVISION_BUILD_SFM)
     message(STATUS "FLANN: " ${FLANN_VERSION} " (external)")
   endif()
 
-  if(ALICEVISION_USE_INTERNAL_CLP)
-    message(STATUS "CLP: " ${CLP_VERSION} " (internal)")
-  else()
-    message(STATUS "CLP: " ${CLP_VERSION} " (external)")
-  endif()
-
-  if(ALICEVISION_USE_INTERNAL_COINUTILS)
-    message(STATUS "COINUTILS: " ${COINUTILS_VERSION} " (internal)")
-  else()
-    message(STATUS "COINUTILS: " ${COINUTILS_VERSION} " (external)")
-  endif()
-
-  if(ALICEVISION_USE_INTERNAL_OSI)
-    message(STATUS "OSI: " ${OSI_VERSION} " (internal)")
-  else()
-    message(STATUS "OSI: " ${OSI_VERSION} " (external)")
-  endif()
+  message(STATUS "CLP: " ${Clp_VERSION} "")
+  message(STATUS "COINUTILS: " ${CoinUtils_VERSION} "")
+  message(STATUS "OSI: " ${Osi_VERSION} "")
 
   if(ALICEVISION_USE_INTERNAL_LEMON)
     message(STATUS "LEMON: " ${LEMON_VERSION} " (internal)")

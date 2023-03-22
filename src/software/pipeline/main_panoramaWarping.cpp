@@ -33,448 +33,592 @@ using namespace aliceVision;
 namespace po = boost::program_options;
 namespace fs = boost::filesystem;
 
-bool computeOptimalPanoramaSize(std::pair<int, int>& optimalSize, const sfmData::SfMData& sfmData, const float ratioUpscale)
+bool computeOptimalPanoramaSize(std::pair<int, int>& optimalSize, const sfmData::SfMData& sfmData,
+                                const float ratioUpscale)
 {
-		// We use a small panorama for probing
-		optimalSize.first = 512;
-		optimalSize.second = 256;
+    // We use a small panorama for probing
+    optimalSize.first = 512;
+    optimalSize.second = 256;
 
-		// Loop over views to estimate best scale
-		std::vector<double> scales;
-		for(auto& viewIt : sfmData.getViews())
-		{
+    // Loop over views to estimate best scale
+    std::vector<double> scales;
+    for(auto& viewIt : sfmData.getViews())
+    {
 
-				// Ignore non positionned views
-				const sfmData::View& view = *viewIt.second.get();
-				if(!sfmData.isPoseAndIntrinsicDefined(&view))
-				{
-						continue;
-				}
+        // Ignore non positionned views
+        const sfmData::View& view = *viewIt.second.get();
+        if(!sfmData.isPoseAndIntrinsicDefined(&view))
+        {
+            continue;
+        }
 
-				// Get intrinsics and extrinsics
-				const geometry::Pose3 camPose = sfmData.getPose(view).getTransform();
-				const camera::IntrinsicBase& intrinsic = *sfmData.getIntrinsicPtr(view.getIntrinsicId());
+        // Get intrinsics and extrinsics
+        const geometry::Pose3 camPose = sfmData.getPose(view).getTransform();
+        const camera::IntrinsicBase& intrinsic = *sfmData.getIntrinsicPtr(view.getIntrinsicId());
 
-				// Compute coarse bounding box
-				BoundingBox coarseBbox;
-				if(!computeCoarseBB(coarseBbox, optimalSize, camPose, intrinsic))
-				{
-						continue;
-				}
+        // Compute coarse bounding box
+        BoundingBox coarseBbox;
+        if(!computeCoarseBB(coarseBbox, optimalSize, camPose, intrinsic))
+        {
+            continue;
+        }
 
-				CoordinatesMap map;
-				if(!map.build(optimalSize, camPose, intrinsic, coarseBbox))
-				{
-						continue;
-				}
+        CoordinatesMap map;
+        if(!map.build(optimalSize, camPose, intrinsic, coarseBbox))
+        {
+            continue;
+        }
 
-				double scale;
-				if(!map.computeScale(scale, ratioUpscale))
-				{
-						continue;
-				}
+        double scale;
+        if(!map.computeScale(scale, ratioUpscale))
+        {
+            continue;
+        }
 
-				scales.push_back(scale);
-		}
+        scales.push_back(scale);
+    }
 
-		if(scales.empty())
-		{
-				return false;
-		}
+    if(scales.empty())
+    {
+        return false;
+    }
 
-		std::sort(scales.begin(), scales.end());
-		int selected_index = int(floor(float(scales.size() - 1) * ratioUpscale));
-		double selected_scale = scales[selected_index];
+    std::sort(scales.begin(), scales.end());
+    const int selected_index = int(floor(float(scales.size() - 1) * ratioUpscale));
+    const double selected_scale = scales[selected_index];
 
-		optimalSize.first = optimalSize.first * selected_scale;
-		optimalSize.second = optimalSize.second * selected_scale;
+    optimalSize.first = optimalSize.first * selected_scale;
+    optimalSize.second = optimalSize.second * selected_scale;
 
-		ALICEVISION_LOG_INFO("Estimated panorama size: " << optimalSize.first << "x" << optimalSize.second);
+    ALICEVISION_LOG_INFO("Estimated panorama size: " << optimalSize.first << "x" << optimalSize.second);
 
-		return true;
+    return true;
 }
 
 int aliceVision_main(int argc, char** argv)
 {
-		std::string sfmDataFilename;
-		std::string outputDirectory;
-		std::pair<int, int> panoramaSize = {0, 0};
-		int percentUpscale = 50;
-		int tileSize = 256;
-		int maxPanoramaWidth = 0;
+    std::string sfmDataFilename;
+    std::string outputDirectory;
+    std::pair<int, int> panoramaSize = {0, 0};
+    int percentUpscale = 50;
+    int tileSize = 256;
+    int maxPanoramaWidth = 0;
 
-		image::EStorageDataType storageDataType = image::EStorageDataType::Float;
+    image::EStorageDataType storageDataType = image::EStorageDataType::Float;
 
-		int rangeStart = -1;
-		int rangeSize = 1;
+    int rangeStart = -1;
+    int rangeSize = 1;
 
-		// Program description
-		po::options_description allParams(
-				"Perform panorama stiching of cameras around a nodal point for 360° panorama creation. \n"
-				"AliceVision PanoramaWarping");
+    // Program description
+    // Description of mandatory parameters
+    po::options_description requiredParams("Required parameters");
+    requiredParams.add_options()("input,i", po::value<std::string>(&sfmDataFilename)->required(), "SfMData file.")(
+        "output,o", po::value<std::string>(&outputDirectory)->required(), "Path of the output folder.");
 
-		// Description of mandatory parameters
-		po::options_description requiredParams("Required parameters");
-		requiredParams.add_options()("input,i", po::value<std::string>(&sfmDataFilename)->required(), "SfMData file.")(
-				"output,o", po::value<std::string>(&outputDirectory)->required(), "Path of the output folder.");
-		allParams.add(requiredParams);
+    // Description of optional parameters
+    po::options_description optionalParams("Optional parameters");
+    optionalParams.add_options()("panoramaWidth,w",
+                                 po::value<int>(&panoramaSize.first)->default_value(panoramaSize.first),
+                                 "Panorama Width in pixels.")(
+        "maxPanoramaWidth", po::value<int>(&maxPanoramaWidth)->default_value(maxPanoramaWidth),
+        "Max Panorama Width in pixels.")("percentUpscale",
+                                         po::value<int>(&percentUpscale)->default_value(percentUpscale),
+                                         "Percentage of upscaled pixels.")(
+        "storageDataType", po::value<image::EStorageDataType>(&storageDataType)->default_value(storageDataType),
+        ("Storage data type: " + image::EStorageDataType_informations()).c_str())(
+        "rangeStart", po::value<int>(&rangeStart)->default_value(rangeStart),
+        "Range image index start.")("rangeSize", po::value<int>(&rangeSize)->default_value(rangeSize), "Range size.");
 
-		// Description of optional parameters
-		po::options_description optionalParams("Optional parameters");
-		optionalParams.add_options()
-				("panoramaWidth,w", po::value<int>(&panoramaSize.first)->default_value(panoramaSize.first), "Panorama Width in pixels.")
-				("maxPanoramaWidth", po::value<int>(&maxPanoramaWidth)->default_value(maxPanoramaWidth), "Max Panorama Width in pixels.")
-				("percentUpscale", po::value<int>(&percentUpscale)->default_value(percentUpscale), "Percentage of upscaled pixels.")
-				("storageDataType", po::value<image::EStorageDataType>(&storageDataType)->default_value(storageDataType),
-				("Storage data type: " + image::EStorageDataType_informations()).c_str())
-				("rangeStart", po::value<int>(&rangeStart)->default_value(rangeStart), "Range image index start.")
-				("rangeSize", po::value<int>(&rangeSize)->default_value(rangeSize), "Range size.");
-		allParams.add(optionalParams);
+    CmdLine cmdline("Warps the input images in the panorama coordinate system.\n"
+                    "AliceVision panoramaWarping");
+    cmdline.add(requiredParams);
+    cmdline.add(optionalParams);
+    if(!cmdline.execute(argc, argv))
+    {
+        return EXIT_FAILURE;
+    }
 
-		// Setup log level given command line
-		std::string verboseLevel = system::EVerboseLevel_enumToString(system::Logger::getDefaultVerboseLevel());
-		po::options_description logParams("Log parameters");
-		logParams.add_options()("verboseLevel,v", po::value<std::string>(&verboseLevel)->default_value(verboseLevel),
-														"verbosity level (fatal, error, warning, info, debug, trace).");
-		allParams.add(logParams);
+    // set maxThreads
+    HardwareContext hwc = cmdline.getHardwareContext();
+    omp_set_num_threads(hwc.getMaxThreads());
 
-		// Effectively parse command line given parse options
-		po::variables_map vm;
-		try
-		{
-				po::store(po::parse_command_line(argc, argv, allParams), vm);
+    bool clampHalf = false;
+    oiio::TypeDesc typeColor = oiio::TypeDesc::FLOAT;
+    if(storageDataType == image::EStorageDataType::Half || storageDataType == image::EStorageDataType::HalfFinite)
+    {
+        typeColor = oiio::TypeDesc::HALF;
+        if(storageDataType == image::EStorageDataType::HalfFinite)
+        {
+            clampHalf = true;
+        }
+    }
 
-				if(vm.count("help") || (argc == 1))
-				{
-						ALICEVISION_COUT(allParams);
-						return EXIT_SUCCESS;
-				}
-				po::notify(vm);
-		}
-		catch(boost::program_options::required_option& e)
-		{
-				ALICEVISION_CERR("ERROR: " << e.what());
-				ALICEVISION_COUT("Usage:\n\n" << allParams);
-				return EXIT_FAILURE;
-		}
-		catch(boost::program_options::error& e)
-		{
-				ALICEVISION_CERR("ERROR: " << e.what());
-				ALICEVISION_COUT("Usage:\n\n" << allParams);
-				return EXIT_FAILURE;
-		}
+    // Load information about inputs
+    // Camera images
+    // Camera intrinsics
+    // Camera extrinsics
+    sfmData::SfMData sfmData;
+    if(!sfmDataIO::Load(sfmData, sfmDataFilename,
+                        sfmDataIO::ESfMData(sfmDataIO::VIEWS | sfmDataIO::INTRINSICS | sfmDataIO::EXTRINSICS)))
+    {
+        ALICEVISION_LOG_ERROR("The input SfMData file '" << sfmDataFilename << "' cannot be read.");
+        return EXIT_FAILURE;
+    }
 
-		ALICEVISION_COUT("Program called with the following parameters:");
-		ALICEVISION_COUT(vm);
+    // Order views by their image names for easier debugging
+    std::vector<std::shared_ptr<sfmData::View>> viewsOrderedByName;
+    for(auto& viewIt : sfmData.getViews())
+    {
+        viewsOrderedByName.push_back(viewIt.second);
+    }
+    std::sort(viewsOrderedByName.begin(), viewsOrderedByName.end(),
+              [](const std::shared_ptr<sfmData::View>& a, const std::shared_ptr<sfmData::View>& b) -> bool
+              {
+                  if(a == nullptr || b == nullptr)
+                      return true;
+                  return (a->getImagePath() < b->getImagePath());
+              });
 
-		// Set verbose level given command line
-		system::Logger::get()->setLogLevel(verboseLevel);
+    // Define range to compute
+    if(rangeStart != -1)
+    {
+        if(rangeStart < 0 || rangeSize < 0 || std::size_t(rangeStart) > viewsOrderedByName.size())
+        {
+            ALICEVISION_LOG_ERROR("Range is incorrect");
+            return EXIT_FAILURE;
+        }
 
-		bool clampHalf = false;
-		oiio::TypeDesc typeColor = oiio::TypeDesc::FLOAT;
-		if (storageDataType == image::EStorageDataType::Half || storageDataType == image::EStorageDataType::HalfFinite) 
-		{
-			typeColor = oiio::TypeDesc::HALF;
-			if (storageDataType == image::EStorageDataType::HalfFinite) 
-			{
-				clampHalf = true;
-			}
-		} 
-		
-		// Load information about inputs
-		// Camera images
-		// Camera intrinsics
-		// Camera extrinsics
-		sfmData::SfMData sfmData;
-		if(!sfmDataIO::Load(sfmData, sfmDataFilename,
-												sfmDataIO::ESfMData(sfmDataIO::VIEWS | sfmDataIO::INTRINSICS | sfmDataIO::EXTRINSICS)))
-		{
-				ALICEVISION_LOG_ERROR("The input SfMData file '" << sfmDataFilename << "' cannot be read.");
-				return EXIT_FAILURE;
-		}
+        if(std::size_t(rangeStart + rangeSize) > viewsOrderedByName.size())
+        {
+            rangeSize = int(viewsOrderedByName.size()) - rangeStart;
+        }
+    }
+    else
+    {
+        rangeStart = 0;
+        rangeSize = int(viewsOrderedByName.size());
+    }
 
-		// Order views by their image names for easier debugging
-		std::vector<std::shared_ptr<sfmData::View>> viewsOrderedByName;
-		for(auto& viewIt : sfmData.getViews())
-		{
-				viewsOrderedByName.push_back(viewIt.second);
-		}
-		std::sort(viewsOrderedByName.begin(), viewsOrderedByName.end(),
-							[](const std::shared_ptr<sfmData::View>& a, const std::shared_ptr<sfmData::View>& b) -> bool {
-									if(a == nullptr || b == nullptr)
-											return true;
-									return (a->getImagePath() < b->getImagePath());
-							});
+    ALICEVISION_LOG_DEBUG("Range to compute: rangeStart=" << rangeStart << ", rangeSize=" << rangeSize);
 
+    // If panorama width is undefined, estimate it
+    if(panoramaSize.first <= 0)
+    {
+        const float ratioUpscale = clamp(float(percentUpscale) / 100.0f, 0.0f, 1.0f);
 
-		// Define range to compute
-		if(rangeStart != -1)
-		{
-			if(rangeStart < 0 || rangeSize < 0 ||
-				std::size_t(rangeStart) > viewsOrderedByName.size())
-			{
-				ALICEVISION_LOG_ERROR("Range is incorrect");
-				return EXIT_FAILURE;
-			}
+        std::pair<int, int> optimalPanoramaSize;
+        if(computeOptimalPanoramaSize(optimalPanoramaSize, sfmData, ratioUpscale))
+        {
+            panoramaSize = optimalPanoramaSize;
+        }
+        else
+        {
+            ALICEVISION_LOG_INFO("Impossible to compute an optimal panorama size");
+            return EXIT_FAILURE;
+        }
 
-			if(std::size_t(rangeStart + rangeSize) > viewsOrderedByName.size())
-			{
-				rangeSize = int(viewsOrderedByName.size()) - rangeStart;
-			}
-		}
-		else
-		{
-				rangeStart = 0;
-				rangeSize = int(viewsOrderedByName.size());
-		}
+        if(maxPanoramaWidth != 0 && panoramaSize.first > maxPanoramaWidth)
+        {
+            ALICEVISION_LOG_INFO("The optimal size of the panorama exceeds the maximum size (estimated width: "
+                                 << panoramaSize.first << ", max width: " << maxPanoramaWidth << ").");
+            panoramaSize.first = maxPanoramaWidth;
+        }
+    }
 
-		ALICEVISION_LOG_DEBUG("Range to compute: rangeStart=" << rangeStart << ", rangeSize=" << rangeSize);
+    panoramaSize.second = panoramaSize.first / 2;
+    ALICEVISION_LOG_INFO("Choosen panorama size : " << panoramaSize.first << "x" << panoramaSize.second);
 
+    // Define empty tiles data
+    std::unique_ptr<float> empty_float(new float[tileSize * tileSize * 3]);
+    std::unique_ptr<char> empty_char(new char[tileSize * tileSize]);
+    std::memset(empty_float.get(), 0, tileSize * tileSize * 3 * sizeof(float));
+    std::memset(empty_char.get(), 0, tileSize * tileSize * sizeof(char));
 
-		// If panorama width is undefined, estimate it
-		if(panoramaSize.first <= 0)
-		{
-			float ratioUpscale = clamp(float(percentUpscale) / 100.0f, 0.0f, 1.0f);
+    // Preprocessing per view
+    for(std::size_t i = std::size_t(rangeStart); i < std::size_t(rangeStart + rangeSize); ++i)
+    {
+        const std::shared_ptr<sfmData::View>& viewIt = viewsOrderedByName[i];
 
-			std::pair<int, int> optimalPanoramaSize;
-			if(computeOptimalPanoramaSize(optimalPanoramaSize, sfmData, ratioUpscale))
-			{
-					panoramaSize = optimalPanoramaSize;
-			}
-			else
-			{
-					ALICEVISION_LOG_INFO("Impossible to compute an optimal panorama size");
-					return EXIT_FAILURE;
-			}
+        // Retrieve view
+        const sfmData::View& view = *viewIt;
+        if(!sfmData.isPoseAndIntrinsicDefined(&view))
+        {
+            continue;
+        }
 
-			if (maxPanoramaWidth != 0 && panoramaSize.first > maxPanoramaWidth)
-			{
-				ALICEVISION_LOG_INFO("The optimal size of the panorama exceeds the maximum size (estimated width: " << panoramaSize.first << ", max width: " << maxPanoramaWidth << ").");
-				panoramaSize.first = maxPanoramaWidth;
-			}
-		}
-		
-		// Make sure panorama size has required size properties
-		/*double max_scale = 1.0 / pow(2.0, 10);
-		panoramaSize.first = int(ceil(double(panoramaSize.first) * max_scale) / max_scale);*/
-		panoramaSize.second = panoramaSize.first / 2;
-		ALICEVISION_LOG_INFO("Choosen panorama size : "  << panoramaSize.first << "x" << panoramaSize.second);
+        ALICEVISION_LOG_INFO("[" << int(i) + 1 - rangeStart << "/" << rangeSize << "] Processing view "
+                                 << view.getViewId() << " (" << i + 1 << "/" << viewsOrderedByName.size() << ")");
 
+        // Get intrinsics and extrinsics
+        geometry::Pose3 camPose = sfmData.getPose(view).getTransform();
+        std::shared_ptr<camera::IntrinsicBase> intrinsic = sfmData.getIntrinsicsharedPtr(view.getIntrinsicId());
 
-		// Define empty tiles data
-		std::unique_ptr<float> empty_float(new float[tileSize * tileSize * 3]);
-		std::unique_ptr<char> empty_char(new char[tileSize * tileSize]);
-		std::memset(empty_float.get(), 0, tileSize * tileSize * 3 * sizeof(float));
-		std::memset(empty_char.get(), 0, tileSize * tileSize * sizeof(char));
+        // Compute coarse bounding box to make computations faster
+        BoundingBox coarseBboxInitial;
+        if(!computeCoarseBB(coarseBboxInitial, panoramaSize, camPose, *(intrinsic.get())))
+        {
+            continue;
+        }
 
-		// Preprocessing per view
-		for(std::size_t i = std::size_t(rangeStart); i < std::size_t(rangeStart + rangeSize); ++i)
-		{
-				const std::shared_ptr<sfmData::View> & viewIt = viewsOrderedByName[i];
+        std::vector<BoundingBox> coarsesBbox;
+        if(coarseBboxInitial.width > coarseBboxInitial.height * 2.0)
+        {
+            const int count = int(double(coarseBboxInitial.width) / double(coarseBboxInitial.height));
+            const int width = coarseBboxInitial.width / count;
 
-				// Retrieve view
-				const sfmData::View& view = *viewIt;
-				if (!sfmData.isPoseAndIntrinsicDefined(&view))
-				{
-					continue;
-				}
+            int pos = 0;
+            for(int id = 0; id < count; id++)
+            {
+                BoundingBox subCoarseBbox;
+                subCoarseBbox.left = coarseBboxInitial.left + pos;
+                subCoarseBbox.top = coarseBboxInitial.top;
+                subCoarseBbox.width = width;
+                subCoarseBbox.height = coarseBboxInitial.height;
 
-				ALICEVISION_LOG_INFO("[" << int(i) + 1 - rangeStart << "/" << rangeSize << "] Processing view " << view.getViewId() << " (" << i + 1 << "/" << viewsOrderedByName.size() << ")");
+                coarsesBbox.push_back(subCoarseBbox);
+                pos += width;
+            }
+        }
+        else
+        {
+            coarsesBbox.push_back(coarseBboxInitial);
+        }
 
-				// Get intrinsics and extrinsics
-				geometry::Pose3 camPose = sfmData.getPose(view).getTransform();
-				std::shared_ptr<camera::IntrinsicBase> intrinsic = sfmData.getIntrinsicsharedPtr(view.getIntrinsicId());
-			
-				// Compute coarse bounding box to make computations faster
-				BoundingBox coarseBbox;
-				if (!computeCoarseBB(coarseBbox, panoramaSize, camPose, *(intrinsic.get()))) 
-				{
-					continue;
-				}    
+        // Load image and convert it to linear colorspace
+        const std::string imagePath = view.getImagePath();
+        ALICEVISION_LOG_INFO("Load image with path " << imagePath);
+        image::Image<image::RGBfColor> source;
+        image::readImage(imagePath, source, image::EImageColorSpace::LINEAR);
 
-				// round to the closest tiles
-				BoundingBox snappedCoarseBbox;
-				snappedCoarseBbox = coarseBbox;
-				snappedCoarseBbox.snapToGrid(tileSize);
+        for(int idsub = 0; idsub < coarsesBbox.size(); idsub++)
+        {
+            const auto coarseBbox = coarsesBbox[idsub];
 
-				//Initialize bouding box for image
-				BoundingBox globalBbox;
-				
-				std::vector<BoundingBox> boxes;
-				for (int y = 0; y < snappedCoarseBbox.height; y += tileSize) 
-				{
-					for (int x = 0; x < snappedCoarseBbox.width; x += tileSize) 
-					{
-						BoundingBox localBbox;
-						localBbox.left = x + snappedCoarseBbox.left;
-						localBbox.top = y + snappedCoarseBbox.top;
-					    localBbox.width = tileSize;
-						localBbox.height = tileSize;
+            // round to the closest tiles
+            BoundingBox snappedCoarseBbox;
+            snappedCoarseBbox = coarseBbox;
+            snappedCoarseBbox.snapToGrid(tileSize);
 
-						localBbox.clampRight(snappedCoarseBbox.getRight());
-						localBbox.clampBottom(snappedCoarseBbox.getBottom());
+            // Initialize bouding box for image
+            BoundingBox globalBbox;
 
-						boxes.push_back(localBbox);
-					}
-				}
+            {
+                // Search for first non empty box starting from the top
+                bool found = false;
 
-				#pragma omp parallel for
-				for (int boxId = 0; boxId < boxes.size(); boxId++) {
+                for(int y = 0; y < snappedCoarseBbox.height; y += tileSize)
+                {
+#pragma omp parallel for
+                    for(int x = 0; x < snappedCoarseBbox.width; x += tileSize)
+                    {
+                        if(found)
+                        {
+                            continue;
+                        }
 
-					BoundingBox localBbox = boxes[boxId];
+                        BoundingBox localBbox;
+                        localBbox.left = x + snappedCoarseBbox.left;
+                        localBbox.top = y + snappedCoarseBbox.top;
+                        localBbox.width = tileSize;
+                        localBbox.height = tileSize;
 
-					// Prepare coordinates map
-					CoordinatesMap map;
-					if (!map.build(panoramaSize, camPose, *(intrinsic.get()), localBbox)) {
-						continue;
-					}
+                        localBbox.clampRight(snappedCoarseBbox.getRight());
+                        localBbox.clampBottom(snappedCoarseBbox.getBottom());
 
-					if (map.getBoundingBox().isEmpty()) 
-					{
-						continue;
-					}
+                        // Prepare coordinates map
+                        CoordinatesMap map;
+                        if(!map.build(panoramaSize, camPose, *(intrinsic.get()), localBbox))
+                        {
+                            continue;
+                        }
 
+#pragma omp critical
+                        {
+                            if(!map.getBoundingBox().isEmpty())
+                            {
+                                globalBbox = globalBbox.unionWith(map.getBoundingBox());
+                                found = true;
+                            }
+                        }
+                    }
 
-					#pragma omp critical 
-					{
-						globalBbox = globalBbox.unionWith(map.getBoundingBox());
-					}
-				}
+                    if(found)
+                    {
+                        break;
+                    }
+                }
+            }
 
-				//Rare case ... When all boxes valid are after the loop
-				if (globalBbox.left >= panoramaSize.first)
-				{
-					globalBbox.left -= panoramaSize.first;
-				}
+            {
+                // Search for first non empty box starting from the bottom
+                bool found = false;
+                for(int y = snappedCoarseBbox.height - 1; y >= 0; y -= tileSize)
+                {
+#pragma omp parallel for
+                    for(int x = 0; x < snappedCoarseBbox.width; x += tileSize)
+                    {
+                        if(found)
+                        {
+                            continue;
+                        }
 
-				globalBbox.width = std::min(globalBbox.width, panoramaSize.first);
+                        BoundingBox localBbox;
+                        localBbox.left = x + snappedCoarseBbox.left;
+                        localBbox.top = y + snappedCoarseBbox.top;
+                        localBbox.width = tileSize;
+                        localBbox.height = tileSize;
 
+                        localBbox.clampRight(snappedCoarseBbox.getRight());
+                        localBbox.clampBottom(snappedCoarseBbox.getBottom());
 
-				globalBbox.height = std::min(globalBbox.height, panoramaSize.second);
+                        // Prepare coordinates map
+                        CoordinatesMap map;
+                        if(!map.build(panoramaSize, camPose, *(intrinsic.get()), localBbox))
+                        {
+                            continue;
+                        }
 
-				// Load image and convert it to linear colorspace
-				std::string imagePath = view.getImagePath();
-				ALICEVISION_LOG_INFO("Load image with path " << imagePath);
-				image::Image<image::RGBfColor> source;
-				image::readImage(imagePath, source, image::EImageColorSpace::LINEAR);
+#pragma omp critical
+                        {
+                            if(!map.getBoundingBox().isEmpty())
+                            {
+                                globalBbox = globalBbox.unionWith(map.getBoundingBox());
+                                found = true;
+                            }
+                        }
+                    }
 
-				// Load metadata and update for output
-				oiio::ParamValueList metadata = image::readImageMetadata(imagePath);
-				metadata.push_back(oiio::ParamValue("AliceVision:offsetX", globalBbox.left));
-				metadata.push_back(oiio::ParamValue("AliceVision:offsetY", globalBbox.top));
-				metadata.push_back(oiio::ParamValue("AliceVision:panoramaWidth", panoramaSize.first));
-				metadata.push_back(oiio::ParamValue("AliceVision:panoramaHeight", panoramaSize.second));
-				metadata.push_back(oiio::ParamValue("AliceVision:tileSize", tileSize));
+                    if(found)
+                    {
+                        break;
+                    }
+                }
+            }
 
-				// Images will be converted in Panorama coordinate system, so there will be no more extra orientation.
-				metadata.remove("Orientation");
-				metadata.remove("orientation");
+            {
+                // Search for first non empty box starting from the left
+                bool found = false;
+                for(int x = 0; x < snappedCoarseBbox.width; x += tileSize)
+                {
+#pragma omp parallel for
+                    for(int y = 0; y < snappedCoarseBbox.height; y += tileSize)
+                    {
+                        if(found)
+                        {
+                            continue;
+                        }
 
-				// Define output paths
-				const std::string viewIdStr = std::to_string(view.getViewId());
-				const std::string viewFilepath = (fs::path(outputDirectory) / (viewIdStr + ".exr")).string();
-				const std::string maskFilepath = (fs::path(outputDirectory) / (viewIdStr + "_mask.exr")).string();
-				const std::string weightFilepath = (fs::path(outputDirectory) / (viewIdStr + "_weight.exr")).string();
+                        BoundingBox localBbox;
+                        localBbox.left = x + snappedCoarseBbox.left;
+                        localBbox.top = y + snappedCoarseBbox.top;
+                        localBbox.width = tileSize;
+                        localBbox.height = tileSize;
 
-				// Create output images
-				std::unique_ptr<oiio::ImageOutput> out_view = oiio::ImageOutput::create(viewFilepath);
-				std::unique_ptr<oiio::ImageOutput> out_mask = oiio::ImageOutput::create(maskFilepath);
-				std::unique_ptr<oiio::ImageOutput> out_weights = oiio::ImageOutput::create(weightFilepath);
+                        localBbox.clampRight(snappedCoarseBbox.getRight());
+                        localBbox.clampBottom(snappedCoarseBbox.getBottom());
 
+                        // Prepare coordinates map
+                        CoordinatesMap map;
+                        if(!map.build(panoramaSize, camPose, *(intrinsic.get()), localBbox))
+                        {
+                            continue;
+                        }
 
-				// Define output properties
-				oiio::ImageSpec spec_view(globalBbox.width, globalBbox.height, 3, typeColor);
-				oiio::ImageSpec spec_mask(globalBbox.width, globalBbox.height, 1, oiio::TypeDesc::UCHAR);
-				oiio::ImageSpec spec_weights(globalBbox.width, globalBbox.height, 1, oiio::TypeDesc::HALF);
+#pragma omp critical
+                        {
+                            if(!map.getBoundingBox().isEmpty())
+                            {
+                                globalBbox = globalBbox.unionWith(map.getBoundingBox());
+                                found = true;
+                            }
+                        }
+                    }
 
-				spec_view.tile_width = tileSize;
-				spec_view.tile_height = tileSize;
-				spec_mask.tile_width = tileSize;
-				spec_mask.tile_height = tileSize;
-				spec_weights.tile_width = tileSize;
-				spec_weights.tile_height = tileSize;
-				spec_view.attribute("compression", "piz");
-				spec_weights.attribute("compression", "piz");
-				spec_mask.attribute("compression", "piz");
-				spec_view.extra_attribs = metadata;
-				spec_mask.extra_attribs = metadata;
-				spec_weights.extra_attribs = metadata;
+                    if(found)
+                    {
+                        break;
+                    }
+                }
+            }
 
-				out_view->open(viewFilepath, spec_view);
-				out_mask->open(maskFilepath, spec_mask);
-				out_weights->open(weightFilepath, spec_weights);
+            {
+                // Search for first non empty box starting from the left
+                bool found = false;
+                for(int x = snappedCoarseBbox.width - 1; x >= 0; x -= tileSize)
+                {
+#pragma omp parallel for
+                    for(int y = 0; y < snappedCoarseBbox.height; y += tileSize)
+                    {
+                        if(found)
+                        {
+                            continue;
+                        }
 
-				GaussianPyramidNoMask pyramid(source.Width(), source.Height());
-				if (!pyramid.process(source)) {
-					ALICEVISION_LOG_ERROR("Problem creating pyramid.");
-					continue;
-				}
+                        BoundingBox localBbox;
+                        localBbox.left = x + snappedCoarseBbox.left;
+                        localBbox.top = y + snappedCoarseBbox.top;
+                        localBbox.width = tileSize;
+                        localBbox.height = tileSize;
 
-				boxes.clear();
-				for (int y = 0; y < globalBbox.height; y += tileSize) 
-				{
-					for (int x = 0; x < globalBbox.width; x += tileSize) 
-					{
-						BoundingBox localBbox;
-						localBbox.left = x + globalBbox.left;
-						localBbox.top = y + globalBbox.top;
-						localBbox.width = tileSize;
-						localBbox.height = tileSize;
-						boxes.push_back(localBbox);
-					}
-				}
+                        localBbox.clampRight(snappedCoarseBbox.getRight());
+                        localBbox.clampBottom(snappedCoarseBbox.getBottom());
 
-				
-				#pragma omp parallel for 
-				for (int boxId = 0; boxId < boxes.size(); boxId++) 
-				{
-					BoundingBox localBbox = boxes[boxId];
+                        // Prepare coordinates map
+                        CoordinatesMap map;
+                        if(!map.build(panoramaSize, camPose, *(intrinsic.get()), localBbox))
+                        {
+                            continue;
+                        }
 
-					int x = localBbox.left - globalBbox.left;
-					int y = localBbox.top - globalBbox.top;
+#pragma omp critical
+                        {
+                            if(!map.getBoundingBox().isEmpty())
+                            {
+                                globalBbox = globalBbox.unionWith(map.getBoundingBox());
+                                found = true;
+                            }
+                        }
+                    }
 
-					// Prepare coordinates map
-					CoordinatesMap map;
-					if (!map.build(panoramaSize, camPose, *(intrinsic.get()), localBbox)) 
-					{
-						continue;
-					}
+                    if(found)
+                    {
+                        break;
+                    }
+                }
+            }
 
-					// Warp image
-					GaussianWarper warper;
-					if (!warper.warp(map, pyramid, clampHalf)) {
-						continue;
-					}
+            // Rare case ... When all boxes valid are after the loop
+            if(globalBbox.left >= panoramaSize.first)
+            {
+                globalBbox.left -= panoramaSize.first;
+            }
 
-					// Alpha mask
-					aliceVision::image::Image<float> weights;
-					if (!distanceToCenter(weights, map, intrinsic->w(), intrinsic->h())) {
-						continue;
-					}
+            globalBbox.width = std::min(globalBbox.width, panoramaSize.first);
+            globalBbox.height = std::min(globalBbox.height, panoramaSize.second);
 
-					// Store
-					#pragma omp critical 
-					{
-						out_view->write_tile(x, y, 0, oiio::TypeDesc::FLOAT, warper.getColor().data());
-					}
+            // Load metadata and update for output
+            oiio::ParamValueList metadata = image::readImageMetadata(imagePath);
+            metadata.push_back(oiio::ParamValue("AliceVision:offsetX", globalBbox.left));
+            metadata.push_back(oiio::ParamValue("AliceVision:offsetY", globalBbox.top));
+            metadata.push_back(oiio::ParamValue("AliceVision:panoramaWidth", panoramaSize.first));
+            metadata.push_back(oiio::ParamValue("AliceVision:panoramaHeight", panoramaSize.second));
+            metadata.push_back(oiio::ParamValue("AliceVision:tileSize", tileSize));
 
-					// Store
-					#pragma omp critical 
-					{
-						out_mask->write_tile(x, y, 0, oiio::TypeDesc::UCHAR, warper.getMask().data());
-					}
+            // Images will be converted in Panorama coordinate system, so there will be no more extra orientation.
+            metadata.remove("Orientation");
+            metadata.remove("orientation");
 
-					// Store
-					#pragma omp critical 
-					{
-						out_weights->write_tile(x, y, 0, oiio::TypeDesc::FLOAT, weights.data());
-					}
-				}
+            // Define output paths
+            const std::string viewIdStr = std::to_string(view.getViewId());
+            const std::string subIdStr = std::to_string(idsub);
+            const std::string viewFilepath =
+                (fs::path(outputDirectory) / (viewIdStr + "_" + subIdStr + ".exr")).string();
+            const std::string maskFilepath =
+                (fs::path(outputDirectory) / (viewIdStr + "_" + subIdStr + "_mask.exr")).string();
+            const std::string weightFilepath =
+                (fs::path(outputDirectory) / (viewIdStr + "_" + subIdStr + "_weight.exr")).string();
 
-				out_view->close();
-				out_mask->close();
-				out_weights->close();
-		}
+            // Create output images
+            std::unique_ptr<oiio::ImageOutput> out_view = oiio::ImageOutput::create(viewFilepath);
+            std::unique_ptr<oiio::ImageOutput> out_mask = oiio::ImageOutput::create(maskFilepath);
+            std::unique_ptr<oiio::ImageOutput> out_weights = oiio::ImageOutput::create(weightFilepath);
 
-		return EXIT_SUCCESS;
+            // Define output properties
+            oiio::ImageSpec spec_view(globalBbox.width, globalBbox.height, 3, typeColor);
+            oiio::ImageSpec spec_mask(globalBbox.width, globalBbox.height, 1, oiio::TypeDesc::UCHAR);
+            oiio::ImageSpec spec_weights(globalBbox.width, globalBbox.height, 1, oiio::TypeDesc::HALF);
+
+            spec_view.tile_width = tileSize;
+            spec_view.tile_height = tileSize;
+            spec_mask.tile_width = tileSize;
+            spec_mask.tile_height = tileSize;
+            spec_weights.tile_width = tileSize;
+            spec_weights.tile_height = tileSize;
+            spec_view.attribute("compression", "zip");
+            spec_weights.attribute("compression", "zip");
+            spec_mask.attribute("compression", "zip");
+            spec_view.extra_attribs = metadata;
+            spec_mask.extra_attribs = metadata;
+            spec_weights.extra_attribs = metadata;
+
+            out_view->open(viewFilepath, spec_view);
+            out_mask->open(maskFilepath, spec_mask);
+            out_weights->open(weightFilepath, spec_weights);
+
+            GaussianPyramidNoMask pyramid(source.Width(), source.Height());
+            if(!pyramid.process(source))
+            {
+                ALICEVISION_LOG_ERROR("Problem creating pyramid.");
+                continue;
+            }
+
+            std::vector<BoundingBox> boxes;
+            for(int y = 0; y < globalBbox.height; y += tileSize)
+            {
+                for(int x = 0; x < globalBbox.width; x += tileSize)
+                {
+                    BoundingBox localBbox;
+                    localBbox.left = x + globalBbox.left;
+                    localBbox.top = y + globalBbox.top;
+                    localBbox.width = tileSize;
+                    localBbox.height = tileSize;
+                    boxes.push_back(localBbox);
+                }
+            }
+
+#pragma omp parallel for
+            for(int boxId = 0; boxId < boxes.size(); boxId++)
+            {
+                BoundingBox localBbox = boxes[boxId];
+
+                int x = localBbox.left - globalBbox.left;
+                int y = localBbox.top - globalBbox.top;
+
+                // Prepare coordinates map
+                CoordinatesMap map;
+                if(!map.build(panoramaSize, camPose, *(intrinsic.get()), localBbox))
+                {
+                    continue;
+                }
+
+                // Warp image
+                GaussianWarper warper;
+                if(!warper.warp(map, pyramid, clampHalf))
+                {
+                    continue;
+                }
+
+                // Alpha mask
+                aliceVision::image::Image<float> weights;
+                if(!distanceToCenter(weights, map, intrinsic->w(), intrinsic->h()))
+                {
+                    continue;
+                }
+
+// Store
+#pragma omp critical
+                {
+                    out_view->write_tile(x, y, 0, oiio::TypeDesc::FLOAT, warper.getColor().data());
+                }
+
+// Store
+#pragma omp critical
+                {
+                    out_mask->write_tile(x, y, 0, oiio::TypeDesc::UCHAR, warper.getMask().data());
+                }
+
+// Store
+#pragma omp critical
+                {
+                    out_weights->write_tile(x, y, 0, oiio::TypeDesc::FLOAT, weights.data());
+                }
+            }
+
+            out_view->close();
+            out_mask->close();
+            out_weights->close();
+        }
+    }
+
+    return EXIT_SUCCESS;
 }

@@ -10,12 +10,13 @@
 #include <aliceVision/system/Timer.hpp>
 #include <aliceVision/sfmDataIO/sfmDataIO.hpp>
 #include <aliceVision/sfmDataIO/AlembicExporter.hpp>
+#include <aliceVision/sfmDataIO/viewIO.hpp>
 #include <aliceVision/image/all.hpp>
+#include <aliceVision/system/ProgressDisplay.hpp>
 #include <aliceVision/utils/regexFilter.hpp>
 
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
-#include <boost/progress.hpp>
 
 #include <cstdlib>
 #include <limits>
@@ -35,7 +36,7 @@ namespace fs = boost::filesystem;
 
 
 oiio::ROI computeRod(const camera::IntrinsicBase* intrinsic, bool correctPrincipalPoint)
-               
+
 {
     std::vector<Vec2> pointToBeChecked;
     pointToBeChecked.push_back(Vec2(0, 0));
@@ -99,23 +100,19 @@ oiio::ROI convertRodToRoi(const camera::IntrinsicBase* intrinsic, const oiio::RO
 int aliceVision_main(int argc, char** argv)
 {
   // command-line parameters
-
-  std::string verboseLevel = system::EVerboseLevel_enumToString(system::Logger::getDefaultVerboseLevel());
   std::string sfmDataFilename;
   std::string outFolder;
-  std::string outImageFileTypeName = image::EImageFileType_enumToString(image::EImageFileType::JPEG);
-  std::string outMapFileTypeName = image::EImageFileType_enumToString(image::EImageFileType::EXR);
+
+  // user optional parameters
   bool undistortedImages = false;
   bool exportUVMaps = false;
   bool exportFullROD = false;
   bool correctPrincipalPoint = true;
   std::map<IndexT, oiio::ROI> roiForIntrinsic;
-
-  // user optional parameters
-
   std::string viewFilter;
- 
-  po::options_description allParams("AliceVision exportAnimatedCamera");
+  std::string sfmDataFilterFilepath;
+  std::string outImageFileTypeName = image::EImageFileType_enumToString(image::EImageFileType::JPEG);
+  std::string outMapFileTypeName = image::EImageFileType_enumToString(image::EImageFileType::EXR);
 
   po::options_description requiredParams("Required parameters");
   requiredParams.add_options()
@@ -132,56 +129,27 @@ int aliceVision_main(int argc, char** argv)
     ("exportFullROD", po::value<bool>(&exportFullROD)->default_value(exportFullROD),
       "Export undistorted images with the full Region of Definition (RoD). Only supported by the EXR image file format.")
     ("exportUVMaps", po::value<bool>(&exportUVMaps)->default_value(exportUVMaps),
-      "Export UV Maps for Nuke in exr format ")
+      "Export UV Maps in exr format to apply distort/undistort transformations in a compositing software.")
     ("correctPrincipalPoint", po::value<bool>(&correctPrincipalPoint)->default_value(correctPrincipalPoint),
       "apply an offset to correct the position of the principal point")
     ("viewFilter", po::value<std::string>(&viewFilter)->default_value(viewFilter),
-      "Path to the output SfMData file (with only views and poses).")
+      "Select the cameras to export using an expression based on the image filepath. Export all cameras if empty.")
+    ("sfmDataFilter", po::value<std::string>(&sfmDataFilterFilepath)->default_value(sfmDataFilterFilepath),
+      "Filter out cameras from the export if they are part of this SfMData. Export all cameras if empty.")
     ("undistortedImageType", po::value<std::string>(&outImageFileTypeName)->default_value(outImageFileTypeName),
       image::EImageFileType_informations().c_str());
 
-  po::options_description logParams("Log parameters");
-  logParams.add_options()
-    ("verboseLevel,v", po::value<std::string>(&verboseLevel)->default_value(verboseLevel),
-      "verbosity level (fatal,  error, warning, info, debug, trace).");
-
-  allParams.add(requiredParams).add(optionalParams).add(logParams);
-  ALICEVISION_LOG_DEBUG("UVmap: " + std::to_string(exportUVMaps));
-
-  po::variables_map vm;
-  try
+  CmdLine cmdline("AliceVision exportAnimatedCamera");
+  cmdline.add(requiredParams);
+  cmdline.add(optionalParams);
+  if (!cmdline.execute(argc, argv))
   {
-    po::store(po::parse_command_line(argc, argv, allParams), vm);
-
-    if(vm.count("help") || (argc == 1))
-    {
-      ALICEVISION_COUT(allParams);
-      return EXIT_SUCCESS;
-    }
-    po::notify(vm);
+      return EXIT_FAILURE;
   }
-  catch(boost::program_options::required_option& e)
-  {
-    ALICEVISION_CERR("ERROR: " << e.what());
-    ALICEVISION_COUT("Usage:\n\n" << allParams);
-    return EXIT_FAILURE;
-  }
-  catch(boost::program_options::error& e)
-  {
-    ALICEVISION_CERR("ERROR: " << e.what());
-    ALICEVISION_COUT("Usage:\n\n" << allParams);
-    return EXIT_FAILURE;
-  }
-
-  ALICEVISION_COUT("Program called with the following parameters:");
-  ALICEVISION_COUT(vm);
 
   // set output file type
   const image::EImageFileType outputFileType = image::EImageFileType_stringToEnum(outImageFileTypeName);
   const image::EImageFileType outputMapFileType = image::EImageFileType_stringToEnum(outMapFileTypeName);
-
-  // set verbose level
-  system::Logger::get()->setLogLevel(verboseLevel);
 
   if(exportFullROD && outputFileType != image::EImageFileType::EXR)
   {
@@ -202,7 +170,50 @@ int aliceVision_main(int argc, char** argv)
     ALICEVISION_LOG_ERROR("The input SfMData file '" << sfmDataFilename << "' is empty.");
     return EXIT_FAILURE;
   }
+
+  sfmData::SfMData sfmDataFilter;
+  if(!sfmDataFilterFilepath.empty())
+  {
+      if(!sfmDataIO::Load(sfmDataFilter, sfmDataFilterFilepath, sfmDataIO::ESfMData::VIEWS))
+      {
+        ALICEVISION_LOG_ERROR("The input filter SfMData file '" << sfmDataFilterFilepath << "' cannot be read.");
+        return EXIT_FAILURE;
+      }
+  }
   system::Timer timer;
+
+  // Decide the views and instrinsics to export
+  sfmData::SfMData sfmDataExport;
+  for(auto& viewPair : sfmData.getViews())
+  {
+    sfmData::View& view = *(viewPair.second);
+
+    // regex filter
+    if(!viewFilter.empty())
+    {
+        // Skip the view if it does not match the expression filter
+        const std::regex regexFilter = utils::filterToRegex(viewFilter);
+        if(!std::regex_match(view.getImagePath(), regexFilter))
+            continue;
+    }
+
+    // sfmData filter
+    if(!sfmDataFilterFilepath.empty())
+    {
+        // Skip the view if it exist in the sfmDataFilter
+        if(sfmDataFilter.getViews().find(view.getViewId()) != sfmDataFilter.getViews().end())
+            continue;
+    }
+
+    sfmDataExport.getViews().emplace(view.getViewId(), viewPair.second);
+
+    // Export intrinsics with at least one view with a valid pose
+    if(sfmData.isPoseAndIntrinsicDefined(&view))
+    {
+        // std::map::emplace does nothing if the key already exist
+        sfmDataExport.getIntrinsics().emplace(view.getIntrinsicId(), sfmData.getIntrinsics().at(view.getIntrinsicId()));
+    }
+  }
 
   const fs::path undistortedImagesFolderPath = fs::path(outFolder) / "undistort";
   const bool writeUndistordedResult = undistortedImages || exportUVMaps;
@@ -216,7 +227,7 @@ int aliceVision_main(int argc, char** argv)
   // export distortion map / one image per intrinsic
   if(exportUVMaps)
   {
-      for(const auto& intrinsicPair : sfmData.getIntrinsics())
+      for(const auto& intrinsicPair : sfmDataExport.getIntrinsics())
       {
           const camera::IntrinsicBase& intrinsic = *(intrinsicPair.second);
           image::Image<image::RGBfColor> image_dist;
@@ -234,59 +245,77 @@ int aliceVision_main(int argc, char** argv)
           }
           ALICEVISION_LOG_DEBUG("ppCorrection:" + std::to_string(ppCorrection[0]) + ";" +std::to_string(ppCorrection[1]));
 
-          // flip and normalize for Nuke
-#pragma omp parallel for
-          for(int y = 0; y < int(intrinsic.h()); ++y)
+          // UV Map: Undistort
           {
-              for(int x = 0; x < int(intrinsic.w()); ++x)
+              // flip and normalize as UVMap
+    #pragma omp parallel for
+              for(int y = 0; y < int(intrinsic.h()); ++y)
               {
-                  const Vec2 undisto_pix(x, y);
-                  // compute coordinates with distortion
-                  const Vec2 disto_pix = intrinsic.get_d_pixel(undisto_pix) + ppCorrection;
+                  for(int x = 0; x < int(intrinsic.w()); ++x)
+                  {
+                      const Vec2 undisto_pix(x, y);
+                      // compute coordinates with distortion
+                      const Vec2 disto_pix = intrinsic.get_d_pixel(undisto_pix) + ppCorrection;
 
-                  image_dist(y, x).r() = (disto_pix[0]) / (intrinsic.w() - 1);
-                  image_dist(y, x).g() = (intrinsic.h() - 1 - disto_pix[1]) / (intrinsic.h() - 1);
+                      image_dist(y, x).r() = float((disto_pix[0]) / (intrinsic.w() - 1));
+                      image_dist(y, x).g() = float((intrinsic.h() - 1 - disto_pix[1]) / (intrinsic.h() - 1));
+                  }
               }
+
+              const std::string dstImage =
+                  (undistortedImagesFolderPath / (std::to_string(intrinsicPair.first) + "_UVMap_Undistort." +
+                                                  image::EImageFileType_enumToString(outputMapFileType))).string();
+              image::writeImage(dstImage, image_dist, image::ImageWriteOptions());
           }
 
-          const std::string dstImage =
-              (undistortedImagesFolderPath / ("Distortion_UVMap_" + std::to_string(intrinsicPair.first) + "." +
-                                              image::EImageFileType_enumToString(outputMapFileType))).string();
-          image::writeImage(dstImage, image_dist, image::EImageColorSpace::AUTO);
+          // UV Map: Distort
+          {
+              // flip and normalize as UVMap
+    #pragma omp parallel for
+              for(int y = 0; y < int(intrinsic.h()); ++y)
+              {
+                  for(int x = 0; x < int(intrinsic.w()); ++x)
+                  {
+                      const Vec2 disto_pix(x, y);
+                      // compute coordinates without distortion
+                      const Vec2 undisto_pix = intrinsic.get_ud_pixel(disto_pix) - ppCorrection;
+
+                      image_dist(y, x).r() = float((undisto_pix[0]) / (intrinsic.w() - 1));
+                      image_dist(y, x).g() = float((intrinsic.h() - 1 - undisto_pix[1]) / (intrinsic.h() - 1));
+                  }
+              }
+
+              const std::string dstImage =
+                  (undistortedImagesFolderPath / (std::to_string(intrinsicPair.first) + "_UVMap_Distort." +
+                                                  image::EImageFileType_enumToString(outputMapFileType))).string();
+              image::writeImage(dstImage, image_dist, image::ImageWriteOptions());
+          }
       }
   }
 
   ALICEVISION_LOG_INFO("Build animated camera(s)...");
 
   image::Image<image::RGBfColor> image, image_ud;
-  boost::progress_display progressBar(sfmData.getViews().size());
+  auto progressDisplay = system::createConsoleProgressDisplay(sfmDataExport.getViews().size(),
+                                                              std::cout);
 
-  for(const auto& viewPair : sfmData.getViews())
+  for(const auto& viewPair : sfmDataExport.getViews())
   {
     const sfmData::View& view = *(viewPair.second);
 
-    ++progressBar;
-
-    // regex filter
-    if(!viewFilter.empty())
-    {
-        const std::regex regexFilter = utils::filterToRegex(viewFilter);
-        if(!std::regex_match(view.getImagePath(), regexFilter))
-            continue;
-    }
+    ++progressDisplay;
 
     const std::string imagePathStem = fs::path(viewPair.second->getImagePath()).stem().string();
 
     // undistort camera images
     if(undistortedImages)
     {
-      sfmData::Intrinsics::const_iterator iterIntrinsic = sfmData.getIntrinsics().find(view.getIntrinsicId());
+      sfmData::Intrinsics::const_iterator iterIntrinsic = sfmDataExport.getIntrinsics().find(view.getIntrinsicId());
       const std::string dstImage = (undistortedImagesFolderPath / (std::to_string(view.getIntrinsicId()) + "_" + imagePathStem + "." + image::EImageFileType_enumToString(outputFileType))).string();
       const camera::IntrinsicBase * cam = iterIntrinsic->second.get();
 
       image::readImage(view.getImagePath(), image, image::EImageColorSpace::LINEAR);
       oiio::ParamValueList metadata = image::readImageMetadata(view.getImagePath());
-      oiio::ROI roiNuke;
 
       if(cam->isValid() && cam->hasDistortion())
       {
@@ -311,70 +340,64 @@ int aliceVision_main(int argc, char** argv)
                                   std::to_string(rod.ybegin) + ";" + std::to_string(rod.yend));
             camera::UndistortImage(image, cam, image_ud, image::FBLACK, correctPrincipalPoint, rod);
             const oiio::ROI roi = convertRodToRoi(cam, rod);
-            writeImage(dstImage, image_ud, image::EImageColorSpace::AUTO, oiio::ParamValueList(), roi);
+            writeImage(dstImage, image_ud, image::ImageWriteOptions(), oiio::ParamValueList(), roi);
         }
         else
         {
             camera::UndistortImage(image, cam, image_ud, image::FBLACK, correctPrincipalPoint);
-            image::writeImage(dstImage, image_ud, image::EImageColorSpace::AUTO, metadata);
+            image::writeImage(dstImage, image_ud, image::ImageWriteOptions(), metadata);
         }
       }
       else // (no distortion)
       {
         // copy the image since there is no distortion
-        image::writeImage(dstImage, image, image::EImageColorSpace::AUTO, metadata);
+        image::writeImage(dstImage, image, image::ImageWriteOptions(), metadata);
       }
     }
 
     // pose and intrinsic defined
+    // Note: we use "sfmData" and not "sfmDataExport" to have access to poses
     if(!sfmData.isPoseAndIntrinsicDefined(&view))
       continue;
 
     std::string cameraName =  view.getMetadataMake() + "_" + view.getMetadataModel();
-    std::size_t frameN = 0;
+    IndexT frameN = 0;
     bool isSequence = false;
 
     if(view.isPartOfRig())
       cameraName += std::string("_") + std::to_string(view.getSubPoseId());
 
-    // check if the image is in a sequence
-    // regexFrame: ^(.*\D)?([0-9]+)([\-_\.].*[[:alpha:]].*)?$
-    std::regex regexFrame("^(.*\\D)?"    // the optional prefix which end with a non digit character
-                      "([0-9]+)"         // the sequence frame number
-                      "([\\-_\\.]"       // the suffix start with a separator
-                      ".*[[:alpha:]].*"  // at least one letter in the suffix
-                      ")?$"              // suffix is optional
-                      );
-
-    std::smatch matches;
-    if(std::regex_search(imagePathStem, matches, regexFrame))
     {
-       const std::string prefix = matches[1];
-       const std::string suffix = matches[3];
-       frameN = std::stoi(matches[2]);
+      std::string prefix;
+      std::string suffix;
 
-       if(prefix.empty() && suffix.empty())
-         cameraName = std::string("Undefined") + "_" + cameraName;
-       else
-         cameraName = prefix + "frame" + suffix + "_" + cameraName;
+      if(sfmDataIO::extractNumberFromFileStem(imagePathStem, frameN, prefix, suffix))
+      {
+        if(prefix.empty() && suffix.empty())
+            cameraName = std::string("Undefined") + "_" + cameraName;
+        else
+            cameraName = prefix + "frame" + suffix + "_" + cameraName;
 
-       isSequence = true;
+        isSequence = true;
+      }
     }
 
-    if(view.hasMetadataDateTimeOriginal()) // picture
-    {
-        const std::size_t key = view.getMetadataDateTimestamp();
+    ALICEVISION_LOG_TRACE("imagePathStem: " << imagePathStem << ", frameN: " << frameN << ", isSequence: " << isSequence << ", cameraName: " << cameraName);
 
-      dslrViewPerKey[cameraName].push_back({key, view.getViewId()});
-    }
-    else if(isSequence) // video
+    if(isSequence) // video
     {
         const std::size_t frame = frameN;
         videoViewPerFrame[cameraName][frame] = view.getViewId();
     }
+    else if(view.hasMetadataDateTimeOriginal()) // picture
+    {
+        const std::size_t key = view.getMetadataDateTimestamp();
+
+        dslrViewPerKey[cameraName].push_back({key, view.getViewId()});
+    }
     else // no time or sequence information
     {
-      dslrViewPerKey[cameraName].push_back({0, view.getViewId()});
+        dslrViewPerKey[cameraName].push_back({0, view.getViewId()});
     }
   }
 
@@ -391,6 +414,18 @@ int aliceVision_main(int argc, char** argv)
 
     for(const auto& camera : dslrViewPerKey)
       ss << "\t    - " << camera.first << " | " << camera.second.size() << " image(s)" << std::endl;
+
+    ss << "\t- # Used camera intrinsics: " << sfmDataExport.getIntrinsics().size() << std::endl;
+
+    for(const auto& intrinsicIt : sfmDataExport.getIntrinsics())
+    {
+      const auto intrinsic = intrinsicIt.second;
+      ss << "\t    - "
+         << intrinsicIt.first << " | "
+         << intrinsic->w() << "x" << intrinsic->h()
+         << " " << intrinsic->serialNumber()
+         << std::endl;
+    }
 
     ALICEVISION_LOG_INFO(ss.str());
   }
@@ -414,21 +449,24 @@ int aliceVision_main(int argc, char** argv)
       {
         const IndexT viewId = findFrameIt->second;
 
-        const auto findViewIt = sfmData.getViews().find(viewId);
-        if(findViewIt != sfmData.getViews().end())
-        {
-            ALICEVISION_LOG_DEBUG("[" + cameraViews.first +"][video] Keyframe added");
-            const IndexT intrinsicId = findViewIt->second->getIntrinsicId();
-            const camera::Pinhole* cam = dynamic_cast<camera::Pinhole*>(sfmData.getIntrinsicPtr(intrinsicId));
-            const sfmData::CameraPose pose = sfmData.getPose(*findViewIt->second);
-            const std::string& imagePath = findViewIt->second->getImagePath();
-            const std::string undistortedImagePath = (undistortedImagesFolderPath / (std::to_string(intrinsicId) + "_" + fs::path(imagePath).stem().string() + "." + image::EImageFileType_enumToString(outputFileType))).string();
+        // Note: we use "sfmData" and not "sfmDataExport" to have access to poses
 
-            exporter.addCameraKeyframe(pose.getTransform(), cam, (undistortedImages) ? undistortedImagePath : imagePath, viewId, intrinsicId);
-            continue;
-        }
+        const auto findViewIt = sfmData.getViews().find(viewId);
+        assert(findViewIt != sfmData.getViews().end());
+
+        ALICEVISION_LOG_DEBUG("[" + cameraViews.first +"][video] Keyframe added");
+        const IndexT intrinsicId = findViewIt->second->getIntrinsicId();
+        const camera::Pinhole* cam = dynamic_cast<camera::Pinhole*>(sfmData.getIntrinsicPtr(intrinsicId));
+        const sfmData::CameraPose pose = sfmData.getPose(*findViewIt->second);
+        const std::string& imagePath = findViewIt->second->getImagePath();
+        const std::string undistortedImagePath = (undistortedImagesFolderPath / (std::to_string(intrinsicId) + "_" + fs::path(imagePath).stem().string() + "." + image::EImageFileType_enumToString(outputFileType))).string();
+
+        exporter.addCameraKeyframe(pose.getTransform(), cam, (undistortedImages) ? undistortedImagePath : imagePath, viewId, intrinsicId);
       }
-      exporter.jumpKeyframe(std::to_string(frame));
+      else
+      {
+        exporter.jumpKeyframe(std::to_string(frame));
+      }
     }
   }
 

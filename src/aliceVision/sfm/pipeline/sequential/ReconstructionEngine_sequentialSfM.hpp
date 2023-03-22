@@ -11,6 +11,7 @@
 #include <aliceVision/sfm/LocalBundleAdjustmentGraph.hpp>
 #include <aliceVision/sfm/pipeline/localization/SfMLocalizer.hpp>
 #include <aliceVision/sfm/pipeline/pairwiseMatchesIO.hpp>
+#include <aliceVision/sfm/pipeline/RigSequence.hpp>
 #include <aliceVision/sfmDataIO/sfmDataIO.hpp>
 #include <aliceVision/feature/FeaturesPerView.hpp>
 #include <aliceVision/track/TracksBuilder.hpp>
@@ -44,10 +45,11 @@ public:
     bool useLocalBundleAdjustment = false;
     int localBundelAdjustementGraphDistanceLimit = 1;
 
-    bool useRigConstraint = true;
+    RigParams rig;
 
     /// Has fixed Intrinsics
     bool lockAllIntrinsics = false;
+    int minNbCamerasToRefinePrincipalPoint = 3;
 
     /// minimum number of obersvations to triangulate a 3d point.
     std::size_t minNbObservationsForTriangulation = 2;
@@ -328,6 +330,14 @@ private:
       std::map<IndexT, std::set<IndexT> > & mapTracksToTriangulate) const;
 
   /**
+   * @brief  Loop over the reconstructed views, and for each landmark of the reconstructed views, 
+   * loop over their tracks to detect which views may have new information using this newly reconstructed views
+   * 
+   * @param newReconstructedViews a list of reconstructed views to analyse
+   */
+  void registerChanges(const std::set<IndexT>& newReconstructedViews);
+
+  /**
    * @brief Remove observation/tracks that have:
    * - too large residual error
    * - too small angular value
@@ -354,6 +364,9 @@ private:
   int _pyramidThreshold;
 
   // Temporary data
+
+  /// List of views which are affected by a previous update
+  std::set<IndexT> _registeredCandidatesViews;
 
   /// Putative landmark tracks (visibility per potential 3D point)
   track::TracksMap _map_tracks;

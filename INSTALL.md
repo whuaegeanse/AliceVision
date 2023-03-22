@@ -7,7 +7,7 @@ Build instructions
 Required tools:
 * CMake >= 3.11
 * Git
-* C/C++ compiler (gcc or visual studio or clang) with C++11 support.
+* C/C++ compiler (gcc or visual studio or clang) with C++14 support (i.e. gcc >= 5, clang >= 3.4, msvc >= 19.10, cuda >= 9.0).
 
 ### Compile the project
 
@@ -17,48 +17,59 @@ Getting the sources:
 git clone https://github.com/alicevision/AliceVision.git --recursive
 ```
 
-As AliceVision use some C++11 features you must have a c++11 ready compiler:
-- Visual studio >= 2015 (English language pack required for vcpkg)
-- GCC >= 4.7
-- Clang >= 3.3
-
 Dependencies
 ------------
 
-AliceVision depends on:
+AliceVision depends on external libraries:
 
-* Boost >= 1.70.0
-* Eigen >= 3.3.4
-* Ceres >= 1.10.0
-* Flann >= 1.8.4 (internal)
-* CoinUtils >= 2.9.3 (internal)
-* Coin-or linear programming (Clp) (internal)
-* Open Solver Interface (Osi) >= 0.106.10 (internal)
-* Lemon >= 1.3 (internal)
-* OpenEXR >= 2.4.0
-* OpenImageIO >= 2.1.0
-* Geogram >= 1.5.4 (https://gforge.inria.fr/frs/?group_id=5833)
-* MeshSDFilter (internal)
-* OpenMesh (internal)
-* zlib
+* [Assimp >= 5.0.0](https://github.com/assimp/assimp)
+* [Boost >= 1.74.0](https://www.boost.org)
+* [Ceres >= 1.10.0](https://github.com/ceres-solver/ceres-solver)
+* [Eigen >= 3.3.4](https://gitlab.com/libeigen/eigen)
+* [Geogram >= 1.7.5](https://gforge.inria.fr/frs/?group_id=5833)
+* [Geogram >= 1.7.5](https://github.com/BrunoLevy/geogram)
+* [Expat >= 2.4.8](https://libexpat.github.io/)
+* [OpenEXR >= 2.5](https://github.com/AcademySoftwareFoundation/openexr)
+* [OpenImageIO >= 2.1.0 (recommended >= 2.4.6)](https://github.com/OpenImageIO/oiio)
+* [zlib](https://www.zlib.net)
 
 Other optional libraries can enable specific features (check "CMake Options" for enabling them):
 
-* OpenMP (enable multi-threading)
-* Mosek 5 (linear programming)
-* OpenCV >= 3.2 (feature extraction, calibration module, video IO)
 * Alembic (data I/O)
 * CCTag (feature extraction/matching and localization on CPU or GPU)
+* Cuda >= 7.0 (feature extraction and depth map computation)
+* Magma (required for UncertaintyTE)
+* Mosek >= 6 (linear programming)
+* OpenCV >= 3.4.11 (feature extraction, calibration module, video IO), >= 4.5 for colorchecker (mcc)
+* OpenGV (rig calibration and localization)
+* OpenMP (enable multi-threading)
+* PCL (Point Cloud Library) >= 1.12.1 for the registration module
 * PopSift (feature extraction on GPU)
 * UncertaintyTE (Uncertainty computation)
-* Magma (required for UncertaintyTE)
-* Cuda >= 7.0 (feature extraction and depth map computation)
-* OpenGV (rig calibration and localization)
+* CoinUtils >= 2.9.3 (if you need to build it use [our fork](https://github.com/alicevision/CoinUtils) with a CMake build system)
+* Coin-or linear programming (Clp) (if you need to build it use [our fork](https://github.com/alicevision/Clp) with a CMake build system)
+* Open Solver Interface (Osi) >= 0.106.10 (if you need to build it use [our fork](https://github.com/alicevision/Osi))
+
+
+AliceVision also depends on some embedded libraries:
+
+* Flann >= 1.8.4 (internal)
+* Lemon >= 1.3 (internal)
+* MeshSDFilter (internal)
+* OpenMesh (internal)
+
+
 
 Building the project using vcpkg (recommended on Windows)
 --------------------------------
-[Vcpkg](https://github.com/Microsoft/vcpkg) is a tool that helps in acquiring, building, and managing C/C++ libraries.
-AliceVision's required dependencies can be built with it. Follow the [installation guide](https://github.com/Microsoft/vcpkg/blob/master/README.md#quick-start) to setup vcpkg.
+[Vcpkg](https://github.com/alicevision/vcpkg) is a package manager that helps in acquiring, building, and managing C/C++ libraries.
+AliceVision's required dependencies can be built with it. Follow the [installation guide](https://github.com/alicevision/vcpkg/blob/alicevision_master/README.md#quick-start-windows) to setup vcpkg.
+
+```bash
+git clone https://github.com/alicevision/vcpkg --branch alicevision_master
+cd vcpkg
+.\bootstrap-vcpkg.bat
+```
 
 **Note**: while started as a Windows only project, vcpkg recently became cross-platform. In the scope of AliceVision, it has only been tested on Windows.
 
@@ -95,11 +106,16 @@ vcpkg install ^
           alembic ^
           geogram ^
           eigen3 ^
+          expat ^
+          onnxruntime-gpu ^
           opencv[eigen,ffmpeg,webp,contrib,nonFree,cuda] ^
-          openimageio[libraw,ffmpeg,freetype,opencv,gif,openjpeg,webp,tools] ^
+          openimageio[libraw,ffmpeg,freetype,opencv,gif,openjpeg,webp] ^
           ceres[suitesparse,cxsparse] ^
           cuda ^
           tbb ^
+          assimp ^
+          pcl ^
+          clp ^
           --triplet x64-windows
 ```
 
@@ -108,6 +124,13 @@ vcpkg install ^
 # With VCPKG_ROOT being the path to the root of vcpkg installation
 cd /path/to/aliceVision/
 mkdir build && cd build
+
+
+# Windows: CUDA >= 10.0 + Visual 2022 + Powershell
+cmake .. -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT"\scripts\buildsystems\vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows -G "Visual Studio 17 2022" -A x64 -T host=x64
+
+# Windows: CUDA >= 10.0 + Visual 2022
+cmake .. -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows -G "Visual Studio 17 2022" -A x64 -T host=x64
 
 # Windows: CUDA >= 10.0 + Visual 2017
 cmake .. -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows -G "Visual Studio 15 2017" -A x64 -T host=x64
@@ -176,9 +199,6 @@ At the end of the cmake process, a report shows for each library which version (
 -- EIGEN: 3.3.4
 -- CERES: 1.10.0
 -- FLANN: 1.8.4 (external)
--- CLP: 1.15.11 (internal)
--- COINUTILS: 2.9.3 (internal)
--- OSI: 0.106.10 (internal)
 -- LEMON: 1.3 (internal)
 ```
 
@@ -206,6 +226,10 @@ CMake Options
   Build with CCTag markers support.
   `-DCCTag_DIR:PATH=/path/to/cctag/install/lib/cmake/CCTag` (where CCTagConfig.cmake can be found)
 
+* `ALICEVISION_USE_APRILTAG` (default: `AUTO`)
+  Build with AprilTag markers support.
+  `-Dapriltag_DIR:PATH=/path/to/apriltag/install/share/apriltag/cmake` (where apriltagConfig.cmake can be found)
+
 * `ALICEVISION_USE_OPENGV` (default `AUTO`)
   Enable use of OpenGV algorithms. Build with openGV for multi-cameras localization.
   `-DOPENGV_DIR:PATH=/path/to/opengv/install/` (where "include" and "lib" folders can be found)
@@ -215,9 +239,6 @@ CMake Options
   Build with Alembic file format support (required version >= 1.7).
   `-DAlembic_DIR:PATH=/path/to/alembic/install/lib/cmake/Alembic/` (where AlembicConfig.cmake can be found)
   With old Alembic versions (<1.6), you need to set many variables: `ALEMBIC_ROOT`, `ALEMBIC_HDF5_ROOT`, `ALEMBIC_ILMBASE_ROOT`, `ALEMBIC_OPENEXR_ROOT`.
-
-* `ALICEVISION_USE_OPENMP` (default: `AUTO`)
-  Enable OpenMP parallelization
 
 * `ALICEVISION_USE_CUDA` (default: `ON`)
   Enable build with CUDA (for feature extraction and depth map computation)
@@ -239,7 +260,7 @@ CMake Options
 * `ALICEVISION_REQUIRE_CERES_WITH_SUITESPARSE` (default: `ON`)
   By default, aliceVision requires Ceres built with SuiteSparse to ensure best performances but you can make SuiteSparse optional with this flag.
 
-* `ALICEVISION_BUILD_SHARED` (default `OFF`)
+* `BUILD_SHARED_LIBS` (default `ON`)
   Build AliceVision as shared libs (instead of static libs)
 
 * `ALICEVISION_BUILD_TESTS` (default `OFF`)
@@ -411,4 +432,9 @@ To retrieve the generated files:
 # Create an instance of the image, copy the files and remove the temporary docker instance.
 CID=$(docker create alicevision:centos7-cuda9.2) && docker cp ${CID}:/opt/AliceVision_install . && docker cp ${CID}:/opt/AliceVision_bundle . && docker rm ${CID}
 ```
+
+Environment variable
+--------------------
+
+Whatever the way AliceVision has been installed, before using it, an environment variable named ALICEVISION_ROOT must be created and set with the local installation directory. 
 

@@ -6,16 +6,17 @@
 
 #pragma once
 
-#include <aliceVision/mvsData/Color.hpp>
+#include <aliceVision/image/pixelTypes.hpp>
 #include <aliceVision/mvsData/Matrix3x4.hpp>
 #include <aliceVision/mvsData/Point2d.hpp>
 #include <aliceVision/mvsData/Point3d.hpp>
 #include <aliceVision/mvsData/StaticVector.hpp>
 #include <aliceVision/mvsUtils/MultiViewParams.hpp>
 #include <aliceVision/mvsUtils/ImagesCache.hpp>
-#include <aliceVision/mvsData/imageIO.hpp>
+#include <aliceVision/image/io.hpp>
 
 #include <fstream>
+#include <string>
 
 #include <OpenImageIO/paramlist.h>
 
@@ -24,17 +25,17 @@ namespace oiio = OIIO;
 namespace aliceVision {
 namespace mvsUtils {
 
-bool FileExists(const std::string& filePath);
-bool FolderExists(const std::string& folderPath);
+std::string getFileNameFromViewId(const MultiViewParams& mp, int viewId, EFileType fileType, int scale = 0, const std::string& customSuffix = "", int tileBeginX = -1, int tileBeginY = -1);
 
-std::string getFileNameFromViewId(const MultiViewParams* mp, int viewId, EFileType fileType, int scale = 0);
-std::string getFileNameFromIndex(const MultiViewParams* mp, int index, EFileType mv_file_type, int scale = 0);
-FILE* mv_openFile(const MultiViewParams* mp, int index, EFileType mv_file_type, const char* readWrite);
-Matrix3x4 load3x4MatrixFromFile(FILE* fi);
-void loadImage(const std::string& path, const MultiViewParams* mp, int camId, Image& img,
-                                 imageIO::EImageColorSpace colorspace, ImagesCache::ECorrectEV correctEV);
+std::string getFileNameFromIndex(const MultiViewParams& mp, int index, EFileType fileType, int scale = 0, const std::string& customSuffix = "", int tileBeginX = -1, int tileBeginY = -1);
 
-bool DeleteDirectory(const std::string& sPath);
+FILE* mv_openFile(const MultiViewParams& mp, int index, EFileType mv_file_type, const char* readWrite);
+Matrix3x4 load3x4MatrixFromFile(std::istream& in);
+
+
+template<class Image>
+void loadImage(const std::string& path, const MultiViewParams& mp, int camId, Image& img,
+               image::EImageColorSpace colorspace, ECorrectEV correctEV);
 
 } // namespace mvsUtils
 } // namespace aliceVision

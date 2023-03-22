@@ -6,7 +6,8 @@
 // v. 2.0. If a copy of the MPL was not distributed with this file,
 // You can obtain one at https://mozilla.org/MPL/2.0/.
 
-#include "aliceVision/numeric/numeric.hpp"
+#include "numeric.hpp"
+
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -138,7 +139,7 @@ bool exportMatToTextFile(const Mat & mat, const std::string & filename,
 {
   bool bOk = false;
   std::ofstream outfile;
-  outfile.open(filename.c_str(), std::ios_base::out);
+  outfile.open(filename, std::ios_base::out);
   if (outfile.is_open()) {
     outfile << sPrefix << "=[" << std::endl;
     for (int j=0; j < mat.rows(); ++j)  {
@@ -152,6 +153,19 @@ bool exportMatToTextFile(const Mat & mat, const std::string & filename,
   }
   outfile.close();
   return bOk;
+}
+
+void makeRandomOperationsReproducible()
+{
+  unsigned seed = 1234567;
+
+  const char* seed_string = std::getenv("ALICEVISION_RANDOM_SEED");
+  if (seed_string != nullptr) {
+    seed = std::stol(seed_string);
+  }
+
+  // Eigen uses std::rand in its Random() member functions.
+  std::srand(seed);
 }
 
 }  // namespace aliceVision

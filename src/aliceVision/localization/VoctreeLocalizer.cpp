@@ -23,9 +23,9 @@
 #include <aliceVision/multiview/relativePose/FundamentalError.hpp>
 #include <aliceVision/matching/guidedMatching.hpp>
 #include <aliceVision/system/Logger.hpp>
+#include <aliceVision/system/ProgressDisplay.hpp>
 #include <aliceVision/system/Timer.hpp>
 
-#include <boost/progress.hpp>
 #include <boost/filesystem.hpp>
 
 #include <algorithm>
@@ -33,17 +33,6 @@
 
 namespace aliceVision {
 namespace localization {
-
-std::ostream& operator<<( std::ostream& os, const voctree::Document &doc )	
-{
-  os << "[ ";
-  for( const voctree::Word &w : doc )
-  {
-          os << w << ", ";
-  }
-  os << "];\n";
-  return os;
-}
 
 std::ostream& operator<<(std::ostream& os, VoctreeLocalizer::Algorithm a)
 {
@@ -302,8 +291,9 @@ bool VoctreeLocalizer::initDatabase(const std::string & vocTreeFilepath,
   // add its visual words to the database.
   // then only store the feature and descriptors that have a 3D point associated
   ALICEVISION_LOG_DEBUG("Build observations per view");
-  boost::progress_display my_progress_bar(_sfm_data.getViews().size(),
-                                     std::cout, "\n- Load Features and Descriptors per view -\n");
+  auto progressDisplay =
+          system::createConsoleProgressDisplay(_sfm_data.getViews().size(), std::cout,
+                                               "\n- Load Features and Descriptors per view -\n");
 
   // Build observations per view
   std::map<IndexT, std::map<feature::EImageDescriberType, std::vector<feature::FeatureInImage>>> observationsPerView;
@@ -383,10 +373,7 @@ bool VoctreeLocalizer::initDatabase(const std::string & vocTreeFilepath,
         _regionsPerView.getData()[id_view][descType] = std::move(filteredRegions);
       }
     }
-#pragma omp critical
-    {
-      ++my_progress_bar;
-    }
+    ++progressDisplay;
   }
   return true;
 }
@@ -764,7 +751,7 @@ void VoctreeLocalizer::getAllAssociations(const feature::MapRegionsPerDesc &quer
                                           std::vector<voctree::DocMatch>& out_matchedImages,
                                           const std::string& imagePath) const
 {
-  assert(out_descTypes.size() == 0);
+  assert(out_descTypes.empty());
 
   // A. Find the (visually) similar images in the database 
   // pass the descriptors through the vocabulary tree to get the visual words

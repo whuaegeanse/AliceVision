@@ -15,7 +15,8 @@
 #include <aliceVision/system/main.hpp>
 #include <aliceVision/system/Timer.hpp>
 
-#include <aliceVision/depthMap/RefineRc.hpp>
+#include <aliceVision/depthMap/depthMap.hpp>
+#include <aliceVision/depthMap/computeOnMultiGPUs.hpp>
 
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
@@ -33,7 +34,6 @@ int aliceVision_main(int argc, char* argv[])
 {
     system::Timer timer;
 
-    std::string verboseLevel = system::EVerboseLevel_enumToString(system::Logger::getDefaultVerboseLevel());
     std::string sfmDataFilename;
     std::string depthMapsFolder;
     std::string outputFolder;
@@ -48,13 +48,11 @@ int aliceVision_main(int argc, char* argv[])
 
     int minNumOfConsistentCams = 3;
     int minNumOfConsistentCamsWithLowSimilarity = 4;
+    float pixToleranceFactor = 2.0f;
     int pixSizeBall = 0;
     int pixSizeBallWithLowSimilarity = 0;
     int nNearestCams = 10;
     bool computeNormalMaps = false;
-
-    po::options_description allParams("AliceVision depthMapFiltering\n"
-                                      "Filter depth map to remove values that are not consistent with other depth maps");
 
     po::options_description requiredParams("Required parameters");
     requiredParams.add_options()
@@ -79,6 +77,8 @@ int aliceVision_main(int argc, char* argv[])
             "Minimal number of consistent cameras to consider the pixel.")
         ("minNumOfConsistentCamsWithLowSimilarity", po::value<int>(&minNumOfConsistentCamsWithLowSimilarity)->default_value(minNumOfConsistentCamsWithLowSimilarity),
             "Minimal number of consistent cameras to consider the pixel when the similarity is weak or ambiguous.")
+        ("pixToleranceFactor", po::value<float>(&pixToleranceFactor)->default_value(pixToleranceFactor),
+            "Filtering tolerance size factor (in px).")
         ("pixSizeBall", po::value<int>(&pixSizeBall)->default_value(pixSizeBall),
             "Filter ball size (in px).")
         ("pixSizeBallWithLowSimilarity", po::value<int>(&pixSizeBallWithLowSimilarity)->default_value(pixSizeBallWithLowSimilarity),
@@ -88,45 +88,14 @@ int aliceVision_main(int argc, char* argv[])
         ("computeNormalMaps", po::value<bool>(&computeNormalMaps)->default_value(computeNormalMaps),
             "Compute normal maps per depth map");
 
-    po::options_description logParams("Log parameters");
-    logParams.add_options()
-      ("verboseLevel,v", po::value<std::string>(&verboseLevel)->default_value(verboseLevel),
-        "verbosity level (fatal, error, warning, info, debug, trace).");
-
-    allParams.add(requiredParams).add(optionalParams).add(logParams);
-
-    po::variables_map vm;
-
-    try
+    CmdLine cmdline("This program filters depth maps to remove values that are not consistent with other depth maps.\n"
+                    "AliceVision depthMapFiltering");
+    cmdline.add(requiredParams);
+    cmdline.add(optionalParams);
+    if (!cmdline.execute(argc, argv))
     {
-      po::store(po::parse_command_line(argc, argv, allParams), vm);
-
-      if(vm.count("help") || (argc == 1))
-      {
-        ALICEVISION_COUT(allParams);
-        return EXIT_SUCCESS;
-      }
-
-      po::notify(vm);
+        return EXIT_FAILURE;
     }
-    catch(boost::program_options::required_option& e)
-    {
-      ALICEVISION_CERR("ERROR: " << e.what() << std::endl);
-      ALICEVISION_COUT("Usage:\n\n" << allParams);
-      return EXIT_FAILURE;
-    }
-    catch(boost::program_options::error& e)
-    {
-      ALICEVISION_CERR("ERROR: " << e.what() << std::endl);
-      ALICEVISION_COUT("Usage:\n\n" << allParams);
-      return EXIT_FAILURE;
-    }
-
-    ALICEVISION_COUT("Program called with the following parameters:");
-    ALICEVISION_COUT(vm);
-
-    // set verbose level
-    system::Logger::get()->setLogLevel(verboseLevel);
 
     // read the input SfM scene
     sfmData::SfMData sfmData;
@@ -142,7 +111,7 @@ int aliceVision_main(int argc, char* argv[])
     mp.setMinViewAngle(minViewAngle);
     mp.setMaxViewAngle(maxViewAngle);
 
-    StaticVector<int> cams;
+    std::vector<int> cams;
     cams.reserve(mp.ncams);
 
     if(rangeSize == -1)
@@ -169,13 +138,16 @@ int aliceVision_main(int argc, char* argv[])
     ALICEVISION_LOG_INFO("Filter depth maps.");
 
     {
-        fuseCut::Fuser fs(&mp);
-        fs.filterGroups(cams, pixSizeBall, pixSizeBallWithLowSimilarity, nNearestCams);
+        fuseCut::Fuser fs(mp);
+        fs.filterGroups(cams, pixToleranceFactor, pixSizeBall, pixSizeBallWithLowSimilarity, nNearestCams);
         fs.filterDepthMaps(cams, minNumOfConsistentCams, minNumOfConsistentCamsWithLowSimilarity);
     }
 
-    if(computeNormalMaps)
-      depthMap::computeNormalMaps(&mp, cams);
+    if (computeNormalMaps)
+    {
+        int nbGPUs = 0;
+        depthMap::computeOnMultiGPUs(mp, cams, depthMap::computeNormalMaps, nbGPUs);
+    }
 
     ALICEVISION_LOG_INFO("Task done in (s): " + std::to_string(timer.elapsed()));
     return EXIT_SUCCESS;

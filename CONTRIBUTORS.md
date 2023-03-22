@@ -6,6 +6,7 @@ The project is released under [MPLv2](LICENSE-MPL2.md).
 Individuals
 -----------
 
+- Candice Bentejac
 - Carsten Griwodz
 - Cenek Albl
 - Clement Aymard
@@ -19,12 +20,15 @@ Individuals
 - Jean Melou
 - Julien Haudegond
 - Lilian Calvet
+- Loic Vital
 - Michal Polic
 - Nicolas Rondaud
 - Pierre Gurdjos
+- Povilas Kanapickas
 - Simone Gasparini
 - Théo Leplomb
 - Tomas Pajdla
+- Vincent Demoulin
 - Yann Lanthony
 - Zeljko Vrba
 

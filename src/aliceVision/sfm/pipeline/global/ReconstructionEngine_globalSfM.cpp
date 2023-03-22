@@ -11,6 +11,7 @@
 #include <aliceVision/multiview/triangulation/triangulationDLT.hpp>
 #include <aliceVision/multiview/triangulation/Triangulation.hpp>
 #include <aliceVision/graph/connectedComponent.hpp>
+#include <aliceVision/system/ProgressDisplay.hpp>
 #include <aliceVision/system/Timer.hpp>
 #include <aliceVision/stl/stl.hpp>
 #include <aliceVision/multiview/essential.hpp>
@@ -19,8 +20,6 @@
 #include <aliceVision/config.hpp>
 
 #include <dependencies/htmlDoc/htmlDoc.hpp>
-
-#include <boost/progress.hpp>
 
 #ifdef _MSC_VER
 #pragma warning( once : 4267 ) //warning C4267: 'argument' : conversion from 'size_t' to 'const int', possible loss of data
@@ -61,7 +60,7 @@ ReconstructionEngine_globalSfM::~ReconstructionEngine_globalSfM()
   if(!_loggingFile.empty())
   {
     // Save the reconstruction Log
-    std::ofstream htmlFileStream(_loggingFile.c_str());
+    std::ofstream htmlFileStream(_loggingFile);
     htmlFileStream << _htmlDocStream->getDoc();
   }
 }
@@ -448,15 +447,13 @@ void ReconstructionEngine_globalSfM::Compute_Relative_Rotations(rotationAveragin
     poseWiseMatches[Pair(v1->getPoseId(), v2->getPoseId())].insert(pair);
   }
 
-  boost::progress_display progressBar( poseWiseMatches.size(), std::cout, "\n- Relative pose computation -\n" );
+  auto progressDisplay = system::createConsoleProgressDisplay(poseWiseMatches.size(), std::cout,
+                                                              "\n- Relative pose computation -\n" );
   #pragma omp parallel for schedule(dynamic)
   // Compute the relative pose from pairwise point matches:
   for (int i = 0; i < poseWiseMatches.size(); ++i)
   {
-    #pragma omp critical
-    {
-      ++progressBar;
-    }
+    ++progressDisplay;
     {
       PoseWiseMatches::const_iterator iter (poseWiseMatches.begin());
       std::advance(iter, i);
@@ -527,10 +524,9 @@ void ReconstructionEngine_globalSfM::Compute_Relative_Rotations(rotationAveragin
 
       RelativePoseInfo relativePose_info;
       // Compute max authorized error as geometric mean of camera plane tolerated residual error
-      relativePose_info.initial_residual_tolerance = std::pow(
+      relativePose_info.initial_residual_tolerance = std::sqrt(
         cam_I->imagePlaneToCameraPlaneError(2.5) *
-        cam_J->imagePlaneToCameraPlaneError(2.5),
-        1./2.);
+        cam_J->imagePlaneToCameraPlaneError(2.5));
 
       // Since we use normalized features, we will use unit image size and intrinsic matrix:
       const std::pair<size_t, size_t> imageSize(1., 1.);

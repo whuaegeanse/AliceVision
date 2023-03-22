@@ -32,13 +32,12 @@ using namespace aliceVision::image;
 using namespace aliceVision::matching;
 using namespace aliceVision::robustEstimation;
 using namespace svg;
-using namespace std;
 
 int main() {
   std::mt19937 randomNumberGenerator;
   Image<RGBColor> image;
-  const string jpg_filenameL = string("../") + string(THIS_SOURCE_DIR) + "/imageData/StanfordMobileVisualSearch/Ace_0.png";
-  const string jpg_filenameR = string("../") + string(THIS_SOURCE_DIR) + "/imageData/StanfordMobileVisualSearch/Ace_1.png";
+  const std::string jpg_filenameL = std::string("../") + std::string(THIS_SOURCE_DIR) + "/imageData/StanfordMobileVisualSearch/Ace_0.png";
+  const std::string jpg_filenameR = std::string("../") + std::string(THIS_SOURCE_DIR) + "/imageData/StanfordMobileVisualSearch/Ace_1.png";
 
   Image<unsigned char> imageL, imageR;
   readImage(jpg_filenameL, imageL, image::EImageColorSpace::NO_CONVERSION);
@@ -66,8 +65,9 @@ int main() {
   {
     Image<unsigned char> concat;
     ConcatH(imageL, imageR, concat);
-    string out_filename = "01_concat.jpg";
-    writeImage(out_filename, concat, image::EImageColorSpace::NO_CONVERSION);
+    std::string out_filename = "01_concat.jpg";
+    writeImage(out_filename, concat,
+               image::ImageWriteOptions().toColorSpace(image::EImageColorSpace::NO_CONVERSION));
   }
 
   //- Draw features on the two image (side by side)
@@ -84,8 +84,9 @@ int main() {
       const PointFeature point = regionsR->Features()[i];
       DrawCircle(point.x()+imageL.Width(), point.y(), point.scale(), 255, &concat);
     }
-    string out_filename = "02_features.jpg";
-    writeImage(out_filename, concat, image::EImageColorSpace::NO_CONVERSION);
+    std::string out_filename = "02_features.jpg";
+    writeImage(out_filename, concat,
+               image::ImageWriteOptions().toColorSpace(image::EImageColorSpace::NO_CONVERSION));
   }
 
   std::vector<IndMatch> vec_PutativeMatches;
@@ -100,7 +101,7 @@ int main() {
       vec_PutativeMatches);
 
     // Draw correspondences after Nearest Neighbor ratio filter
-    svgDrawer svgStream( imageL.Width() + imageR.Width(), max(imageL.Height(), imageR.Height()));
+    svgDrawer svgStream(imageL.Width() + imageR.Width(), std::max(imageL.Height(), imageR.Height()));
     svgStream.drawImage(jpg_filenameL, imageL.Width(), imageL.Height());
     svgStream.drawImage(jpg_filenameR, imageR.Width(), imageR.Height(), imageL.Width());
     for (size_t i = 0; i < vec_PutativeMatches.size(); ++i) {
@@ -161,7 +162,7 @@ int main() {
 
       //Show homography validated point and compute residuals
       std::vector<double> vec_residuals(vec_inliers.size(), 0.0);
-      svgDrawer svgStream( imageL.Width() + imageR.Width(), max(imageL.Height(), imageR.Height()));
+      svgDrawer svgStream(imageL.Width() + imageR.Width(), std::max(imageL.Height(), imageR.Height()));
       svgStream.drawImage(jpg_filenameL, imageL.Width(), imageL.Height());
       svgStream.drawImage(jpg_filenameR, imageR.Width(), imageR.Height(), imageL.Width());
       for ( size_t i = 0; i < vec_inliers.size(); ++i)  {
@@ -175,8 +176,8 @@ int main() {
         // residual computation
         vec_residuals[i] = std::sqrt(KernelType::ErrorT().error(H, LL.coords().cast<double>(), RR.coords().cast<double>()));
       }
-      string out_filename = "04_ACRansacHomography.svg";
-      ofstream svgFile( out_filename.c_str() );
+      std::string out_filename = "04_ACRansacHomography.svg";
+      std::ofstream svgFile(out_filename.c_str());
       svgFile << svgStream.closeSvgFile().str();
       svgFile.close();
 
@@ -197,13 +198,13 @@ int main() {
       //---------------------------------------
       // reread right image that will be warped to fit left image
       readImage(jpg_filenameR, image, image::EImageColorSpace::NO_CONVERSION);
-      writeImage("query.png", image, image::EImageColorSpace::NO_CONVERSION);
+      writeImage("query.png", image, image::ImageWriteOptions().toColorSpace(image::EImageColorSpace::NO_CONVERSION));
 
       // Create and fill the output image
       Image<RGBColor> imaOut(imageL.Width(), imageL.Height());
       image::Warp(image, H.getMatrix(), imaOut);
       const std::string imageNameOut = "query_warped.png";
-      writeImage(imageNameOut, imaOut, image::EImageColorSpace::NO_CONVERSION);
+      writeImage(imageNameOut, imaOut, image::ImageWriteOptions().toColorSpace(image::EImageColorSpace::NO_CONVERSION));
     }
     else  {
       std::cout << "ACRANSAC was unable to estimate a rigid homography"

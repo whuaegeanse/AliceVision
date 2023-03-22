@@ -24,6 +24,7 @@
 #include <aliceVision/matchingImageCollection/GeometricFilterMatrix_H_AC.hpp>
 #include <aliceVision/matchingImageCollection/GeometricFilterMatrix_HGrowing.hpp>
 #include <aliceVision/matchingImageCollection/GeometricFilterType.hpp>
+#include <aliceVision/matchingImageCollection/ImagePairListIO.hpp>
 #include <aliceVision/matching/pairwiseAdjacencyDisplay.hpp>
 #include <aliceVision/matching/io.hpp>
 #include <aliceVision/system/main.hpp>
@@ -52,7 +53,6 @@ using namespace aliceVision::robustEstimation;
 using namespace aliceVision::sfm;
 using namespace aliceVision::sfmData;
 using namespace aliceVision::matchingImageCollection;
-using namespace std;
 
 namespace po = boost::program_options;
 namespace fs = boost::filesystem;
@@ -90,8 +90,6 @@ void getStatsMap(const PairwiseMatches& map)
 int aliceVision_main(int argc, char **argv)
 {
   // command-line parameters
-
-  std::string verboseLevel = system::EVerboseLevel_enumToString(system::Logger::getDefaultVerboseLevel());
   std::string sfmDataFilename;
   std::string matchesFolder;
   std::vector<std::string> featuresFolders;
@@ -119,14 +117,7 @@ int aliceVision_main(int argc, char **argv)
   bool matchFromKnownCameraPoses = false;
   const std::string fileExtension = "txt";
   int randomSeed = std::mt19937::default_seed;
-
-  po::options_description allParams(
-     "Compute corresponding features between a series of views:\n"
-     "- Load view images description (regions: features & descriptors)\n"
-     "- Compute putative local feature matches (descriptors matching)\n"
-     "- Compute geometric coherent feature matches (robust model estimation from putative matches)\n"
-     "- Export computed data\n"
-     "AliceVision featureMatching");
+  double minRequired2DMotion = -1.0;
 
   po::options_description requiredParams("Required parameters");
   requiredParams.add_options()
@@ -181,6 +172,8 @@ int aliceVision_main(int argc, char **argv)
       "Maximum number of iterations allowed in ransac step.")
     ("useGridSort", po::value<bool>(&useGridSort)->default_value(useGridSort),
       "Use matching grid sort.")
+    ("minRequired2DMotion", po::value<double>(&minRequired2DMotion)->default_value(minRequired2DMotion),
+      "A match is invalid if the 2d motion between the 2 points is less than a threshold (or -1 to disable this filter).")
     ("exportDebugFiles", po::value<bool>(&exportDebugFiles)->default_value(exportDebugFiles),
       "Export debug files (svg, dot).")
     ("maxMatches", po::value<std::size_t>(&numMatchesToKeep)->default_value(numMatchesToKeep),
@@ -193,47 +186,23 @@ int aliceVision_main(int argc, char **argv)
       "This seed value will generate a sequence using a linear random generator. Set -1 to use a random seed.")
     ;
 
-  po::options_description logParams("Log parameters");
-  logParams.add_options()
-    ("verboseLevel,v", po::value<std::string>(&verboseLevel)->default_value(verboseLevel),
-      "verbosity level (fatal, error, warning, info, debug, trace).");
-
-  allParams.add(requiredParams).add(optionalParams).add(logParams);
-
-  po::variables_map vm;
-  try
+  CmdLine cmdline("This program computes corresponding features between a series of views:\n"
+                  "- Load view images description (regions: features & descriptors)\n"
+                  "- Compute putative local feature matches (descriptors matching)\n"
+                  "- Compute geometric coherent feature matches (robust model estimation from putative matches)\n"
+                  "- Export computed data\n"
+                  "AliceVision featureMatching");
+  cmdline.add(requiredParams);
+  cmdline.add(optionalParams);
+  if (!cmdline.execute(argc, argv))
   {
-    po::store(po::parse_command_line(argc, argv, allParams), vm);
-
-    if(vm.count("help") || (argc == 1))
-    {
-      ALICEVISION_COUT(allParams);
-      return EXIT_SUCCESS;
-    }
-    po::notify(vm);
-  }
-  catch(boost::program_options::required_option& e)
-  {
-    ALICEVISION_CERR("ERROR: " << e.what());
-    ALICEVISION_COUT("Usage:\n\n" << allParams);
-    return EXIT_FAILURE;
-  }
-  catch(boost::program_options::error& e)
-  {
-    ALICEVISION_CERR("ERROR: " << e.what());
-    ALICEVISION_COUT("Usage:\n\n" << allParams);
-    return EXIT_FAILURE;
+      return EXIT_FAILURE;
   }
 
   const double defaultLoRansacMatchingError = 20.0;
   if(!adjustRobustEstimatorThreshold(geometricEstimator, geometricErrorMax, defaultLoRansacMatchingError))
     return EXIT_FAILURE;
 
-  ALICEVISION_COUT("Program called with the following parameters:");
-  ALICEVISION_COUT(vm);
-
-  // set verbose level
-  system::Logger::get()->setLogLevel(verboseLevel);
 
   std::mt19937 randomNumberGenerator(randomSeed == -1 ? std::random_device()() : randomSeed);
 
@@ -287,7 +256,7 @@ int aliceVision_main(int argc, char **argv)
     for(const std::string& imagePairsFile: predefinedPairList)
     {
       ALICEVISION_LOG_INFO("Load pair list from file: " << imagePairsFile);
-      if(!loadPairs(imagePairsFile, pairs, rangeStart, rangeSize))
+      if (!matchingImageCollection::loadPairsFromFile(imagePairsFile, pairs, rangeStart, rangeSize))
           return EXIT_FAILURE;
     }
   }
@@ -381,6 +350,8 @@ int aliceVision_main(int argc, char **argv)
 
   }
 
+  filterMatchesByMin2DMotion(mapPutativesMatches, regionPerView, minRequired2DMotion);
+
   if(mapPutativesMatches.empty())
   {
     ALICEVISION_LOG_INFO("No putative feature matches.");
@@ -455,6 +426,7 @@ int aliceVision_main(int argc, char **argv)
   //    - Use an upper bound for the a contrario estimated threshold
 
   timer.reset();
+  
 
   matching::PairwiseMatches geometricMatches;
 
@@ -501,22 +473,7 @@ int aliceVision_main(int argc, char **argv)
         randomNumberGenerator,
         guidedMatching);
 
-      // perform an additional check to remove pairs with poor overlap
-      std::vector<PairwiseMatches::key_type> toRemoveVec;
-      for(PairwiseMatches::const_iterator iterMap = geometricMatches.begin();
-        iterMap != geometricMatches.end(); ++iterMap)
-      {
-        const size_t putativePhotometricCount = mapPutativesMatches.find(iterMap->first)->second.getNbAllMatches();
-        const size_t putativeGeometricCount = iterMap->second.getNbAllMatches();
-        const float ratio = putativeGeometricCount / (float)putativePhotometricCount;
-        if (putativeGeometricCount < 50 || ratio < .3f)
-          toRemoveVec.push_back(iterMap->first); // the image pair will be removed
-      }
-
-      // remove discarded pairs
-      for(std::vector<PairwiseMatches::key_type>::const_iterator iter = toRemoveVec.begin();
-          iter != toRemoveVec.end(); ++iter)
-        geometricMatches.erase(*iter);
+      removePoorlyOverlappingImagePairs(geometricMatches, mapPutativesMatches, 0.3f, 50);
     }
     break;
 
@@ -553,57 +510,17 @@ int aliceVision_main(int argc, char **argv)
   ALICEVISION_LOG_INFO("Grid filtering");
 
   PairwiseMatches finalMatches;
-  
-  {
-    for(const auto& geometricMatch: geometricMatches)
-    {
-      //Get the image pair and their matches.
-      const Pair& indexImagePair = geometricMatch.first;
-      const aliceVision::matching::MatchesPerDescType& matchesPerDesc = geometricMatch.second;
-
-      for(const auto& match: matchesPerDesc)
-      {
-        const feature::EImageDescriberType descType = match.first;
-        assert(descType != feature::EImageDescriberType::UNINITIALIZED);
-        const aliceVision::matching::IndMatches& inputMatches = match.second;
-
-        const feature::Regions* rRegions = &regionPerView.getRegions(indexImagePair.second, descType);
-        const feature::Regions* lRegions = &regionPerView.getRegions(indexImagePair.first, descType);
-
-        // get the regions for the current view pair:
-        if(rRegions && lRegions)
-        {
-          // sorting function:
-          aliceVision::matching::IndMatches outMatches;
-          sortMatches_byFeaturesScale(inputMatches, *lRegions, *rRegions, outMatches);
-
-          if(useGridSort)
-          {
-            // TODO: rename as matchesGridOrdering
-              matchesGridFiltering(*lRegions, sfmData.getView(indexImagePair.first).getImgSize(),
-                                   *rRegions, sfmData.getView(indexImagePair.second).getImgSize(),
-                                   indexImagePair, outMatches);
-          }
-          if(numMatchesToKeep > 0)
-          {
-            size_t finalSize = std::min(numMatchesToKeep, outMatches.size());
-            outMatches.resize(finalSize);
-          }
-
-          // std::cout << "Left features: " << lRegions->Features().size() << ", right features: " << rRegions->Features().size() << ", num matches: " << inputMatches.size() << ", num filtered matches: " << outMatches.size() << std::endl;
-          finalMatches[indexImagePair].insert(std::make_pair(descType, outMatches));
-        }
-        else
-        {
-          ALICEVISION_LOG_INFO("You cannot perform the grid filtering with these regions");
-        }
-      }
-    }
+  matchesGridFilteringForAllPairs(geometricMatches, sfmData, regionPerView, useGridSort,
+                                  numMatchesToKeep, finalMatches);
 
     ALICEVISION_LOG_INFO("After grid filtering:");
-    for(const auto& matchGridFiltering: finalMatches)
-      ALICEVISION_LOG_INFO("\t- image pair (" + std::to_string(matchGridFiltering.first.first) + ", " + std::to_string(matchGridFiltering.first.second) + ") contains " + std::to_string(matchGridFiltering.second.getNbAllMatches()) + " geometric matches.");
-  }
+    for (const auto& matchGridFiltering: finalMatches)
+    {
+        ALICEVISION_LOG_INFO("\t- image pair (" << matchGridFiltering.first.first << ", "
+                             << matchGridFiltering.first.second << ") contains "
+                             << matchGridFiltering.second.getNbAllMatches()
+                             << " geometric matches.");
+    }
 
   // export geometric filtered matches
   ALICEVISION_LOG_INFO("Save geometric matches.");

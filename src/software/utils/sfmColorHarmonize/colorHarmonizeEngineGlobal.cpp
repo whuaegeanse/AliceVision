@@ -8,6 +8,7 @@
 #include "colorHarmonizeEngineGlobal.hpp"
 #include "software/utils/sfmHelper/sfmIOHelper.hpp"
 
+#include <aliceVision/system/ProgressDisplay.hpp>
 #include <aliceVision/system/Timer.hpp>
 #include <aliceVision/sfmData/SfMData.hpp>
 #include <aliceVision/sfmDataIO/sfmDataIO.hpp>
@@ -30,8 +31,6 @@
 
 #include <dependencies/vectorGraphics/svgDrawer.hpp>
 
-#include <boost/progress.hpp>
-
 #include <numeric>
 #include <iomanip>
 #include <iterator>
@@ -51,47 +50,57 @@ using namespace aliceVision::sfm;
 using namespace aliceVision::sfmData;
 
 typedef feature::PointFeature FeatureT;
-typedef vector<FeatureT> featsT;
+typedef std::vector<FeatureT> featsT;
+
+EHistogramSelectionMethod EHistogramSelectionMethod_stringToEnum(const std::string& histogramSelectionMethod)
+{
+  if(histogramSelectionMethod == "full_frame")     return EHistogramSelectionMethod::eHistogramHarmonizeFullFrame;
+  if(histogramSelectionMethod == "matched_points") return EHistogramSelectionMethod::eHistogramHarmonizeMatchedPoints;
+  if(histogramSelectionMethod == "VLD_segments")   return EHistogramSelectionMethod::eHistogramHarmonizeVLDSegment;
+
+  throw std::invalid_argument("Invalid selection method: " + histogramSelectionMethod);
+}
+
+std::string EHistogramSelectionMethod_enumToString(const EHistogramSelectionMethod histogramSelectionMethod)
+{
+  if(histogramSelectionMethod == EHistogramSelectionMethod::eHistogramHarmonizeFullFrame)     return "full_frame";
+  if(histogramSelectionMethod == EHistogramSelectionMethod::eHistogramHarmonizeMatchedPoints) return "matched_points";
+  if(histogramSelectionMethod == EHistogramSelectionMethod::eHistogramHarmonizeVLDSegment)    return "VLD_segments";
+
+  throw std::invalid_argument("Unrecognized EHistogramSelectionMethod: " + std::to_string(int(histogramSelectionMethod)));
+}
+
+std::ostream& operator<<(std::ostream& os, EHistogramSelectionMethod p)
+{
+  return os << EHistogramSelectionMethod_enumToString(p);
+}
+
+std::istream& operator>>(std::istream& in, EHistogramSelectionMethod& p)
+{
+  std::string token;
+  in >> token;
+  p = EHistogramSelectionMethod_stringToEnum(token);
+  return in;
+}
 
 ColorHarmonizationEngineGlobal::ColorHarmonizationEngineGlobal(
-    const string& sfmDataFilename,
+    const std::string& sfmDataFilename,
     const std::vector<std::string>& featuresFolders,
     const std::vector<std::string>& matchesFolders,
-    const string& outputDirectory,
+    const std::string& outputDirectory,
     const std::vector<feature::EImageDescriberType>& descTypes,
-    int selectionMethod,
+    EHistogramSelectionMethod selectionMethod,
     int imgRef)
   : _sfmDataFilename(sfmDataFilename)
   , _featuresFolders(featuresFolders)
   , _matchesFolders(matchesFolders)
   , _outputDirectory(outputDirectory)
   , _descTypes(descTypes)
+  , _selectionMethod(selectionMethod)
+  , _imgRef(imgRef)
 {
   if(!fs::exists(outputDirectory))
     fs::create_directory(outputDirectory);
-
-  // choose image reference
-  while(imgRef < 0 || imgRef >= _fileNames.size())
-  {
-      cout << "Choose your reference image:\n";
-      for( int i = 0; i < _fileNames.size(); ++i )
-      {
-        cout << "id: " << i << "\t" << _fileNames[ i ] << endl;
-      }
-      cin >> imgRef;
-  }
-  _imgRef = imgRef;
-
-  // choose selection method
-  while(selectionMethod < 0 || selectionMethod > 2)
-  {
-    cout << "Choose your selection method:\n"
-      << "- FullFrame: 0\n"
-      << "- Matched Points: 1\n"
-      << "- VLD Segment: 2\n";
-    cin >> selectionMethod;
-  }
-  _selectionMethod = static_cast<EHistogramSelectionMethod>(selectionMethod);
 
 }
 
@@ -101,14 +110,13 @@ ColorHarmonizationEngineGlobal::~ColorHarmonizationEngineGlobal()
 inline void pauseProcess()
 {
   unsigned char i;
-  cout << "\nPause : type key and press enter: ";
+  std::cout << "\nPause : type key and press enter: ";
   std::cin >> i;
 }
 
 
 bool ColorHarmonizationEngineGlobal::Process()
 {
-  const std::string vec_selectionMethod[ 3 ] = { "fullFrame", "matchedPoints", "KVLD" };
   const std::string vec_harmonizeMethod[ 1 ] = { "quantifiedGainCompensation" };
   const int harmonizeMethod = 0;
 
@@ -118,9 +126,9 @@ bool ColorHarmonizationEngineGlobal::Process()
 
   if( !ReadInputData() )
     return false;
-  if( _pairwiseMatches.size() == 0 )
+  if( _pairwiseMatches.empty() )
   {
-    cout << endl << "Matches file is empty" << endl;
+    std::cout << std::endl << "Matches file is empty" << std::endl;
     return false;
   }
 
@@ -183,7 +191,7 @@ bool ColorHarmonizationEngineGlobal::Process()
     map_cameraNodeToCameraIndex[*iterSet] = std::distance(set_indeximage.begin(), iterSet);
   }
 
-  std::cout << "\n Remaining cameras after CC filter : \n"
+  std::cout << "\nRemaining cameras after CC filter : \n"
     << map_cameraIndexTocameraNode.size() << " from a total of " << _fileNames.size() << std::endl;
 
   size_t bin      = 256;
@@ -220,7 +228,7 @@ bool ColorHarmonizationEngineGlobal::Process()
 
     switch(_selectionMethod)
     {
-      case eHistogramHarmonizeFullFrame:
+      case EHistogramSelectionMethod::eHistogramHarmonizeFullFrame:
       {
         colorHarmonization::CommonDataByPair_fullFrame  dataSelector(
           p_imaNames.first,
@@ -228,7 +236,7 @@ bool ColorHarmonizationEngineGlobal::Process()
         dataSelector.computeMask( maskI, maskJ );
       }
       break;
-      case eHistogramHarmonizeMatchedPoints:
+      case EHistogramSelectionMethod::eHistogramHarmonizeMatchedPoints:
       {
         int circleSize = 10;
         colorHarmonization::CommonDataByPair_matchedPoints dataSelector(
@@ -241,7 +249,7 @@ bool ColorHarmonizationEngineGlobal::Process()
         dataSelector.computeMask( maskI, maskJ );
       }
       break;
-      case eHistogramHarmonizeVLDSegment:
+      case EHistogramSelectionMethod::eHistogramHarmonizeVLDSegment:
       {
         maskI.fill(0);
         maskJ.fill(0);
@@ -270,19 +278,19 @@ bool ColorHarmonizationEngineGlobal::Process()
     bool bExportMask = false;
     if (bExportMask)
     {
-      string sEdge = _fileNames[ viewI ] + "_" + _fileNames[ viewJ ];
+      std::string sEdge = _fileNames[ viewI ] + "_" + _fileNames[ viewJ ];
       sEdge = (fs::path(_outputDirectory) / sEdge ).string();
 
       if( !fs::exists(sEdge) )
         fs::create_directory(sEdge);
 
-      string out_filename_I = "00_mask_I.png";
+      std::string out_filename_I = "00_mask_I.png";
       out_filename_I = (fs::path(sEdge) / out_filename_I).string();
 
-      string out_filename_J = "00_mask_J.png";
+      std::string out_filename_J = "00_mask_J.png";
       out_filename_J = (fs::path(sEdge) / out_filename_J).string();
-      writeImage(out_filename_I, maskI, image::EImageColorSpace::AUTO);
-      writeImage(out_filename_J, maskJ, image::EImageColorSpace::AUTO);
+      writeImage(out_filename_I, maskI, image::ImageWriteOptions());
+      writeImage(out_filename_J, maskJ, image::ImageWriteOptions());
     }
 
     //-- Compute the histograms
@@ -390,9 +398,9 @@ bool ColorHarmonizationEngineGlobal::Process()
   std::cout << "\n\nThere is :\n" << set_indeximage.size() << " images to transform." << std::endl;
 
   //-> convert solution to gain offset and creation of the LUT per image
-  boost::progress_display my_progress_bar( set_indeximage.size() );
+  auto progressDisplay = system::createConsoleProgressDisplay(set_indeximage.size(), std::cout);
   for (std::set<size_t>::const_iterator iterSet = set_indeximage.begin();
-    iterSet != set_indeximage.end(); ++iterSet, ++my_progress_bar)
+    iterSet != set_indeximage.end(); ++iterSet, ++progressDisplay)
   {
     const size_t imaNum = *iterSet;
     typedef Eigen::Matrix<double, 256, 1> Vec256;
@@ -428,12 +436,12 @@ bool ColorHarmonizationEngineGlobal::Process()
       }
     }
 
-    const std::string out_folder = (fs::path(_outputDirectory) / (vec_selectionMethod[ _selectionMethod ] + "_" + vec_harmonizeMethod[ harmonizeMethod ])).string();
+    const std::string out_folder = (fs::path(_outputDirectory) / (EHistogramSelectionMethod_enumToString(_selectionMethod) + "_" + vec_harmonizeMethod[ harmonizeMethod ])).string();
     if(!fs::exists(out_folder))
       fs::create_directory(out_folder);
     const std::string out_filename = (fs::path(out_folder) / fs::path(_fileNames[ imaNum ]).filename() ).string();
 
-    writeImage(out_filename, image_c , image::EImageColorSpace::AUTO);
+    writeImage(out_filename, image_c , image::ImageWriteOptions());
   }
   return true;
 }
@@ -466,7 +474,7 @@ bool ColorHarmonizationEngineGlobal::ReadInputData()
   {
     const View* v = iter->second.get();
     _fileNames.push_back(v->getImagePath());
-    _imageSize.push_back( std::make_pair( v->getWidth(), v->getHeight() ));
+    _imageSize.push_back(std::make_pair( v->getWidth(), v->getHeight() ));
   }
 
   // b. Read matches

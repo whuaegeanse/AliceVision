@@ -87,7 +87,7 @@ public:
     int minNumOfConsistentCams;
     float simWspThr;
 
-    OctreeTracks(const Point3d* _voxel, mvsUtils::MultiViewParams* _mp, Voxel dimensions);
+    OctreeTracks(const Point3d* voxel_, mvsUtils::MultiViewParams* mp_, Voxel dimensions);
     ~OctreeTracks();
 
     float computeAveragePixelSizeForVoxel();
@@ -98,7 +98,7 @@ public:
     void filterOctreeTracks2(StaticVector<trackStruct*>* tracks);
     void updateOctreeTracksCams(StaticVector<trackStruct*>* tracks);
     StaticVector<trackStruct*>* fillOctreeFromTracks(StaticVector<trackStruct*>* tracksIn);
-    StaticVector<trackStruct*>* fillOctree(int maxPts, std::string depthMapsPtsSimsTmpDir);
+    StaticVector<trackStruct*>* fillOctree(int maxPts, const std::string& depthMapsPtsSimsTmpDir);
     StaticVector<int>* getTracksCams(StaticVector<OctreeTracks::trackStruct*>* tracks);
     void getNPointsByLevelsRecursive(Node* node, int level, StaticVector<int>* nptsAtLevel);
 };

@@ -28,7 +28,6 @@
 #define ALICEVISION_SOFTWARE_VERSION_MAJOR 1
 #define ALICEVISION_SOFTWARE_VERSION_MINOR 0
 
-using namespace std;
 using namespace svg;
 using namespace aliceVision;
 using namespace aliceVision::image;
@@ -97,8 +96,8 @@ int main(int argc, char **argv)
   if (!fs::exists(outputFolder))
     fs::create_directory(outputFolder);
 
-  const string jpg_filenameL = imageAFilename;
-  const string jpg_filenameR = imageBFilename;
+  const std::string jpg_filenameL = imageAFilename;
+  const std::string jpg_filenameR = imageBFilename;
 
   Image<unsigned char> imageL, imageR;
   readImage(jpg_filenameL, imageL, image::EImageColorSpace::NO_CONVERSION);
@@ -126,8 +125,9 @@ int main(int argc, char **argv)
   {
     Image<unsigned char> concat;
     ConcatH(imageL, imageR, concat);
-    string out_filename = "00_images.jpg";
-    writeImage(out_filename, concat, image::EImageColorSpace::NO_CONVERSION);
+    std::string out_filename = "00_images.jpg";
+    writeImage(out_filename, concat,
+               image::ImageWriteOptions().toColorSpace(image::EImageColorSpace::NO_CONVERSION));
   }
 
   //- Draw features on the two image (side by side)
@@ -144,8 +144,9 @@ int main(int argc, char **argv)
       const PointFeature point = regionsR->Features()[i];
       DrawCircle(point.x()+imageL.Width(), point.y(), point.scale(), 255, &concat);
     }
-    string out_filename = "01_features.jpg";
-    writeImage(out_filename, concat, image::EImageColorSpace::NO_CONVERSION);
+    std::string out_filename = "01_features.jpg";
+    writeImage(out_filename, concat,
+               image::ImageWriteOptions().toColorSpace(image::EImageColorSpace::NO_CONVERSION));
   }
 
   std::vector<IndMatch> vec_PutativeMatches;
@@ -160,7 +161,7 @@ int main(int argc, char **argv)
       vec_PutativeMatches);
 
     // Draw correspondences after Nearest Neighbor ratio filter
-    svgDrawer svgStream( imageL.Width() + imageR.Width(), max(imageL.Height(), imageR.Height()));
+    svgDrawer svgStream(imageL.Width() + imageR.Width(), std::max(imageL.Height(), imageR.Height()));
     svgStream.drawImage(jpg_filenameL, imageL.Width(), imageL.Height());
     svgStream.drawImage(jpg_filenameR, imageR.Width(), imageR.Height(), imageL.Width());
     for (size_t i = 0; i < vec_PutativeMatches.size(); ++i) {
@@ -215,7 +216,7 @@ int main(int argc, char **argv)
 
   //Print K-VLD consistent matches
   {
-    svgDrawer svgStream(imageL.Width() + imageR.Width(), max(imageL.Height(), imageR.Height()));
+    svgDrawer svgStream(imageL.Width() + imageR.Width(), std::max(imageL.Height(), imageR.Height()));
 
     // ".svg"
     svgStream.drawImage(jpg_filenameL, imageL.Width(), imageL.Height());
@@ -246,9 +247,9 @@ int main(int argc, char **argv)
         }
       }
     }
-    string out_filename = "05_KVLD_Matches.svg";
+    std::string out_filename = "05_KVLD_Matches.svg";
     out_filename = (fs::path(outputFolder) / out_filename).string();
-    ofstream svgFile( out_filename.c_str() );
+    std::ofstream svgFile(out_filename.c_str());
     svgFile << svgStream.closeSvgFile().str();
     svgFile.close();
   }
@@ -256,7 +257,7 @@ int main(int argc, char **argv)
 
   {
     //Print keypoints kept by K-VLD
-    svgDrawer svgStream(imageL.Width() + imageR.Width(), max(imageL.Height(), imageR.Height()));
+    svgDrawer svgStream(imageL.Width() + imageR.Width(), std::max(imageL.Height(), imageR.Height()));
 
     // ".svg"
     svgStream.drawImage(jpg_filenameL, imageL.Width(), imageL.Height());
@@ -275,9 +276,9 @@ int main(int argc, char **argv)
         svgStream.drawCircle(right.x() + imageL.Width(), right.y(), 10, svgStyle().stroke("yellow", 2.0));
       }
     }
-    string out_filename = "06_KVLD_Keypoints.svg";
+    std::string out_filename = "06_KVLD_Keypoints.svg";
     out_filename = (fs::path(outputFolder) / out_filename).string();
-    ofstream svgFile( out_filename.c_str() );
+    std::ofstream svgFile(out_filename.c_str());
     svgFile << svgStream.closeSvgFile().str();
     svgFile.close();
   }
@@ -293,14 +294,16 @@ int main(int argc, char **argv)
     E);
 
   {
-    string out_filename = "07_Left-K-VLD-MASK.jpg";
+    std::string out_filename = "07_Left-K-VLD-MASK.jpg";
     out_filename = (fs::path(outputFolder) / out_filename).string();
-    writeImage(out_filename, imageOutL, image::EImageColorSpace::NO_CONVERSION);
+    writeImage(out_filename, imageOutL,
+               image::ImageWriteOptions().toColorSpace(image::EImageColorSpace::NO_CONVERSION));
   }
   {
-    string out_filename = "08_Right-K-VLD-MASK.jpg";
+    std::string out_filename = "08_Right-K-VLD-MASK.jpg";
     out_filename = (fs::path(outputFolder) / out_filename).string();
-    writeImage(out_filename, imageOutR, image::EImageColorSpace::NO_CONVERSION);
+    writeImage(out_filename, imageOutR,
+               image::ImageWriteOptions().toColorSpace(image::EImageColorSpace::NO_CONVERSION));
   }
 
   return EXIT_SUCCESS;

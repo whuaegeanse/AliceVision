@@ -97,8 +97,6 @@ int aliceVision_main(int argc, char* argv[])
     system::Timer timer;
 
     // command-line required parameters
-
-    std::string verboseLevel = system::EVerboseLevel_enumToString(system::Logger::getDefaultVerboseLevel());
     std::string inputMeshPath;
     std::string outputMeshPath;
 
@@ -118,14 +116,12 @@ int aliceVision_main(int argc, char* argv[])
     double filterLargeTrianglesFactor = 60.0;
     double filterTrianglesRatio = 0.0;
 
-    po::options_description allParams("AliceVision meshFiltering");
-
     po::options_description requiredParams("Required parameters");
     requiredParams.add_options()
         ("inputMesh,i", po::value<std::string>(&inputMeshPath)->required(),
-            "Input Mesh (OBJ file format).")
+            "Input Mesh")
         ("outputMesh,o", po::value<std::string>(&outputMeshPath)->required(),
-            "Output mesh (OBJ file format).");
+            "Output mesh");
 
     po::options_description optionalParams("Optional parameters");
     optionalParams.add_options()
@@ -148,45 +144,13 @@ int aliceVision_main(int argc, char* argv[])
         ("filterTrianglesRatio", po::value<double>(&filterTrianglesRatio)->default_value(filterTrianglesRatio),
             "Remove all triangles by ratio (largest edge /smallest edge). Put zero to disable it.");
 
-    po::options_description logParams("Log parameters");
-    logParams.add_options()
-      ("verboseLevel,v", po::value<std::string>(&verboseLevel)->default_value(verboseLevel),
-        "verbosity level (fatal, error, warning, info, debug, trace).");
-
-    allParams.add(requiredParams).add(optionalParams).add(logParams);
-
-    po::variables_map vm;
-
-    try
+    CmdLine cmdline("AliceVision meshFiltering");
+    cmdline.add(requiredParams);
+    cmdline.add(optionalParams);
+    if (!cmdline.execute(argc, argv))
     {
-      po::store(po::parse_command_line(argc, argv, allParams), vm);
-
-      if(vm.count("help") || (argc == 1))
-      {
-        ALICEVISION_COUT(allParams);
-        return EXIT_SUCCESS;
-      }
-
-      po::notify(vm);
+        return EXIT_FAILURE;
     }
-    catch(boost::program_options::required_option& e)
-    {
-      ALICEVISION_CERR("ERROR: " << e.what() << std::endl);
-      ALICEVISION_COUT("Usage:\n\n" << allParams);
-      return EXIT_FAILURE;
-    }
-    catch(boost::program_options::error& e)
-    {
-      ALICEVISION_CERR("ERROR: " << e.what() << std::endl);
-      ALICEVISION_COUT("Usage:\n\n" << allParams);
-      return EXIT_FAILURE;
-    }
-
-    ALICEVISION_COUT("Program called with the following parameters:");
-    ALICEVISION_COUT(vm);
-
-    // set verbose level
-    system::Logger::get()->setLogLevel(verboseLevel);
 
     // check and set smoothing subset type
     const ESubsetType smoothingSubsetType = ESubsetType_stringToEnum(smoothingSubsetTypeName);
@@ -199,7 +163,7 @@ int aliceVision_main(int argc, char* argv[])
         bfs::create_directory(outDirectory);
 
     mesh::Texturing texturing;
-    texturing.loadOBJWithAtlas(inputMeshPath);
+    texturing.loadWithAtlas(inputMeshPath);
     mesh::Mesh* mesh = texturing.mesh;
 
     if(!mesh)
@@ -310,7 +274,7 @@ int aliceVision_main(int argc, char* argv[])
     ALICEVISION_LOG_INFO("Save mesh.");
 
     // Save output mesh
-    outMesh.saveToObj(outputMeshPath);
+    outMesh.save(outputMeshPath);
 
     ALICEVISION_LOG_INFO("Mesh file: \"" << outputMeshPath << "\" saved.");
 

@@ -75,7 +75,7 @@ inline bool exportToPly(const std::vector<Vec3> & vec_camPosGT,
   const std::string & sFileName)
 {
   std::ofstream outfile;
-  outfile.open(sFileName.c_str(), std::ios_base::out);
+  outfile.open(sFileName, std::ios_base::out);
 
   outfile << "ply"
     << '\n' << "format ascii 1.0"
@@ -316,7 +316,7 @@ inline void EvaluteToGT(
 
 // Find a file in a list and return the index, or -1 if nothing found.
 // Handle relative/absolute paths
-inline int findIdGT(std::string file, std::vector<std::string> filelist)
+inline int findIdGT(const std::string& file, const std::vector<std::string>& filelist)
 {
   int result = -1;
   std::string file_relative = fs::path(file).filename().string();

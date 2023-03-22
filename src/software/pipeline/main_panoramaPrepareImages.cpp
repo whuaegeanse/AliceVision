@@ -66,14 +66,10 @@ Eigen::Matrix3d getRotationForCode(int code)
 
 int aliceVision_main(int argc, char* argv[])
 {
-    std::string verboseLevel = system::EVerboseLevel_enumToString(system::Logger::getDefaultVerboseLevel());
     std::string sfmInputDataFilename;
     std::string sfmOutputDataFilename;
 
     // Command line parameters
-    po::options_description allParams("Prepare images set for use in panorama.\n"
-                                      "AliceVision panoramaPrepareImages");
-
     po::options_description requiredParams("Required parameters");
     requiredParams.add_options()
         ("input,i", po::value<std::string>(&sfmInputDataFilename)->required(),
@@ -81,44 +77,14 @@ int aliceVision_main(int argc, char* argv[])
         ("output,o", po::value<std::string>(&sfmOutputDataFilename)->required(),
          "SfMData file output.");
 
-    po::options_description optionalParams("Optional parameters");
-
-    po::options_description logParams("Log parameters");
-    logParams.add_options()
-        ("verboseLevel,v", po::value<std::string>(&verboseLevel)->default_value(verboseLevel),
-         "verbosity level (fatal, error, warning, info, debug, trace).");
-
-    allParams.add(requiredParams).add(optionalParams).add(logParams);
-
-    po::variables_map vm;
-    try
+    CmdLine cmdline("Prepares images for use in the panorama pipeline "
+                    "by correcting inconsistent orientations caused by the camera being in zenith or nadir position.\n"
+                    "AliceVision panoramaPrepareImages");
+    cmdline.add(requiredParams);
+    if (!cmdline.execute(argc, argv))
     {
-        po::store(po::parse_command_line(argc, argv, allParams), vm);
-
-        if(vm.count("help") || (argc == 1))
-        {
-            ALICEVISION_COUT(allParams);
-            return EXIT_SUCCESS;
-        }
-        po::notify(vm);
-    }
-    catch(boost::program_options::required_option& e)
-    {
-        ALICEVISION_CERR("ERROR: " << e.what());
-        ALICEVISION_COUT("Usage:\n\n" << allParams);
         return EXIT_FAILURE;
     }
-    catch(boost::program_options::error& e)
-    {
-        ALICEVISION_CERR("ERROR: " << e.what());
-        ALICEVISION_COUT("Usage:\n\n" << allParams);
-        return EXIT_FAILURE;
-    }
-
-    ALICEVISION_COUT("Program called with the following parameters:");
-    ALICEVISION_COUT(vm);
-
-    system::Logger::get()->setLogLevel(verboseLevel);
 
     // Analyze path
     boost::filesystem::path path(sfmOutputDataFilename);
@@ -148,10 +114,10 @@ int aliceVision_main(int argc, char* argv[])
 
     if(sfmData.getIntrinsics().size() > 1)
     {
-        unsigned int refw = sfmData.getIntrinsics().begin()->second->w();
-        unsigned int refh = sfmData.getIntrinsics().begin()->second->h();
+        const unsigned int refw = sfmData.getIntrinsics().begin()->second->w();
+        const unsigned int refh = sfmData.getIntrinsics().begin()->second->h();
 
-        for(auto item : sfmData.getIntrinsics())
+        for(const auto& item : sfmData.getIntrinsics())
         {
             if(item.second->w() == refw && item.second->h() == refh)
             {
@@ -174,7 +140,7 @@ int aliceVision_main(int argc, char* argv[])
 
     // Read the flip values from metadata, or create it if necessary
     std::map<int, size_t> count_flips;
-    for(const auto& v : views)
+    for(auto& v : views)
     {
         if(v.second->hasMetadata({"raw:flip"}))
         {
@@ -210,7 +176,7 @@ int aliceVision_main(int argc, char* argv[])
     // Decide which rotation is the most used
     int max_flip = -1;
     size_t max_count = 0;
-    for(auto item : count_flips)
+    for(const auto& item : count_flips)
     {
         if(item.second > max_count)
         {
@@ -221,15 +187,15 @@ int aliceVision_main(int argc, char* argv[])
 
     // Get the intrinsic of the best flip
     IndexT refIntrinsic = UndefinedIndexT;
-    for(auto& v : views)
+    for(const auto& v : views)
     {
         // Now, all views have "raw:flip"
-        std::string str = v.second->getMetadata({"raw:flip"});
-        int flip_code = std::stoi(str);
+        const std::string str = v.second->getMetadata({"raw:flip"});
+        const int flip_code = std::stoi(str);
 
         if(flip_code == max_flip)
         {
-            IndexT intid = v.second->getIntrinsicId();
+            const IndexT intid = v.second->getIntrinsicId();
             if(refIntrinsic != intid && refIntrinsic != UndefinedIndexT)
             {
                 ALICEVISION_LOG_ERROR("Multiple intrinsics for the correct flip code !");
@@ -240,6 +206,7 @@ int aliceVision_main(int argc, char* argv[])
         }
     }
 
+    // Remove all other intrinsics
     for(sfmData::Intrinsics::iterator it = sfmData.getIntrinsics().begin(); it != sfmData.getIntrinsics().end(); ++it)
     {
         if(it->first != refIntrinsic)
@@ -251,8 +218,8 @@ int aliceVision_main(int argc, char* argv[])
     for(auto& v : views)
     {
         // Now, all views have raw:flip
-        std::string str = v.second->getMetadata({"raw:flip"});
-        int flip_code = std::stoi(str);
+        const std::string str = v.second->getMetadata({"raw:flip"});
+        const int flip_code = std::stoi(str);
 
         if(flip_code == max_flip)
         {
@@ -264,8 +231,8 @@ int aliceVision_main(int argc, char* argv[])
             v.second->setIntrinsicId(refIntrinsic);
         }
 
-        Eigen::Matrix3d R = getRotationForCode(flip_code) * getRotationForCode(max_flip).transpose();
-        Eigen::AngleAxisd aa(R);
+        const Eigen::Matrix3d R = getRotationForCode(flip_code) * getRotationForCode(max_flip).transpose();
+        const Eigen::AngleAxisd aa(R);
         Eigen::Vector3d axis = aa.axis();
         double angle = aa.angle();
 
@@ -277,18 +244,18 @@ int aliceVision_main(int argc, char* argv[])
 
         // Prepare output file
         image::Image<image::RGBfColor> output;
-        boost::filesystem::path origImgPath(v.second->getImagePath());
-        std::string origFilename = origImgPath.stem().string();
-        std::string rotatedImagePath = (fs::path(outputPath) / (origFilename + ".exr")).string();
+        const boost::filesystem::path origImgPath(v.second->getImagePath());
+        const std::string origFilename = origImgPath.stem().string();
+        const std::string rotatedImagePath = (fs::path(outputPath) / (origFilename + ".exr")).string();
         oiio::ParamValueList metadata = image::readImageMetadata(v.second->getImagePath());
 
         // Read input file
         image::Image<image::RGBfColor> originalImage;
 
         image::ImageReadOptions options;
-        options.outputColorSpace = image::EImageColorSpace::LINEAR;
-        options.applyWhiteBalance = v.second->getApplyWhiteBalance();
-        
+        options.workingColorSpace = image::EImageColorSpace::LINEAR;
+        options.rawColorInterpretation = image::ERawColorInterpretation_stringToEnum(v.second->getRawColorInterpretation());
+        options.colorProfileFileName = v.second->getColorProfileFileName();
 
         image::readImage(v.second->getImagePath(), originalImage, options);
         oiio::ImageBuf bufInput(
@@ -333,7 +300,7 @@ int aliceVision_main(int argc, char* argv[])
             return EXIT_FAILURE;
         }
 
-        image::writeImage(rotatedImagePath, output, image::EImageColorSpace::AUTO, metadata);
+        image::writeImage(rotatedImagePath, output, image::ImageWriteOptions(), metadata);
         v.second->setWidth(output.Width());
         v.second->setHeight(output.Height());
         v.second->setImagePath(rotatedImagePath);

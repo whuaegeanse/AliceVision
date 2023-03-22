@@ -12,12 +12,15 @@
 #include <regex>
 #include <string>
 #include <utility>
+#include <aliceVision/numeric/numeric.hpp>
+#include <aliceVision/image/dcp.hpp>
 
 namespace aliceVision {
 namespace sfmData {
 
 /**
  * @brief EXIF Orientation to names
+ * https://jdhao.github.io/2019/07/31/image_rotation_exif_info/
  */
 enum class EEXIFOrientation
 {
@@ -31,6 +34,159 @@ enum class EEXIFOrientation
   , RIGHT = 8
   , UNKNOWN = -1
 };
+
+struct GPSExifTags
+{
+    static std::string latitude();
+    static std::string latitudeRef();
+    static std::string longitude();
+    static std::string longitudeRef();
+    static std::string altitude();
+    static std::string altitudeRef();
+    static std::vector<std::string> all();
+};
+
+
+class ExposureSetting {
+public:
+    ExposureSetting() {}
+
+    ExposureSetting(double shutter, double fnumber, double iso)
+        : _shutter(shutter)
+        , _fnumber(fnumber)
+        , _iso(iso)
+    {
+    }
+
+    double _shutter{-1.0};
+    double _fnumber{-1.0};
+    double _iso{-1.0};
+
+    bool hasShutter() const { return _shutter > 0.0 && std::isnormal(_shutter); }
+    bool hasFNumber() const { return _fnumber > 0.0 && std::isnormal(_fnumber); }
+    bool hasISO() const { return _iso > 0.0 && std::isnormal(_iso); }
+
+    bool isFullyDefined() const {
+        return hasShutter() && hasFNumber() && hasISO();
+    }
+
+    bool isPartiallyDefined() const {
+        return hasShutter() || hasFNumber();
+    }
+
+    double getExposure(const double referenceISO = 100.0, const double referenceFNumber = 1.0) const
+    {
+        const bool validShutter = hasShutter();
+        const bool validFNumber = hasFNumber();
+
+        if(!validShutter && !validFNumber)
+            return -1.0;
+
+        const bool validRefFNumber = referenceFNumber > 0.0 && std::isnormal(referenceFNumber);
+
+        double shutter = _shutter;
+        if(!validShutter)
+        {
+            shutter = 1.0 / 200.0;
+        }
+        double fnumber = _fnumber;
+        // Usually we should get a valid shutter speed, but we could have invalid fnumber.
+        // For instance, if there is a connection problem between the lens and the camera, all lens related option like fnumber could be invalid.
+        // In this particular case, the exposure should rely only on the shutter speed.
+        if(!validFNumber)
+        {
+            if(validRefFNumber)
+                fnumber = referenceFNumber;
+            else
+                fnumber = 2.0;
+        }
+        double lReferenceFNumber = referenceFNumber;
+        if(!validRefFNumber)
+        {
+            lReferenceFNumber = fnumber;
+        }
+
+        const double iso = _iso;
+        /*
+        iso = qLt / aperture^2
+        isoratio = iso2 / iso1 = (qLt / aperture2^2) / (qLt / aperture1^2)
+        isoratio = aperture1^2 / aperture2^2
+        aperture2^2 = aperture1^2 / isoratio
+        aperture2^2 = (aperture1^2 / (iso2 / iso1))
+        aperture2^2 = (iso1 / iso2)
+        aperture2 = sqrt(iso1 / iso2)
+        */
+        double iso_2_aperture = 1.0;
+        if(iso > 1e-6 && referenceISO > 1e-6)
+        {
+            // Need to have both iso and reference iso to use it
+            iso_2_aperture = std::sqrt(iso / referenceISO);
+        }
+
+        /*
+        aperture = f / diameter
+        aperture2 / aperture1 = diameter1 / diameter2
+        (aperture2 / aperture1)^2 = (area1 / pi) / (area2 / pi)
+        area2 = (aperture1 / aperture2)^2
+        */
+        double new_fnumber = fnumber * iso_2_aperture;
+        double exp_increase = (new_fnumber / lReferenceFNumber) * (new_fnumber / lReferenceFNumber);
+
+        // If the aperture was more important for this image, this means that it received less light than with a default aperture
+        // This means also that if we want to simulate that all the image have the same aperture, we have to increase virtually th
+        // light received as if the aperture was smaller. So we increase the exposure time
+
+        // If the iso is larger than the default value, this means that it recevied more light than with a default iso
+        // This means also that if we want to simulate that all the image have the same iso, we have to decrease virtually th
+        // light received as if the iso was smaller. So we decrease the exposure time or equivalent, increase the aperture value
+
+        // Checks
+        // iso 20, f/2 = 2500
+        // iso 40, f/2.8 = 2500
+
+        return shutter * exp_increase;
+    }
+    bool operator<(const ExposureSetting& other) const { return getExposure() < other.getExposure(); }
+    bool operator==(const ExposureSetting& other) const { return getExposure() == other.getExposure(); }
+};
+
+inline std::ostream& operator<<( std::ostream& os, const ExposureSetting& s)
+{
+    os << "shutter: " << s._shutter << ", fnumber: " << s._fnumber << ", iso: " << s._iso;
+    return os;
+}
+
+inline bool hasComparableExposures(const std::vector<ExposureSetting>& exposuresSetting)
+{
+    if(exposuresSetting.size() < 2)
+        return false;
+
+    const bool hasShutter = exposuresSetting.front().hasShutter();
+    const bool hasFNumber = exposuresSetting.front().hasFNumber();
+    const bool hasISO = exposuresSetting.front().hasISO();
+    for(std::size_t i = 1; i < exposuresSetting.size(); ++i)
+    {
+        const ExposureSetting& s = exposuresSetting[i];
+        if(hasShutter != s.hasShutter())
+            return false;
+        if(hasFNumber != s.hasFNumber())
+            return false;
+        if(hasISO != s.hasISO())
+            return false;
+    }
+    return true;
+}
+
+inline std::vector<double> getExposures(const std::vector<ExposureSetting>& exposuresSetting)
+{
+    std::vector<double> output;
+    output.reserve(exposuresSetting.size());
+    for(const ExposureSetting& exp: exposuresSetting)
+    {
+        output.push_back(exp.getExposure());
+    }
+    return output;
+}
 
 /**
  * @brief A view define an image by a string and unique indexes for
@@ -83,6 +239,8 @@ public:
            _rigId == other._rigId &&
            _subPoseId == other._subPoseId;
   }
+
+  inline bool operator!=(const View& other) const { return !(*this == other); }
 
   /**
    * @brief Get view image path
@@ -200,7 +358,7 @@ public:
    */
   bool isPoseIndependant() const
   {
-    return (!isPartOfRig() || _isIndependantPose);
+    return (!isPartOfRig() || _isPoseIndependent);
   }
 
   /**
@@ -208,14 +366,20 @@ public:
    * For the same scene, this value is linearly proportional to the amount of light captured by the camera according to
    * the shooting parameters (shutter speed, f-number, iso).
    */
-  float getCameraExposureSetting(const float referenceISO = 100.0f, const float referenceFNumber = 1.0f) const;
+  ExposureSetting getCameraExposureSetting() const
+  {
+      return ExposureSetting(
+          getMetadataShutter(),
+          getMetadataFNumber(),
+          getMetadataISO());
+  }
 
   /**
    * @brief Get the Exposure Value. EV is a number that represents a combination of a camera's shutter speed and
    * f-number, such that all combinations that yield the same exposure have the same EV.
    * It progresses in a linear sequence as camera exposure is changed in power-of-2 steps.
    */
-  float getEv() const;
+  double getEv() const;
 
   /**
    * @brief Get an iterator on the map of metadata from a given name.
@@ -228,6 +392,13 @@ public:
    * @return true if the corresponding metadata value exists
    */
   bool hasMetadata(const std::vector<std::string>& names) const;
+
+  /**
+   * @brief Return true if the metadata for longitude and latitude exist.
+   * It checks that all the tags from GPSExifTags exists
+   * @return true if GPS data is available
+   */
+  bool hasGpsMetadata() const;
 
   /**
    * @brief Return true if the given metadata name exists and is a digit
@@ -257,6 +428,14 @@ public:
    * @return the metadata value as a double or -1.0 if it does not exist
    */
   double getDoubleMetadata(const std::vector<std::string>& names) const;
+
+  /**
+   * @brief Get the metadata value as a double
+   * @param[in] names List of possible names for the metadata
+   * @param[in] val Data to be set with the metadata value
+   * @return true if the metadata is found or false if it does not exist
+   */
+  bool getDoubleMetadata(const std::vector<std::string>& names, double& val) const;
 
   /**
    * @brief Get the metadata value as an integer
@@ -293,12 +472,30 @@ public:
   }
 
   /**
+   * @brief Get the corresponding "LensModel" metadata value
+   * @return the metadata value string or "" if no corresponding value
+   */
+  const std::string& getMetadataLensModel() const
+  {
+      return getMetadata({ "Exif:LensModel", "lensModel", "lens model" });
+  }
+
+  /**
+   * @brief Get the corresponding "LensID" metadata value
+   * @return the metadata value -1 if no corresponding value
+   */
+  int getMetadataLensID() const
+  {
+      return getIntMetadata({ "Exif:LensID", "lensID", "lensType"});
+  }
+
+  /**
    * @brief Get the corresponding "LensSerialNumber" metadata value
    * @return the metadata value string or "" if no corresponding value
    */
   const std::string& getMetadataLensSerialNumber() const
   {
-    return getMetadata({"Exif:LensSerialNumber", "lensSerialNumber", "lens serial number"});
+      return getMetadata({ "Exif:LensSerialNumber", "lensSerialNumber", "lens serial number" });
   }
 
   /**
@@ -359,14 +556,74 @@ public:
     return static_cast<EEXIFOrientation>(orientation);
   }
 
-  const bool getApplyWhiteBalance() const 
+  /**
+   * @brief Get the gps position in the absolute cartesian reference system.
+   * @return The position x, y, z as a three dimensional vector.
+   */
+  Vec3 getGpsPositionFromMetadata() const;
+
+  /**
+   * @brief Get the gps position in the WGS84 reference system.
+   * @param[out] lat the latitude
+   * @param[out] lon the longitude
+   * @param[out] alt the altitude
+   */
+  void getGpsPositionWGS84FromMetadata(double& lat, double& lon, double& alt) const;
+
+  /**
+   * @brief Get the gps position in the WGS84 reference system as a vector.
+   * @return A three dimensional vector with latitude, logitude and altitude.
+   */
+  Vec3 getGpsPositionWGS84FromMetadata() const;
+
+  const std::string& getColorProfileFileName() const
   {
-    if (getIntMetadata({"AliceVision:useWhiteBalance"}) == 0)
-    {
-      return false;
-    }
-    
-    return true;
+      return getMetadata({ "AliceVision:DCP:colorProfileFileName" });
+  }
+
+  const std::string& getRawColorInterpretation() const
+  {
+      return getMetadata({ "AliceVision:rawColorInterpretation" });
+  }
+
+  const std::vector<int> getCameraMultiplicators() const
+  {
+      const std::string cam_mul = getMetadata({ "raw:cam_mul" });
+      std::vector<int> v_mult;
+
+      size_t last = 0;
+      size_t next = 0;
+      while ((next = cam_mul.find(" ", last)) != std::string::npos)
+      {
+          v_mult.push_back(std::stoi(cam_mul.substr(last, next - last)));
+          last = next + 1;
+      }
+      v_mult.push_back(std::stoi(cam_mul.substr(last)));
+
+      return v_mult;
+  }
+
+  const bool getVignettingParams(std::vector<float>& v_vignParam) const
+  {
+      v_vignParam.clear();
+      bool valid = true;
+      double value;
+
+      valid = valid && getDoubleMetadata({ "AliceVision:VignParamFocX" }, value);
+      v_vignParam.push_back(static_cast<float>(value));
+      valid = valid && getDoubleMetadata({ "AliceVision:VignParamFocY" }, value);
+      v_vignParam.push_back(static_cast<float>(value));
+      valid = valid && getDoubleMetadata({ "AliceVision:VignParamCenterX" }, value);
+      v_vignParam.push_back(static_cast<float>(value));
+      valid = valid && getDoubleMetadata({ "AliceVision:VignParamCenterY" }, value);
+      v_vignParam.push_back(static_cast<float>(value));
+      valid = valid && getDoubleMetadata({ "AliceVision:VignParam1" }, value);
+      v_vignParam.push_back(static_cast<float>(value));
+      valid = valid && getDoubleMetadata({ "AliceVision:VignParam2" }, value);
+      v_vignParam.push_back(static_cast<float>(value));
+      valid = valid && getDoubleMetadata({ "AliceVision:VignParam3" }, value);
+      v_vignParam.push_back(static_cast<float>(value));
+      return valid;
   }
 
   const bool hasMetadataDateTimeOriginal() const
@@ -468,9 +725,9 @@ public:
    * @brief setIndependantPose
    * @param independant
    */
-  void setIndependantPose(bool independant)
+  void setIndependantPose(bool independent)
   {
-    _isIndependantPose = independant;
+      _isPoseIndependent = independent;
   }
 
   /**
@@ -492,6 +749,28 @@ public:
   void setFrameId(IndexT frameId)
   {
     _frameId = frameId;
+  }
+
+  /**
+   * @brief Get the list of viewID referencing the source views called "Ancestors"
+   * If an image is generated from multiple input images, "Ancestors" allows to keep track of the viewIDs of the original inputs views.
+   * For instance, the generated view can come from the fusion of multiple LDR images into one HDR image, the fusion from multi-focus 
+   * stacking to get a fully focused image, fusion of images with multiple lighting to get a more diffuse lighting, etc.
+   * @return list of viewID of the ancestors
+   * @param[in] viewId the view ancestor id
+   */
+  void addAncestor(IndexT viewId)
+  {
+    _ancestors.push_back(viewId);
+  }
+
+  /**
+  * @Brief get all ancestors for this view
+  * @return ancestors
+  */
+  const std::vector<IndexT> & getAncestors() const
+  {
+    return _ancestors;
   }
 
   /**
@@ -519,7 +798,52 @@ public:
    */
   void addMetadata(const std::string& key, const std::string& value)
   {
-    _metadata[key] = value;
+      _metadata[key] = value;
+  }
+
+  /**
+   * @brief Add DCP info in metadata
+   * @param[in] dcpProf The DCP color profile
+   */
+  void addDCPMetadata(image::DCPProfile& dcpProf)
+  {
+      addMetadata("AliceVision:DCP:colorProfileFileName", dcpProf.info.filename);
+
+      addMetadata("AliceVision:DCP:Temp1", std::to_string(dcpProf.info.temperature_1));
+      addMetadata("AliceVision:DCP:Temp2", std::to_string(dcpProf.info.temperature_2));
+
+      const int colorMatrixNumber = (dcpProf.info.has_color_matrix_1 && dcpProf.info.has_color_matrix_2) ? 2 :
+          (dcpProf.info.has_color_matrix_1 ? 1 : 0);
+      addMetadata("AliceVision:DCP:ColorMatrixNumber", std::to_string(colorMatrixNumber));
+
+      const int forwardMatrixNumber = (dcpProf.info.has_forward_matrix_1 && dcpProf.info.has_forward_matrix_2) ? 2 :
+          (dcpProf.info.has_forward_matrix_1 ? 1 : 0);
+      addMetadata("AliceVision:DCP:ForwardMatrixNumber", std::to_string(forwardMatrixNumber));
+
+      const int calibMatrixNumber = (dcpProf.info.has_camera_calibration_1 && dcpProf.info.has_camera_calibration_2) ? 2 :
+          (dcpProf.info.has_camera_calibration_1 ? 1 : 0);
+      addMetadata("AliceVision:DCP:CameraCalibrationMatrixNumber", std::to_string(calibMatrixNumber));
+
+      std::vector<std::string> v_strColorMatrix;
+      dcpProf.getMatricesAsStrings("color", v_strColorMatrix);
+      for (int k = 0; k < v_strColorMatrix.size(); k++)
+      {
+          addMetadata("AliceVision:DCP:ColorMat" + std::to_string(k + 1), v_strColorMatrix[k]);
+      }
+
+      std::vector<std::string> v_strForwardMatrix;
+      dcpProf.getMatricesAsStrings("forward", v_strForwardMatrix);
+      for (int k = 0; k < v_strForwardMatrix.size(); k++)
+      {
+          addMetadata("AliceVision:DCP:ForwardMat" + std::to_string(k + 1), v_strForwardMatrix[k]);
+      }
+
+      std::vector<std::string> v_strCalibMatrix;
+      dcpProf.getMatricesAsStrings("calib", v_strCalibMatrix);
+      for (int k = 0; k < v_strCalibMatrix.size(); k++)
+      {
+          addMetadata("AliceVision:DCP:CameraCalibrationMat" + std::to_string(k + 1), v_strCalibMatrix[k]);
+      }
   }
 
 private:
@@ -544,10 +868,12 @@ private:
   IndexT _frameId = UndefinedIndexT;
   /// resection id
   IndexT _resectionId = UndefinedIndexT;
-  /// pose independant of other view(s)
-  bool _isIndependantPose = true;
+  /// pose independent of other view(s)
+  bool _isPoseIndependent = true;
   /// map for metadata
   std::map<std::string, std::string> _metadata;
+  /// list of ancestors
+  std::vector<IndexT> _ancestors;
 };
 
 } // namespace sfmData

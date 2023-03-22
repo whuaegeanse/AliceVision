@@ -5,9 +5,9 @@
 // You can obtain one at https://mozilla.org/MPL/2.0/.
 
 #include "Database.hpp"
+#include <aliceVision/system/ProgressDisplay.hpp>
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics/tail.hpp>
-#include <boost/progress.hpp>
 #include <cmath>
 #include <fstream>
 #include <stdexcept>
@@ -24,6 +24,17 @@ std::ostream& operator<<(std::ostream& os, const SparseHistogram &dv)
 	}
 	os << "\n";
 	return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const DocMatches& matches)
+{
+    os << "[ ";
+    for (const auto &e : matches)
+    {
+        os << e.id << ", " << e.score << "; ";
+    }
+    os << "];\n";
+    return os;
 }
 
 Database::Database(uint32_t num_words)
@@ -69,7 +80,7 @@ void Database::sanityCheck(std::size_t N, std::map<std::size_t, DocMatches>& mat
   matches.clear();
   // since we already know the size of the vectors, in order to parallelize the 
   // query allocate the whole memory
-  boost::progress_display display(database_.size());
+  auto display = system::createConsoleProgressDisplay(database_.size(), std::cout);
   
   //#pragma omp parallel for default(none) shared(database_)
   for(const auto &doc : database_)
@@ -146,7 +157,7 @@ void Database::computeTfIdfWeights(float default_weight)
 
 void Database::saveWeights(const std::string& file) const
 {
-  std::ofstream out(file.c_str(), std::ios_base::binary);
+  std::ofstream out(file, std::ios_base::binary);
   uint32_t num_words = word_weights_.size();
   out.write((char*) (&num_words), sizeof (uint32_t));
   out.write((char*) (&word_weights_[0]), num_words * sizeof (float));
@@ -159,7 +170,7 @@ void Database::loadWeights(const std::string& file)
 
   try
   {
-    in.open(file.c_str(), std::ios_base::binary);
+    in.open(file, std::ios_base::binary);
     uint32_t num_words = 0;
     in.read((char*) (&num_words), sizeof (uint32_t));
     word_files_.resize(num_words); // Inverted files start out empty

@@ -206,7 +206,7 @@ void initAlbedo(image::Image<image::RGBfColor>& albedo, const image::Image<image
       oiio::ImageBuf albedoBuf(oiio::ImageSpec(picture.Width(), picture.Height(), 3, oiio::TypeDesc::FLOAT), albedo.data());
       oiio::ImageBufAlgo::median_filter(albedoBuf, pictureBuf, albedoEstimationFilterSize, albedoEstimationFilterSize);
       image::writeImage((fs::path(outputFolder) / (std::to_string(viewId) + "_albedo.jpg")).string(), albedo,
-                        image::EImageColorSpace::AUTO);
+                        image::ImageWriteOptions());
     }
     break;
     case EAlbedoEstimation::BLUR_FILTER:
@@ -214,11 +214,10 @@ void initAlbedo(image::Image<image::RGBfColor>& albedo, const image::Image<image
       albedo.resize(picture.Width(), picture.Height());
       const oiio::ImageBuf pictureBuf(oiio::ImageSpec(picture.Width(), picture.Height(), 3, oiio::TypeDesc::FLOAT), const_cast<void*>((void*)&picture(0,0)(0)));
       oiio::ImageBuf albedoBuf(oiio::ImageSpec(picture.Width(), picture.Height(), 3, oiio::TypeDesc::FLOAT), albedo.data());
-      oiio::ImageBuf K;
-      oiio::ImageBufAlgo::make_kernel(K, "gaussian", albedoEstimationFilterSize, albedoEstimationFilterSize);
+      oiio::ImageBuf K = oiio::ImageBufAlgo::make_kernel("gaussian", albedoEstimationFilterSize, albedoEstimationFilterSize);
       oiio::ImageBufAlgo::convolve(albedoBuf, pictureBuf, K);
       image::writeImage((fs::path(outputFolder) / (std::to_string(viewId) + "_albedo.jpg")).string(), albedo,
-                        image::EImageColorSpace::AUTO);
+                        image::ImageWriteOptions());
     }
     break;
   }
@@ -246,7 +245,7 @@ void initAlbedo(image::Image<float>& albedo, const image::Image<float>& picture,
       oiio::ImageBuf albedoBuf(oiio::ImageSpec(picture.Width(), picture.Height(), 1, oiio::TypeDesc::FLOAT), albedo.data());
       oiio::ImageBufAlgo::median_filter(albedoBuf, pictureBuf, albedoEstimationFilterSize, albedoEstimationFilterSize);
       image::writeImage((fs::path(outputFolder) / (std::to_string(viewId) + "_albedo.jpg")).string(), albedo,
-                        image::EImageColorSpace::AUTO);
+                        image::ImageWriteOptions());
     }
     break;
     case EAlbedoEstimation::BLUR_FILTER:
@@ -254,11 +253,10 @@ void initAlbedo(image::Image<float>& albedo, const image::Image<float>& picture,
       albedo.resize(picture.Width(), picture.Height());
       const oiio::ImageBuf pictureBuf(oiio::ImageSpec(picture.Width(), picture.Height(), 1, oiio::TypeDesc::FLOAT), const_cast<float*>(picture.data()));
       oiio::ImageBuf albedoBuf(oiio::ImageSpec(picture.Width(), picture.Height(), 1, oiio::TypeDesc::FLOAT), albedo.data());
-      oiio::ImageBuf K;
-      oiio::ImageBufAlgo::make_kernel(K, "gaussian", albedoEstimationFilterSize, albedoEstimationFilterSize);
+      oiio::ImageBuf K = oiio::ImageBufAlgo::make_kernel("gaussian", albedoEstimationFilterSize, albedoEstimationFilterSize);
       oiio::ImageBufAlgo::convolve(albedoBuf, pictureBuf, K);
       image::writeImage((fs::path(outputFolder) / (std::to_string(viewId) + "_albedo.jpg")).string(), albedo,
-                        image::EImageColorSpace::AUTO);
+                        image::ImageWriteOptions());
     }
     break;
   }
@@ -269,8 +267,6 @@ int main(int argc, char** argv)
   system::Timer timer;
 
   // command-line parameters
-
-  std::string verboseLevel = aliceVision::system::EVerboseLevel_enumToString(aliceVision::system::Logger::getDefaultVerboseLevel());
   std::string sfmDataFilename;
   std::string depthMapsFilterFolder;
   std::string imagesFolder;
@@ -281,8 +277,6 @@ int main(int argc, char** argv)
 
   int albedoEstimationFilterSize = 3;
   ELightingColor lightingColor = ELightingColor::RGB;
-
-  po::options_description allParams("AliceVision lighthingEstimation");
 
   po::options_description requiredParams("Required parameters");
   requiredParams.add_options()
@@ -307,43 +301,13 @@ int main(int argc, char** argv)
     ("albedoEstimationFilterSize", po::value<int>(&albedoEstimationFilterSize)->default_value(albedoEstimationFilterSize),
       "Albedo filter size for estimation method using filter.");
 
-  po::options_description logParams("Log parameters");
-  logParams.add_options()
-    ("verboseLevel,v", po::value<std::string>(&verboseLevel)->default_value(verboseLevel),
-      "verbosity level (fatal, error, warning, info, debug, trace).");
-
-  allParams.add(requiredParams).add(optionalParams).add(logParams);
-
-  po::variables_map vm;
-  try
+  CmdLine cmdline("AliceVision lighthingEstimation");
+  cmdline.add(requiredParams);
+  cmdline.add(optionalParams);
+  if (!cmdline.execute(argc, argv))
   {
-    po::store(po::parse_command_line(argc, argv, allParams), vm);
-
-    if(vm.count("help") || (argc == 1))
-    {
-      ALICEVISION_COUT(allParams);
-      return EXIT_SUCCESS;
-    }
-    po::notify(vm);
+      return EXIT_FAILURE;
   }
-  catch(boost::program_options::required_option& e)
-  {
-    ALICEVISION_CERR("ERROR: " << e.what());
-    ALICEVISION_COUT("Usage:\n\n" << allParams);
-    return EXIT_FAILURE;
-  }
-  catch(boost::program_options::error& e)
-  {
-    ALICEVISION_CERR("ERROR: " << e.what());
-    ALICEVISION_COUT("Usage:\n\n" << allParams);
-    return EXIT_FAILURE;
-  }
-
-  ALICEVISION_COUT("Program called with the following parameters:");
-  ALICEVISION_COUT(vm);
-
-  // set verbose level
-  aliceVision::system::Logger::get()->setLogLevel(verboseLevel);
 
   // read the input SfM scene
   sfmData::SfMData sfmData;
@@ -363,7 +327,7 @@ int main(int argc, char** argv)
     const IndexT viewId = viewPair.first;
 
     const std::string picturePath = mp.getImagePath(mp.getIndexFromViewId(viewId));
-    const std::string normalsPath = mvsUtils::getFileNameFromViewId(&mp, viewId, mvsUtils::EFileType::normalMap, 0);
+    const std::string normalsPath = mvsUtils::getFileNameFromViewId(mp, viewId, mvsUtils::EFileType::normalMap, 0);
 
     image::Image<image::RGBfColor> normals;
     image::readImage(normalsPath, normals, image::EImageColorSpace::LINEAR);

@@ -12,11 +12,11 @@
 #include <aliceVision/feature/RegionsPerView.hpp>
 #include <aliceVision/matching/IndMatch.hpp>
 #include <aliceVision/matchingImageCollection/GeometricFilterMatrix.hpp>
+#include <aliceVision/system/ProgressDisplay.hpp>
 
-#include <boost/progress.hpp>
-
-#include <vector>
 #include <map>
+#include <random>
+#include <vector>
 
 namespace aliceVision {
 namespace matchingImageCollection {
@@ -51,7 +51,9 @@ void robustModelEstimation(
 {
   out_geometricMatches.clear();
 
-  boost::progress_display progressBar(putativeMatches.size(), std::cout, "Robust Model Estimation\n");
+  auto progressDisplay =
+          system::createConsoleProgressDisplay(putativeMatches.size(), std::cout,
+                                               "Robust Model Estimation\n");
   
 #pragma omp parallel for schedule(dynamic)
   for (int i = 0; i < (int)putativeMatches.size(); ++i)
@@ -85,13 +87,22 @@ void robustModelEstimation(
 
       }
     }
-
-#pragma omp critical
-    {
-      ++progressBar;
-    }
+    ++progressDisplay;
   }
 }
+
+/**
+ * @brief removePoorlyOverlappingImagePairs Removes image pairs from the given list of geometric
+ *  matches that have poor overlap according to the supplied criteria.
+ * @param[in,out] geometricMatches List of geometric matches to clean up
+ * @param putativeMatches List of putative matches
+ * @param minimumRatio Minimum ratio of geometric to putative matches for image pair
+ * @param minimumCount Minimum count of geometric matches for image pair
+ */
+void removePoorlyOverlappingImagePairs(PairwiseMatches& geometricMatches,
+                                       const PairwiseMatches& putativeMatches,
+                                       float minimumRatio,
+                                       std::size_t minimumGeometricCount);
 
 } // namespace matchingImageCollection
 } // namespace aliceVision

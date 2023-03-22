@@ -153,17 +153,20 @@ inline void applyTransform(sfmData::SfMData& sfmData,
                            const Vec3& t,
                            bool transformControlPoints = false)
 {
-  for(auto& viewPair: sfmData.views)
+  for(auto& poseIt: sfmData.getPoses())
   {
-    const sfmData::View& view = *viewPair.second;
-    if(sfmData.existsPose(view))
-    {
-      geometry::Pose3 pose = sfmData.getPose(view).getTransform();
-      pose = pose.transformSRt(S, R, t);
-      sfmData.setPose(view, sfmData::CameraPose(pose));
-    }
+    geometry::Pose3 pose = poseIt.second.getTransform();
+    pose = pose.transformSRt(S, R, t);
+    poseIt.second.setTransform(pose);
   }
-  
+  for (auto& rigIt : sfmData.getRigs())
+  {
+      for (auto& subPose : rigIt.second.getSubPoses())
+      {
+          subPose.pose.center() *= S;
+      }
+  }
+
   for(auto& landmark: sfmData.structure)
   {
     landmark.second.X = S * R * landmark.second.X + t;
@@ -177,6 +180,21 @@ inline void applyTransform(sfmData::SfMData& sfmData,
     controlPts.second.X = S * R * controlPts.second.X + t;
   }
 }
+
+/**
+ * @brief Compute the new coordinate system in the given SfM so that the mean
+ * of the camera centers is the origin of the world coordinate system,
+ * a dominant Y axis is defined based on the X axis of all cameras,
+ * and the scale is set so that the optical centers RMS is "1.0".
+ * (Hartley-like normalization, p.180)
+ *
+ * @param[in] sfmData
+ * @param[out] out_S scale
+ * @param[out] out_R rotation
+ * @param[out] out_t translation
+ */
+void computeNewCoordinateSystemFromCamerasXAxis(const sfmData::SfMData& sfmData, double& out_S, Mat3& out_R,
+                                                Vec3& out_t);
 
 /**
  * @brief Compute the new coordinate system in the given reconstruction so that the mean
@@ -211,6 +229,21 @@ void computeNewCoordinateSystemFromCameras(const sfmData::SfMData& sfmData,
  */
 void computeNewCoordinateSystemFromLandmarks(const sfmData::SfMData& sfmData,
                                              const std::vector<feature::EImageDescriberType>& imageDescriberTypes,
+                                             double& out_S,
+                                             Mat3& out_R,
+                                             Vec3& out_t);
+
+/**
+ * @brief Compute a new coordinate system using the GPS data available in the metadata. The transformation will bring the
+ * model in the cartesian metric reference system.
+ * @param[in] sfmData The sfmdata containing the scene.
+ * @param[in,out] randomNumberGenerator The random number generator.
+ * @param[out] out_S the scale factor.
+ * @param[out] out_R the rotation.
+ * @param[out] out_t the translation.
+ * @return false if no reliable transformation can be computed or the sfmdata does not contain gps metadata, true otherwise.
+ */
+bool computeNewCoordinateSystemFromGpsData(const sfmData::SfMData& sfmData, std::mt19937 &randomNumberGenerator,
                                              double& out_S,
                                              Mat3& out_R,
                                              Vec3& out_t);
@@ -272,6 +305,24 @@ bool computeNewCoordinateSystemFromSpecificMarkers(const sfmData::SfMData& sfmDa
     double& out_S,
     Mat3& out_R,
     Vec3& out_t);
+
+/**
+ * @brief Compute the 3D rotation matrix such that "R.t() * unit_z"
+ * once rotated will have its x component equal to 0.
+ * This rotation will only affect rotate around the Y axis
+ * @param[out] out_R the result rotation matrix
+ * @param[in] R the input rotation matrix
+ */
+void getRotationNullifyX(Eigen::Matrix3d & out_R, const Eigen::Matrix3d & R);
+
+/**
+ * @brief Compute the 3D rotation matrix such that "pt"
+ * once rotated will have its x component equal to 0.
+ * This rotation will only affect rotate around the Y axis
+ * @param[out] out_R the result rotation matrix
+ * @param[in] pt the input point to nullify on X
+ */
+void getRotationNullifyX(Eigen::Matrix3d & out_R, const Eigen::Vector3d & pt);
 
 } // namespace sfm
 } // namespace aliceVision

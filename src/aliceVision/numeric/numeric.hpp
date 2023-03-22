@@ -8,18 +8,20 @@
 
 #pragma once
 
-// AliceVision does not support Eigen with alignment,
+// AliceVision does not support Eigen with alignment, unless C++17 aligned new feature is enabled.
 // So ensure Eigen is used with the correct flags.
-#ifndef EIGEN_MAX_ALIGN_BYTES
-#error "EIGEN_MAX_ALIGN_BYTES is not defined"
-#elif EIGEN_MAX_ALIGN_BYTES != 0
-#error "EIGEN_MAX_ALIGN_BYTES is defined but not 0"
-#endif
+#ifndef ALICEVISION_EIGEN_REQUIRE_ALIGNMENT
+    #ifndef EIGEN_MAX_ALIGN_BYTES
+        #error "EIGEN_MAX_ALIGN_BYTES is not defined"
+    #elif EIGEN_MAX_ALIGN_BYTES != 0
+        #error "EIGEN_MAX_ALIGN_BYTES is defined but not 0"
+    #endif
 
-#ifndef EIGEN_MAX_STATIC_ALIGN_BYTES
-#error "EIGEN_MAX_STATIC_ALIGN_BYTES is not defined"
-#elif EIGEN_MAX_STATIC_ALIGN_BYTES != 0
-#error "EIGEN_MAX_STATIC_ALIGN_BYTES is defined but not 0"
+    #ifndef EIGEN_MAX_STATIC_ALIGN_BYTES
+        #error "EIGEN_MAX_STATIC_ALIGN_BYTES is not defined"
+    #elif EIGEN_MAX_STATIC_ALIGN_BYTES != 0
+        #error "EIGEN_MAX_STATIC_ALIGN_BYTES is defined but not 0"
+    #endif
 #endif
 
 
@@ -69,9 +71,12 @@ using Eigen::Map;
 using EigenDoubleTraits = Eigen::NumTraits<double>;
 
 using Vec3 = Eigen::Vector3d;
+using Vec3i = Eigen::Vector3i;
+using Vec3f = Eigen::Vector3f;
+
 using Vec2i = Eigen::Vector2i;
 using Vec2f = Eigen::Vector2f;
-using Vec3f = Eigen::Vector3f;
+
 using Vec9 = Eigen::Matrix<double, 9, 1>;
 
 using Quaternion = Eigen::Quaternion<double>;
@@ -136,6 +141,17 @@ inline T clamp(const T & val, const T& min, const T & max)
 {
   return std::max(min, std::min(val, max));
   //(val < min) ? val : ((val>max) ? val : max);
+}
+
+inline bool isSimilar(double a, double b)
+{
+    const double diff = a - b;
+    return std::abs(diff) < 1e-8;
+}
+inline bool isSimilar(float a, float b)
+{
+    const float diff = a - b;
+    return std::abs(diff) < 1e-8f;
 }
 
 
@@ -554,5 +570,28 @@ void SplitRange(const T range_start, const T range_end, const int nb_split,
   }
 }
 
+template<class T>
+constexpr T divideRoundUp(T x, T y)
+{
+    static_assert(std::is_integral<T>::value, "divideRoundUp only works with integer arguments");
+    const auto xPos = x >= 0;
+    const auto yPos = y >= 0;
+    if (xPos == yPos) {
+        return x / y + T((x % y) != 0);
+    } else {
+        // negative result, rounds towards zero anyways
+        return x / y;
+    }
+}
+
+/**
+ * This function initializes the global state of random number generators that e.g. our tests
+ * depend on. This makes it possible to have exactly reproducible program runtime behavior
+ * without random changes. In order to introduce variation in execution,
+ * ALICEVISION_RANDOM_SEED environment variable can be set to an integer value.
+ *
+ * This function is especially useful in tests where it allows to prevent random failures.
+ */
+void makeRandomOperationsReproducible();
 
 } // namespace aliceVision

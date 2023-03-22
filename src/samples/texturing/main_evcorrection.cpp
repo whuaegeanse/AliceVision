@@ -96,25 +96,26 @@ int main(int argc, char **argv)
         if(fs::is_regular_file(filePath)) 
         { 
             int w, h; 
-            std::map<std::string, std::string> metadata; 
             const IndexT id_view = c, id_pose = c, id_intrinsic = 0, rigId = 0, subPoseId = 0; 
  
-            image::readImageMetadata(filePath.string(), w, h, metadata); 
+            const auto metadata = image::readImageMetadata(filePath.string(), w, h);
  
-            sfm_data.views[c] = std::make_shared<sfmData::View>(filePath.string(), id_view, id_intrinsic, id_pose, w, h, rigId, subPoseId, metadata); 
+            sfm_data.views[c] = std::make_shared<sfmData::View>(filePath.string(), id_view, id_intrinsic,
+                                                                id_pose, w, h, rigId, subPoseId,
+                                                                image::getMapFromMetadata(metadata));
  
             ++c; 
         } 
  
     } 
  
-    float cameraExposureMedian = sfm_data.getMedianCameraExposureSetting(); 
+    const double cameraExposureMedian = sfm_data.getMedianCameraExposureSetting().getExposure();
     ALICEVISION_LOG_INFO("  EV Median :" << cameraExposureMedian); 
  
     for(int i = 0; i < sfm_data.views.size(); ++i) 
     { 
-        sfmData::View view = *(sfm_data.views[i]);
-        float evComp = cameraExposureMedian / view.getCameraExposureSetting();
+        const sfmData::View& view = *(sfm_data.views[i]);
+        const float evComp = float(cameraExposureMedian / view.getCameraExposureSetting().getExposure());
  
         image::Image<image::RGBfColor> img; 
         image::readImage(view.getImagePath(), img, image::EImageColorSpace::LINEAR); 
@@ -128,7 +129,9 @@ int main(int argc, char **argv)
 
         std::string outputPath = outputFilePath + fs::path(view.getImagePath()).stem().string() + ".EXR"; 
         oiio::ParamValueList metadata = image::getMetadataFromMap(view.getMetadata()); 
-        image::writeImage(outputPath, img, image::EImageColorSpace::LINEAR, metadata); 
+        image::writeImage(outputPath, img,
+                          image::ImageWriteOptions().toColorSpace(image::EImageColorSpace::LINEAR),
+                          metadata);
     } 
  
 /* 

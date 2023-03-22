@@ -4,6 +4,7 @@
 // v. 2.0. If a copy of the MPL was not distributed with this file,
 // You can obtain one at https://mozilla.org/MPL/2.0/.
 
+#include <aliceVision/image/Rgb.hpp>
 #include <aliceVision/sfmData/SfMData.hpp>
 #include <aliceVision/sfmData/colorize.hpp>
 #include <aliceVision/sfmDataIO/sfmDataIO.hpp>
@@ -12,7 +13,6 @@
 #include <aliceVision/fuseCut/DelaunayGraphCut.hpp>
 #include <aliceVision/mesh/meshPostProcessing.hpp>
 #include <aliceVision/mvsData/Point3d.hpp>
-#include <aliceVision/mvsData/Rgb.hpp>
 #include <aliceVision/mvsData/StaticVector.hpp>
 #include <aliceVision/mvsUtils/common.hpp>
 #include <aliceVision/mvsUtils/MultiViewParams.hpp>
@@ -109,7 +109,7 @@ void createDenseSfMData(const sfmData::SfMData& sfmData,
       {
         const sfmData::View& view = sfmData.getView(mp.getViewId(cam));
         const camera::IntrinsicBase* intrinsicPtr = sfmData.getIntrinsicPtr(view.getIntrinsicId());
-        const sfmData::Observation observation(intrinsicPtr->project(sfmData.getPose(view).getTransform(), pt3D, true), UndefinedIndexT, unknownScale); // apply distortion
+        const sfmData::Observation observation(intrinsicPtr->project(sfmData.getPose(view).getTransform(), pt3D.homogeneous(), true), UndefinedIndexT, unknownScale); // apply distortion
         landmark.observations[view.getViewId()] = observation;
       }
     }
@@ -251,7 +251,6 @@ int aliceVision_main(int argc, char* argv[])
 {
     system::Timer timer;
 
-    std::string verboseLevel = system::EVerboseLevel_enumToString(system::Logger::getDefaultVerboseLevel());
     std::string sfmDataFilename;
     std::string outputMesh;
     std::string outputDensePointCloud;
@@ -285,8 +284,6 @@ int aliceVision_main(int argc, char* argv[])
     bool exportDebugTetrahedralization = false;
     int maxNbConnectedHelperPoints = 50;
 
-    po::options_description allParams("AliceVision meshing");
-
     po::options_description requiredParams("Required parameters");
     requiredParams.add_options()
         ("input,i", po::value<std::string>(&sfmDataFilename)->required(),
@@ -294,7 +291,7 @@ int aliceVision_main(int argc, char* argv[])
         ("output,o", po::value<std::string>(&outputDensePointCloud)->required(),
           "Output Dense SfMData file.")
         ("outputMesh,o", po::value<std::string>(&outputMesh)->required(),
-          "Output mesh (OBJ file format).");
+          "Output mesh");
 
     po::options_description optionalParams("Optional parameters");
     optionalParams.add_options()
@@ -385,45 +382,15 @@ int aliceVision_main(int argc, char* argv[])
         ("seed", po::value<unsigned int>(&seed)->default_value(seed),
             "Seed used in random processes. (0 to use a random seed).");
 
-    po::options_description logParams("Log parameters");
-    logParams.add_options()
-      ("verboseLevel,v", po::value<std::string>(&verboseLevel)->default_value(verboseLevel),
-        "verbosity level (fatal, error, warning, info, debug, trace).");
-
-    allParams.add(requiredParams).add(optionalParams).add(advancedParams).add(logParams);
-
-    po::variables_map vm;
-
-    try
+    CmdLine cmdline("AliceVision meshing");
+    cmdline.add(requiredParams);
+    cmdline.add(optionalParams);
+    cmdline.add(advancedParams);
+    if (!cmdline.execute(argc, argv))
     {
-      po::store(po::parse_command_line(argc, argv, allParams), vm);
-
-      if(vm.count("help") || (argc == 1))
-      {
-        ALICEVISION_COUT(allParams);
-        return EXIT_SUCCESS;
-      }
-
-      po::notify(vm);
-    }
-    catch(boost::program_options::required_option& e)
-    {
-      ALICEVISION_CERR("ERROR: " << e.what() << std::endl);
-      ALICEVISION_COUT("Usage:\n\n" << allParams);
-      return EXIT_FAILURE;
-    }
-    catch(boost::program_options::error& e)
-    {
-      ALICEVISION_CERR("ERROR: " << e.what() << std::endl);
-      ALICEVISION_COUT("Usage:\n\n" << allParams);
-      return EXIT_FAILURE;
+        return EXIT_FAILURE;
     }
 
-    ALICEVISION_COUT("Program called with the following parameters:");
-    ALICEVISION_COUT(vm);
-
-    // set verbose level
-    system::Logger::get()->setLogLevel(verboseLevel);
 
     if(depthMapsFolder.empty())
     {
@@ -499,7 +466,7 @@ int aliceVision_main(int argc, char* argv[])
                     std::array<Point3d, 8> hexah;
 
                     float minPixSize;
-                    fuseCut::Fuser fs(&mp);
+                    fuseCut::Fuser fs(mp);
 
                     if (boundingBox.isInitialized())
                         boundingBox.toHexahedron(&hexah[0]);
@@ -531,7 +498,7 @@ int aliceVision_main(int argc, char* argv[])
                     if(cams.empty())
                         throw std::logic_error("No camera to make the reconstruction");
                     
-                    fuseCut::DelaunayGraphCut delaunayGC(&mp);
+                    fuseCut::DelaunayGraphCut delaunayGC(mp);
                     delaunayGC.createDensePointCloud(&hexah[0], cams, addLandmarksToTheDensePointCloud ? &sfmData : nullptr, meshingFromDepthMaps ? &fuseParams : nullptr);
                     if(saveRawDensePointCloud)
                     {
@@ -602,7 +569,8 @@ int aliceVision_main(int argc, char* argv[])
     sfmDataIO::Save(densePointCloud, outputDensePointCloud, sfmDataIO::ESfMData::ALL_DENSE);
 
     ALICEVISION_LOG_INFO("Save obj mesh file.");
-    mesh->saveToObj(outputMesh);
+    ALICEVISION_LOG_INFO("OUTPUT MESH " << outputMesh);
+    mesh->save(outputMesh);
     delete mesh;
 
 

@@ -8,6 +8,7 @@
 #pragma once
 
 #include "IntrinsicsScaleOffset.hpp"
+#include "IntrinsicInitMode.hpp"
 #include "Distortion.hpp"
 #include <memory>
 
@@ -22,9 +23,10 @@ class IntrinsicsScaleOffsetDisto : public IntrinsicsScaleOffset
 public:
   IntrinsicsScaleOffsetDisto() = default;
 
-  IntrinsicsScaleOffsetDisto(unsigned int w, unsigned int h, double scaleX, double scaleY, double offsetX, double offsetY, std::shared_ptr<Distortion> distortion = nullptr)
+  IntrinsicsScaleOffsetDisto(unsigned int w, unsigned int h, double scaleX, double scaleY, double offsetX, double offsetY, std::shared_ptr<Distortion> distortion = nullptr, EInitMode distortionInitializationMode = EInitMode::NONE)
   : IntrinsicsScaleOffset(w, h, scaleX, scaleY, offsetX, offsetY)
   , _pDistortion(distortion)
+  , _distortionInitializationMode(distortionInitializationMode)
   {}
 
   void assign(const IntrinsicBase& other) override
@@ -32,9 +34,25 @@ public:
     *this = dynamic_cast<const IntrinsicsScaleOffsetDisto&>(other);
   }
 
+  bool operator==(const IntrinsicBase& otherBase) const override
+  {
+      if(!IntrinsicsScaleOffset::operator==(otherBase))
+          return false;
+      if(typeid(*this) != typeid(otherBase))
+          return false;
+      const IntrinsicsScaleOffsetDisto& other = static_cast<const IntrinsicsScaleOffsetDisto&>(otherBase);
+
+      if (_distortionInitializationMode != other._distortionInitializationMode)
+          return false;
+
+      if(_pDistortion != nullptr && other._pDistortion != nullptr)
+          return (*_pDistortion) == (*other._pDistortion);
+      return _pDistortion == other._pDistortion;
+  }
+
   bool hasDistortion() const override
   {
-    return !(_pDistortion == nullptr);
+    return _pDistortion != nullptr;
   }
 
   Vec2 addDistortion(const Vec2& p) const override
@@ -68,6 +86,13 @@ public:
     return cam2ima(addDistortion(ima2cam(p)));
   }
 
+  std::size_t getDistortionParamsSize() const
+  {
+    if (_pDistortion == nullptr)
+        return 0;
+    return _pDistortion->getParameters().size();
+  }
+
   std::vector<double> getDistortionParams() const
   {
     if (!hasDistortion()) {
@@ -86,9 +111,7 @@ public:
 
     if (distortionParams.size() != expected)
     {
-        std::stringstream s;
-        s << "IntrinsicsScaleOffsetDisto::setDistortionParams: wrong number of distortion parameters (expected: " << expected << ", given:" << distortionParams.size() << ").";
-        throw std::runtime_error(s.str());
+        throwSetDistortionParamsCountError(expected, distortionParams.size());
     }
 
     if (_pDistortion)
@@ -97,10 +120,47 @@ public:
     }
   }
 
+  template<class F>
+  void setDistortionParamsFn(F&& callback)
+  {
+    if (_pDistortion == nullptr)
+        return;
+
+    auto& params = _pDistortion->getParameters();
+    for (std::size_t i = 0; i < params.size(); ++i)
+    {
+        params[i] = callback(i);
+    }
+  }
+
+  template<class F>
+  void setDistortionParamsFn(std::size_t count, F&& callback)
+  {
+    if (_pDistortion == nullptr)
+    {
+        if (count != 0)
+        {
+            throwSetDistortionParamsCountError(0, count);
+        }
+        return;
+    }
+
+    auto& params = _pDistortion->getParameters();
+    if (params.size() != count)
+    {
+        throwSetDistortionParamsCountError(params.size(), count);
+    }
+
+    for (std::size_t i = 0; i < params.size(); ++i)
+    {
+        params[i] = callback(i);
+    }
+  }
+
   // Data wrapper for non linear optimization (get data)
   std::vector<double> getParams() const override
   {
-    std::vector<double> params = {_scale(0), _offset(0), _offset(1)};
+    std::vector<double> params = {_scale(0), _scale(1), _offset(0), _offset(1)};
 
     if (hasDistortion())
     {
@@ -110,30 +170,40 @@ public:
     return params;
   }
 
+  std::size_t getParamsSize() const override
+  {
+    std::size_t size = 4;
+    if (hasDistortion())
+    {
+      size += _pDistortion->getParameters().size();
+    }
+    return size;
+  }
+
   // Data wrapper for non linear optimization (update from data)
   bool updateFromParams(const std::vector<double>& params) override
   {
     if (_pDistortion == nullptr)
     {
-      if (params.size() != 3)
+      if (params.size() != 4)
       {
         return false;
       }
     }
     else
     {
-      if (params.size() != (3 + _pDistortion->getDistortionParametersCount()))
+      if (params.size() != (4 + _pDistortion->getDistortionParametersCount()))
       {
         return false;
       }
     }
 
     _scale(0) = params[0];
-    _scale(1) = params[0];
-    _offset(0) = params[1];
-    _offset(1) = params[2];
+    _scale(1) = params[1];
+    _offset(0) = params[2];
+    _offset(1) = params[3];
 
-    setDistortionParams({params.begin() + 3, params.end()});
+    setDistortionParams({params.begin() + 4, params.end()});
 
     return true;
   }
@@ -192,10 +262,40 @@ public:
       return _pDistortion;
   }
 
+  /**
+  * @brief Set The intrinsic disto initialization mode
+  * @param[in] distortionInitializationMode The intrintrinsic distortion initialization mode enum
+  */
+  inline void setDistortionInitializationMode(EInitMode distortionInitializationMode) override
+  {
+      _distortionInitializationMode = distortionInitializationMode;
+  }
+
+  /**
+   * @brief Get the intrinsic disto initialization mode
+   * @return The intrinsic disto initialization mode
+   */
+  inline EInitMode getDistortionInitializationMode() const override
+  {
+      return _distortionInitializationMode;
+  }
+
   ~IntrinsicsScaleOffsetDisto() override = default;
 
 protected:
+  void throwSetDistortionParamsCountError(std::size_t expected, std::size_t received)
+  {
+      std::stringstream s;
+      s << "IntrinsicsScaleOffsetDisto::setDistortionParams*: "
+        << "wrong number of distortion parameters (expected: "
+        << expected << ", given:" << received << ").";
+      throw std::runtime_error(s.str());
+  }
+
   std::shared_ptr<Distortion> _pDistortion;
+
+  // Distortion initialization mode
+  EInitMode _distortionInitializationMode = EInitMode::NONE;
 };
 
 } // namespace camera

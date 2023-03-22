@@ -219,7 +219,7 @@ int indexOf(T* arr, int n, const T& what)
 }
 
 template <class T>
-void saveArrayOfArraysToFile(std::string fileName, StaticVector<StaticVector<T>*>* aa)
+void saveArrayOfArraysToFile(const std::string& fileName, StaticVector<StaticVector<T>*>* aa)
 {
     ALICEVISION_LOG_DEBUG("[IO] saveArrayOfArraysToFile: " << fileName);
     FILE* f = fopen(fileName.c_str(), "wb");
@@ -386,7 +386,7 @@ void saveArrayToFile(const std::string& fileName, const StaticVector<T>* a, bool
         return;
     }
 
-    if( a->size() == 0 )
+    if( a->empty() )
     {
         ALICEVISION_LOG_WARNING("[IO] saveArrayToFile called with 0-sized static vector");
         return;
@@ -723,7 +723,20 @@ void loadArrayFromFileIntoArray(StaticVector<T>* a, const std::string& fileName,
     fclose(f);
 }
 
-int getArrayLengthFromFile(std::string fileName);
+int getArrayLengthFromFile(const std::string& fileName);
+
+template <class T>
+void deleteAllPointers(StaticVector<T*>& vec)
+{
+  for (int i = 0; i < vec.size(); ++i)
+  {
+    if (vec[i] != NULL)
+    {
+      delete(vec[i]);
+      vec[i] = NULL;
+    }
+  }
+}
 
 template <class T>
 void deleteArrayOfArrays(StaticVector<StaticVector<T>*>** aa)
@@ -732,10 +745,10 @@ void deleteArrayOfArrays(StaticVector<StaticVector<T>*>** aa)
     {
         if((*(*aa))[i] != NULL)
         {
-            delete(*(*aa))[i];
+            delete((*(*aa))[i]);
             (*(*aa))[i] = NULL;
-        };
-    };
+        }
+    }
     delete(*aa);
 }
 

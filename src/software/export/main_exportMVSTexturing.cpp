@@ -9,7 +9,7 @@
 #include <aliceVision/sfmDataIO/sfmDataIO.hpp>
 #include <aliceVision/image/all.hpp>
 #include <aliceVision/system/main.hpp>
-
+#include <aliceVision/system/cmdline.hpp>
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
 
@@ -31,12 +31,8 @@ namespace fs = boost::filesystem;
 int aliceVision_main(int argc, char **argv)
 {
   // command-line parameters
-
-  std::string verboseLevel = system::EVerboseLevel_enumToString(system::Logger::getDefaultVerboseLevel());
   std::string sfmDataFilename;
   std::string outDirectory;
-
-  po::options_description allParams("AliceVision exportMVSTexturing");
 
   po::options_description requiredParams("Required parameters");
   requiredParams.add_options()
@@ -45,40 +41,13 @@ int aliceVision_main(int argc, char **argv)
     ("output,o", po::value<std::string>(&outDirectory)->required(),
       "Output folder.");
 
-  po::options_description logParams("Log parameters");
-  logParams.add_options()
-    ("verboseLevel,v", po::value<std::string>(&verboseLevel)->default_value(verboseLevel),
-      "verbosity level (fatal,  error, warning, info, debug, trace).");
-
-  allParams.add(requiredParams).add(logParams);
-
-  po::variables_map vm;
-  try
+  CmdLine cmdline("AliceVision exportMVSTexturing");
+  cmdline.add(requiredParams);
+  if (!cmdline.execute(argc, argv))
   {
-    po::store(po::parse_command_line(argc, argv, allParams), vm);
-
-    if(vm.count("help") || (argc == 1))
-    {
-      ALICEVISION_COUT(allParams);
-      return EXIT_SUCCESS;
-    }
-    po::notify(vm);
-  }
-  catch(boost::program_options::required_option& e)
-  {
-    ALICEVISION_CERR("ERROR: " << e.what());
-    ALICEVISION_COUT("Usage:\n\n" << allParams);
-    return EXIT_FAILURE;
-  }
-  catch(boost::program_options::error& e)
-  {
-    ALICEVISION_CERR("ERROR: " << e.what());
-    ALICEVISION_COUT("Usage:\n\n" << allParams);
-    return EXIT_FAILURE;
+      return EXIT_FAILURE;
   }
 
-  // set verbose level
-  system::Logger::get()->setLogLevel(verboseLevel);
 
   bool bOneHaveDisto = false;
   
@@ -109,13 +78,15 @@ int aliceVision_main(int argc, char **argv)
     
     if (!camera::isPinhole(cam->getType()))
         continue;
+
     const Pinhole * pinhole_cam = static_cast<const Pinhole *>(cam);
     
     // Extrinsic
     const Vec3& t = pose.translation();
     const Mat3& R = pose.rotation();
     // Intrinsic
-    const double f = pinhole_cam->getFocalLengthPix();
+    const double fx = pinhole_cam->getFocalLengthPixX();
+    const double fy = pinhole_cam->getFocalLengthPixY();
     const Vec2 pp = pinhole_cam->getPrincipalPoint();
 
     // Image size in px
@@ -131,7 +102,7 @@ int aliceVision_main(int argc, char **argv)
         << R(0,0) << " " << R(0,1) << " " << R(0,2) << " "
         << R(1,0) << " " << R(1,1) << " " << R(1,2) << " "
         << R(2,0) << " " << R(2,1) << " " << R(2,2) << "\n"
-        << f / largerDim << " 0 0 1 " << pp(0) / w << " " << pp(1) / h;
+        << fx / largerDim << " 0 0 " << fx / fy << " " << pp(0) / w << " " << pp(1) / h;
     outfile.close();
     
     if(cam->hasDistortion())

@@ -222,7 +222,7 @@ bool L2RotationAveraging_Refine(
   const RelativeRotations & vec_relativeRot,
   std::vector<aliceVision::Mat3> & vec_ApprRotMatrix)
 {
-  if (vec_relativeRot.size() == 0 ||vec_ApprRotMatrix.size() == 0 ) {
+  if (vec_relativeRot.empty() ||vec_ApprRotMatrix.empty() ) {
     ALICEVISION_LOG_DEBUG("Skip nonlinear rotation optimization, no sufficient data provided ");
     return false;
 }
@@ -261,7 +261,9 @@ bool L2RotationAveraging_Refine(
   ceres::Solver::Options solverOptions;
   // Since the problem is sparse, use a sparse solver
   if (ceres::IsSparseLinearAlgebraLibraryTypeAvailable(ceres::SUITE_SPARSE) ||
+#if ALICEVISION_CERES_HAS_CXSPARSE
       ceres::IsSparseLinearAlgebraLibraryTypeAvailable(ceres::CX_SPARSE) ||
+#endif
       ceres::IsSparseLinearAlgebraLibraryTypeAvailable(ceres::EIGEN_SPARSE))
   {
     solverOptions.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;

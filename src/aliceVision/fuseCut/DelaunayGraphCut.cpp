@@ -17,8 +17,9 @@
 #include <aliceVision/mvsData/Point2d.hpp>
 #include <aliceVision/mvsData/Universe.hpp>
 #include <aliceVision/mvsUtils/fileIO.hpp>
-#include <aliceVision/mvsData/imageIO.hpp>
-#include <aliceVision/mvsData/imageAlgo.hpp>
+#include <aliceVision/mvsUtils/depthSimMapIO.hpp>
+#include <aliceVision/image/imageAlgo.hpp>
+#include <aliceVision/system/ProgressDisplay.hpp>
 #include <aliceVision/alicevision_omp.hpp>
 
 #include "nanoflann.hpp"
@@ -28,13 +29,14 @@
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/operations.hpp>
 
+#include <cmath>
 #include <random>
 #include <stdexcept>
 
 #include <boost/math/constants/constants.hpp>
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics.hpp>
-#include <boost/progress.hpp>
+#include <boost/atomic/atomic_ref.hpp>
 
 namespace aliceVision {
 namespace fuseCut {
@@ -268,7 +270,7 @@ void removeInvalidPoints(std::vector<Point3d>& verticesCoordsPrepare, std::vecto
 }
 
 void createVerticesWithVisibilities(const StaticVector<int>& cams, std::vector<Point3d>& verticesCoordsPrepare, std::vector<double>& pixSizePrepare, std::vector<float>& simScorePrepare,
-                                    std::vector<GC_vertexInfo>& verticesAttrPrepare, mvsUtils::MultiViewParams* mp, float simFactor, float voteMarginFactor, float contributeMarginFactor, float simGaussianSize)
+                                    std::vector<GC_vertexInfo>& verticesAttrPrepare, mvsUtils::MultiViewParams& mp, float simFactor, float voteMarginFactor, float contributeMarginFactor, float simGaussianSize)
 {
 #ifdef USE_GEOGRAM_KDTREE
     GEO::AdaptiveKdTree kdTree(3);
@@ -293,54 +295,47 @@ void createVerticesWithVisibilities(const StaticVector<int>& cams, std::vector<P
     for(int c = 0; c < cams.size(); ++c)
     {
         ALICEVISION_LOG_INFO("Create visibilities (" << c << "/" << cams.size() << ")");
-        std::vector<float> depthMap;
-        std::vector<float> simMap;
-        int width, height;
-        {
-            const std::string depthMapFilepath = getFileNameFromIndex(mp, c, mvsUtils::EFileType::depthMap, 0);
-            imageIO::readImage(depthMapFilepath, width, height, depthMap, imageIO::EImageColorSpace::NO_CONVERSION);
-            if(depthMap.empty())
-            {
-                ALICEVISION_LOG_WARNING("Empty depth map: " << depthMapFilepath);
-                continue;
-            }
-            int wTmp, hTmp;
-            const std::string simMapFilepath = getFileNameFromIndex(mp, c, mvsUtils::EFileType::simMap, 0);
-            // If we have a simMap in input use it,
-            // else init with a constant value.
-            if(boost::filesystem::exists(simMapFilepath))
-            {
-                imageIO::readImage(simMapFilepath, wTmp, hTmp, simMap, imageIO::EImageColorSpace::NO_CONVERSION);
-                if(wTmp != width || hTmp != height)
-                    throw std::runtime_error("Similarity map size doesn't match the depth map size: " + simMapFilepath +
-                                             ", " + depthMapFilepath);
-                {
-                    std::vector<float> simMapTmp(simMap.size());
-                    imageAlgo::convolveImage(width, height, simMap, simMapTmp, "gaussian", simGaussianSize,
-                                             simGaussianSize);
-                    simMap.swap(simMapTmp);
-                }
-            }
-            else
-            {
-                ALICEVISION_LOG_WARNING("simMap file can't be found.");
-                simMap.resize(width * height, -1);
-            }
+        image::Image<float> depthMap;
+        image::Image<float> simMap;
+        const int width = mp.getWidth(c);
+        const int height = mp.getHeight(c);
 
+        // read depth map
+        mvsUtils::readDepthMap(c, mp, depthMap, 0);
+
+        if(depthMap.size() <= 0)
+        {
+            ALICEVISION_LOG_WARNING("Empty depth map (cam id: " << c << ")");
+            continue;
         }
+
+        // read similarity map
+        try
+        {
+            mvsUtils::readSimMap(c, mp, simMap, 0);
+            image::Image<float> simMapTmp(simMap.Width(), simMap.Height());
+            imageAlgo::convolveImage(simMap, simMapTmp, "gaussian", simGaussianSize, simGaussianSize);
+            simMap.swap(simMapTmp);
+        }
+        catch(const std::exception& e)
+        {
+            ALICEVISION_LOG_WARNING("Cannot find similarity map file.");
+            simMap.resize(width * height, -1);
+        }
+        
         // Add visibility
         #pragma omp parallel for
-        for(int y = 0; y < height; ++y)
+        for (int y = 0; y < depthMap.Height(); ++y)
         {
-            for(int x = 0; x < width; ++x)
+            for(int x = 0; x < depthMap.Width(); ++x)
             {
-                const std::size_t index = y * width + x;
-                const float depth = depthMap[index];
+                const std::size_t index = y * depthMap.Width() + x;
+                const float depth = depthMap(index);
                 if(depth <= 0.0f)
                     continue;
 
-                const Point3d p = mp->backproject(c, Point2d(x, y), depth);
-                const double pixSize = mp->getCamPixelSize(p, c);
+                const Point3d p = mp.backproject(c, Point2d(x, y), depth);
+                const double pixSize = mp.getCamPixelSize(p, c);
 #ifdef USE_GEOGRAM_KDTREE
                 const std::size_t nearestVertexIndex = kdTree.get_nearest_neighbor(p.m);
                 // NOTE: Could compute the distance between the line (camera to pixel) and the nearestVertex OR
@@ -364,7 +359,7 @@ void createVerticesWithVisibilities(const StaticVector<int>& cams, std::vector<P
                 {
                     GC_vertexInfo& va = verticesAttrPrepare[nearestVertexIndex];
                     Point3d& vc = verticesCoordsPrepare[nearestVertexIndex];
-                    const float simValue = simMap[index];
+                    const float simValue = simMap(index);
                     // remap similarity values from [-1;+1] to [+1;+simFactor]
                     // interpretation is [goodSimilarity;badSimilarity]
                     const float simScore = simValue < -1.0f ? 1.0f : 1.0f + (1.0f + simValue) * simFactor;
@@ -399,7 +394,7 @@ void createVerticesWithVisibilities(const StaticVector<int>& cams, std::vector<P
     for(int vi = 0; vi < verticesAttrPrepare.size(); ++vi)
     {
         GC_vertexInfo& v = verticesAttrPrepare[vi];
-        v.pixSize = mp->getCamsMinPixelSize(verticesCoordsPrepare[vi], v.cams);
+        v.pixSize = mp.getCamsMinPixelSize(verticesCoordsPrepare[vi], v.cams);
     }
 
 //    verticesCoordsPrepare.swap(newVerticesCoordsPrepare);
@@ -420,13 +415,12 @@ void DelaunayGraphCut::IntersectionHistory::append(const GeometryIntersection& g
     angleToCam.push_back(angleBetwV1andV2(dirVect, intersectPt - originPt));
 }
 
-DelaunayGraphCut::DelaunayGraphCut(mvsUtils::MultiViewParams* _mp)
+DelaunayGraphCut::DelaunayGraphCut(mvsUtils::MultiViewParams& mp)
+  : _mp(mp)
 {
-    mp = _mp;
+    _camsVertexes.resize(_mp.ncams, -1);
 
-    _camsVertexes.resize(mp->ncams, -1);
-
-    saveTemporaryBinFiles = mp->userParams.get<bool>("LargeScale.saveTemporaryBinFiles", false);
+    saveTemporaryBinFiles = _mp.userParams.get<bool>("LargeScale.saveTemporaryBinFiles", false);
 
     GEO::initialize();
     _tetrahedralization = GEO::Delaunay::create(3, "BDEL");
@@ -467,7 +461,7 @@ void DelaunayGraphCut::saveDh(const std::string& fileNameDh, const std::string& 
 
     long t1 = clock();
 
-    // std::ofstream oFileT(fileNameDh.c_str());
+    // std::ofstream oFileT(fileNameDh);
     // oFileT << *_tetrahedralization; // TODO GEOGRAM
 
     mvsUtils::printfElapsedTime(t1);
@@ -674,7 +668,7 @@ StaticVector<int> DelaunayGraphCut::getIsUsedPerCamera() const
     long timer = std::clock();
 
     StaticVector<int> cams;
-    cams.resize_with(mp->getNbCameras(), 0);
+    cams.resize_with(_mp.getNbCameras(), 0);
 
 //#pragma omp parallel for
     for(int vi = 0; vi < _verticesAttr.size(); ++vi)
@@ -683,11 +677,8 @@ StaticVector<int> DelaunayGraphCut::getIsUsedPerCamera() const
         for(int c = 0; c < v.cams.size(); ++c)
         {
             const int obsCam = v.cams[c];
-
-//#pragma OMP_ATOMIC_WRITE
-            {
-                cams[obsCam] = 1;
-            }
+            // boost::atomic_ref<int>(cams[obsCam]) = 1;
+            cams[obsCam] = 1;
         }
     }
 
@@ -738,9 +729,9 @@ void DelaunayGraphCut::addPointsFromSfM(const Point3d hexah[8], const StaticVect
       vAttrIt->cams.reserve(vAttrIt->nrc);
 
       for(const auto& observationPair : landmark.observations)
-        vAttrIt->cams.push_back(mp->getIndexFromViewId(observationPair.first));
+        vAttrIt->cams.push_back(_mp.getIndexFromViewId(observationPair.first));
 
-      vAttrIt->pixSize = mp->getCamsMinPixelSize(p, vAttrIt->cams);
+      vAttrIt->pixSize = _mp.getCamsMinPixelSize(p, vAttrIt->cams);
 
       ++vCoordsIt;
       ++vAttrIt;
@@ -763,10 +754,10 @@ void DelaunayGraphCut::addPointsFromCameraCenters(const StaticVector<int>& cams,
     {
         int rc = cams[camid];
         {
-            const Point3d p(mp->CArr[rc].x, mp->CArr[rc].y, mp->CArr[rc].z);
+            const Point3d p(_mp.CArr[rc].x, _mp.CArr[rc].y, _mp.CArr[rc].z);
             const GEO::index_t vi = locateNearestVertex(p);
 
-            if((vi == GEO::NO_VERTEX) || ((_verticesCoords[vi] - mp->CArr[rc]).size() > minDist))
+            if((vi == GEO::NO_VERTEX) || ((_verticesCoords[vi] - _mp.CArr[rc]).size() > minDist))
             {
                 const GEO::index_t nvi = _verticesCoords.size();
                 _verticesCoords.push_back(p);
@@ -845,7 +836,7 @@ void DelaunayGraphCut::densifyWithHelperPoints(int nbFront, int nbBack, double s
         Point3d mainCamDir;
         for(int camId: vAttr.cams)
         {
-            const Point3d& cam = mp->CArr[camId];
+            const Point3d& cam = _mp.CArr[camId];
             const Point3d d = (cam - v).normalize();
             mainCamDir += d;
         }
@@ -889,7 +880,7 @@ void DelaunayGraphCut::addGridHelperPoints(int helperPointsGridSize, const Point
     float maxSize = 2.0f * (O - voxel[0]).size();
     Point3d CG = (voxel[0] + voxel[1] + voxel[2] + voxel[3] + voxel[4] + voxel[5] + voxel[6] + voxel[7]) / 8.0f;
     
-    const unsigned int seed = (unsigned int)mp->userParams.get<unsigned int>("delaunaycut.seed", 0);
+    const unsigned int seed = (unsigned int)_mp.userParams.get<unsigned int>("delaunaycut.seed", 0);
     std::mt19937 generator(seed != 0 ? seed : std::random_device{}());
     auto rand = std::bind(std::uniform_real_distribution<float>{0.0, 1.0}, generator);
 
@@ -935,7 +926,7 @@ void DelaunayGraphCut::addMaskHelperPoints(const Point3d voxel[8], const StaticV
     mvsUtils::inflateHexahedron(voxel, inflatedVoxel, 1.01f);
 
     std::size_t nbPixels = 0;
-    for(const auto& imgParams : mp->getImagesParams())
+    for(const auto& imgParams : _mp.getImagesParams())
     {
         nbPixels += imgParams.size;
     }
@@ -948,20 +939,20 @@ void DelaunayGraphCut::addMaskHelperPoints(const Point3d voxel[8], const StaticV
     {
         for(int c = 0; c < cams.size(); c++)
         {
-            std::vector<float> depthMap;
-            int width, height;
+            image::Image<float> depthMap;
+
+            mvsUtils::readDepthMap(c, _mp, depthMap, 0);
+
+            if(depthMap.size() <= 0)
             {
-                const std::string depthMapFilepath = getFileNameFromIndex(mp, c, mvsUtils::EFileType::depthMap, 0);
-                imageIO::readImage(depthMapFilepath, width, height, depthMap, imageIO::EImageColorSpace::NO_CONVERSION);
-                if(depthMap.empty())
-                {
-                    ALICEVISION_LOG_WARNING("Empty depth map: " << depthMapFilepath);
-                    continue;
-                }
+                ALICEVISION_LOG_WARNING("Empty depth map (cam id: " << c << ")");
+                continue;
             }
 
-            int syMax = std::ceil(height / step);
-            int sxMax = std::ceil(width / step);
+            const int width = depthMap.Width();
+            const int height = depthMap.Height();
+            const int syMax = divideRoundUp(height, step);
+            const int sxMax = divideRoundUp(width, step);
 
             for(int sy = 0; sy < syMax; ++sy)
             {
@@ -976,7 +967,7 @@ void DelaunayGraphCut::addMaskHelperPoints(const Point3d voxel[8], const StaticV
                         for(int x = sx * step, xmax = std::min((sx + 1) * step, width); x < xmax; ++x)
                         {
                             const std::size_t index = y * width + x;
-                            const float depth = depthMap[index];
+                            const float depth = depthMap(index);
                             
                             // -2 means that the pixels should be masked-out with mask helper points
                             if(depth > -1.5f)
@@ -990,7 +981,7 @@ void DelaunayGraphCut::addMaskHelperPoints(const Point3d voxel[8], const StaticV
                                 for(int lx = std::max(x - kernelSize, 0), lxMax = std::min(x + kernelSize, width - 1);
                                     lx < lxMax; ++lx)
                                 {
-                                    if(depthMap[ly * width + lx] > 0.0f)
+                                    if (depthMap(ly * width + lx) > 0.0f)
                                         ++nbValidDepth;
                                 }
                             }
@@ -1006,8 +997,8 @@ void DelaunayGraphCut::addMaskHelperPoints(const Point3d voxel[8], const StaticV
                     }
                     if(bestScore > 0.0f)
                     {
-                        const Point3d& cam = mp->CArr[c];
-                        Point3d maxP = cam + (mp->iCamArr[c] * Point2d((float)bestX, (float)bestY)).normalize() * 10000000.0; 
+                        const Point3d& cam = _mp.CArr[c];
+                        Point3d maxP = cam + (_mp.iCamArr[c] * Point2d((float)bestX, (float)bestY)).normalize() * 10000000.0; 
                         StaticVector<Point3d>* intersectionsPtr = mvsUtils::lineSegmentHexahedronIntersection(cam, maxP, inflatedVoxel);
 
                         if(intersectionsPtr->size() <= 0)
@@ -1051,21 +1042,22 @@ void DelaunayGraphCut::fuseFromDepthMaps(const StaticVector<int>& cams, const Po
     // and iterate to fuse points until we get the right amount of points.
 
     // unsigned long nbValidDepths = computeNumberOfAllPoints(mp, 0);
-    // int stepPts = std::ceil((double)nbValidDepths / (double)maxPoints);
+    // int stepPts = divideRoundUp(nbValidDepths, maxPoints);
     std::size_t nbPixels = 0;
-    for(const auto& imgParams: mp->getImagesParams())
+    for(const auto& imgParams: _mp.getImagesParams())
     {
         nbPixels += imgParams.size;
     }
     int step = std::floor(std::sqrt(double(nbPixels) / double(params.maxInputPoints)));
     step = std::max(step, params.minStep);
     std::size_t realMaxVertices = 0;
-    std::vector<int> startIndex(mp->getNbCameras(), 0);
-    for(int i = 0; i < mp->getNbCameras(); ++i)
+    std::vector<int> startIndex(_mp.getNbCameras(), 0);
+    for(int i = 0; i < _mp.getNbCameras(); ++i)
     {
-        const auto& imgParams = mp->getImageParams(i);
+        const auto& imgParams = _mp.getImageParams(i);
         startIndex[i] = realMaxVertices;
-        realMaxVertices += std::ceil(imgParams.width / step) * std::ceil(imgParams.height / step);
+        realMaxVertices += divideRoundUp(imgParams.width, step) *
+                           divideRoundUp(imgParams.height, step);
     }
     std::vector<Point3d> verticesCoordsPrepare(realMaxVertices);
     std::vector<double> pixSizePrepare(realMaxVertices);
@@ -1087,58 +1079,60 @@ void DelaunayGraphCut::fuseFromDepthMaps(const StaticVector<int>& cams, const Po
         #pragma omp parallel for num_threads(3)
         for(int c = 0; c < cams.size(); c++)
         {
-            std::vector<float> depthMap;
-            std::vector<float> simMap;
-            std::vector<unsigned char> numOfModalsMap;
-            int width, height;
+            image::Image<float> depthMap;
+            image::Image<float> simMap;
+            image::Image<unsigned char> numOfModalsMap;
+
+            const int width = _mp.getWidth(c);
+            const int height = _mp.getHeight(c);
+
             {
-                const std::string depthMapFilepath = getFileNameFromIndex(mp, c, mvsUtils::EFileType::depthMap, 0);
-                imageIO::readImage(depthMapFilepath, width, height, depthMap, imageIO::EImageColorSpace::NO_CONVERSION);
-                if(depthMap.empty())
+                // read depth map
+                mvsUtils::readDepthMap(c, _mp, depthMap, 0);
+
+                if(depthMap.size() <= 0)
                 {
-                    ALICEVISION_LOG_WARNING("Empty depth map: " << depthMapFilepath);
+                    ALICEVISION_LOG_WARNING("Empty depth map (cam id: " << c << ")");
                     continue;
                 }
-                int wTmp, hTmp;
-                const std::string simMapFilepath = getFileNameFromIndex(mp, c, mvsUtils::EFileType::simMap, 0);
-                // If we have a simMap in input use it,
-                // else init with a constant value.
-                if(boost::filesystem::exists(simMapFilepath))
+
+                // read similarity map
+                try
                 {
-                    imageIO::readImage(simMapFilepath, wTmp, hTmp, simMap, imageIO::EImageColorSpace::NO_CONVERSION);
-                    if(wTmp != width || hTmp != height)
-                        throw std::runtime_error("Wrong sim map dimensions: " + simMapFilepath);
-                    {
-                        std::vector<float> simMapTmp(simMap.size());
-                        imageAlgo::convolveImage(width, height, simMap, simMapTmp, "gaussian",
-                    params.simGaussianSizeInit, params.simGaussianSizeInit); simMap.swap(simMapTmp);
-                    }
+                    mvsUtils::readSimMap(c, _mp, simMap, 0);
+                        image::Image<float> simMapTmp;
+                        imageAlgo::convolveImage(simMap, simMapTmp, "gaussian",
+                                                 params.simGaussianSizeInit,
+                                                 params.simGaussianSizeInit);
+                        simMap.swap(simMapTmp);
                 }
-                else
+                catch(const std::exception& e)
                 {
                     ALICEVISION_LOG_WARNING("simMap file can't be found.");
-                    simMap.resize(width * height, -1);
+                    simMap.resize(width, height, true, -1);
                 }
 
-                const std::string nmodMapFilepath = getFileNameFromIndex(mp, c, mvsUtils::EFileType::nmodMap, 0);
+                // read nmod map
+                int wTmp, hTmp;
+                const std::string nmodMapFilepath = getFileNameFromIndex(_mp, c, mvsUtils::EFileType::nmodMap, 0);
                 // If we have an nModMap in input (from depthmapfilter) use it,
                 // else init with a constant value.
                 if(boost::filesystem::exists(nmodMapFilepath))
                 {
-                    imageIO::readImage(nmodMapFilepath, wTmp, hTmp, numOfModalsMap,
-                                       imageIO::EImageColorSpace::NO_CONVERSION);
-                    if(wTmp != width || hTmp != height)
+                    image::readImage(nmodMapFilepath, numOfModalsMap,
+                                     image::EImageColorSpace::NO_CONVERSION);
+                    if (numOfModalsMap.Width() != width || numOfModalsMap.Height() != height)
                         throw std::runtime_error("Wrong nmod map dimensions: " + nmodMapFilepath);
                 }
                 else
                 {
                     ALICEVISION_LOG_WARNING("nModMap file can't be found.");
-                    numOfModalsMap.resize(width*height, 1);
+                    numOfModalsMap.resize(width, height, true, 1);
                 }
             }
 
-            int syMax = std::ceil(height/step);
-            int sxMax = std::ceil(width/step);
+            int syMax = divideRoundUp(height, step);
+            int sxMax = divideRoundUp(width, step);
             #pragma omp parallel for
             for(int sy = 0; sy < syMax; ++sy)
             {
@@ -1157,7 +1151,7 @@ void DelaunayGraphCut::fuseFromDepthMaps(const StaticVector<int>& cams, const Po
                             x < xmax; ++x)
                         {
                             const std::size_t index = y * width + x;
-                            const float depth = depthMap[index];
+                            const float depth = depthMap(index);
                             if(depth <= 0.0f)
                                 continue;
 
@@ -1167,13 +1161,13 @@ void DelaunayGraphCut::fuseFromDepthMaps(const StaticVector<int>& cams, const Po
                             {
                                 for(int lx = std::max(x-scoreKernelSize, 0), lxMax = std::min(x+scoreKernelSize, width-1); lx < lxMax; ++lx)
                                 {
-                                    if(depthMap[ly * width + lx] > 0.0f)
+                                    if (depthMap(ly * width + lx) > 0.0f)
                                     {
-                                        numOfModals += 10 + int(numOfModalsMap[ly * width + lx]);
+                                        numOfModals += 10 + int(numOfModalsMap(ly * width + lx));
                                     }
                                 }
                             }
-                            float sim = simMap[index];
+                            float sim = simMap(index);
                             sim = sim < 0.0f ?  0.0f : sim; // clamp values < 0
                             // remap similarity values from [-1;+1] to [+1;+simScale]
                             // interpretation is [goodSimilarity;badSimilarity]
@@ -1197,14 +1191,14 @@ void DelaunayGraphCut::fuseFromDepthMaps(const StaticVector<int>& cams, const Po
                     }
                     else
                     {
-                        Point3d p = mp->CArr[c] + (mp->iCamArr[c] * Point2d((float)bestX, (float)bestY)).normalize() * bestDepth;
+                        Point3d p = _mp.CArr[c] + (_mp.iCamArr[c] * Point2d((float)bestX, (float)bestY)).normalize() * bestDepth;
                         
                         // TODO: isPointInHexahedron: here or in the previous loop per pixel to not loose point?
                         if(voxel == nullptr || mvsUtils::isPointInHexahedron(p, voxel)) 
                         {
                             verticesCoordsPrepare[index] = p;
                             simScorePrepare[index] = bestSimScore;
-                            pixSizePrepare[index] = mp->getCamPixelSize(p, c);
+                            pixSizePrepare[index] = _mp.getCamPixelSize(p, c);
                         }
                         else
                         {
@@ -1233,7 +1227,7 @@ void DelaunayGraphCut::fuseFromDepthMaps(const StaticVector<int>& cams, const Po
     // Compute the vertices positions and simScore from all input depthMap/simMap images,
     // and declare the visibility information (the cameras indexes seeing the vertex).
     createVerticesWithVisibilities(cams, verticesCoordsPrepare, pixSizePrepare, simScorePrepare,
-                                   verticesAttrPrepare, mp, params.simFactor, params.voteMarginFactor, params.contributeMarginFactor, params.simGaussianSize);
+                                   verticesAttrPrepare, _mp, params.simFactor, params.voteMarginFactor, params.contributeMarginFactor, params.simGaussianSize);
 
     ALICEVISION_LOG_INFO("Compute max angle per point");
 
@@ -1259,9 +1253,9 @@ void DelaunayGraphCut::fuseFromDepthMaps(const StaticVector<int>& cams, const Po
             continue;
         }
         const std::vector<int>& visCams = verticesAttrPrepare[vIndex].cams.getData();
-        if(visCams.size() == 0)
+        if(visCams.empty())
         {
-            ALICEVISION_LOG_WARNING("BAD: visCams.size() == 0");
+            ALICEVISION_LOG_WARNING("BAD: visCams.empty()");
         }
         double maxAngle = 0.0;
         for(int i: visCams)
@@ -1270,7 +1264,7 @@ void DelaunayGraphCut::fuseFromDepthMaps(const StaticVector<int>& cams, const Po
             {
                 if(i == j)
                     continue;
-                double angle = angleBetwABandAC(verticesCoordsPrepare[vIndex], mp->CArr[i], mp->CArr[j]);
+                double angle = angleBetwABandAC(verticesCoordsPrepare[vIndex], _mp.CArr[i], _mp.CArr[j]);
                 maxAngle = std::max(angle, maxAngle);
             }
         }
@@ -1335,7 +1329,7 @@ void DelaunayGraphCut::fuseFromDepthMaps(const StaticVector<int>& cams, const Po
         ALICEVISION_LOG_INFO("Create final visibilities");
         // Initialize the vertice attributes and declare the visibility information
         createVerticesWithVisibilities(cams, verticesCoordsPrepare, pixSizePrepare, simScorePrepare,
-                                       verticesAttrPrepare, mp, params.simFactor, params.voteMarginFactor, params.contributeMarginFactor, params.simGaussianSize);
+                                       verticesAttrPrepare, _mp, params.simFactor, params.voteMarginFactor, params.contributeMarginFactor, params.simGaussianSize);
     }
 
     if(verticesCoordsPrepare.empty())
@@ -1363,9 +1357,9 @@ void DelaunayGraphCut::computeVerticesSegSize(std::vector<GC_Seg>& out_segments,
     ALICEVISION_LOG_DEBUG("DelaunayGraphCut::computeVerticesSegSize");
     out_segments.clear();
 
-    int scalePS = mp->userParams.get<int>("global.scalePS", 1);
-    int step = mp->userParams.get<int>("global.step", 1);
-    float pointToJoinPixSizeDist = (float)mp->userParams.get<double>("delaunaycut.pointToJoinPixSizeDist", 2.0) *
+    int scalePS = _mp.userParams.get<int>("global.scalePS", 1);
+    int step = _mp.userParams.get<int>("global.step", 1);
+    float pointToJoinPixSizeDist = (float)_mp.userParams.get<double>("delaunaycut.pointToJoinPixSizeDist", 2.0) *
                                    (float)scalePS * (float)step * 2.0f;
 
     std::vector<Pixel> edges;
@@ -1398,7 +1392,7 @@ void DelaunayGraphCut::computeVerticesSegSize(std::vector<GC_Seg>& out_segments,
                 if((vi != nvi) && (useVertex.empty() || useVertex[nvi]))
                 {
                     if((p - np).size() <
-                       alpha * mp->getCamPixelSize(p, rc)) // TODO FACA: why do we fuse again? And only based on the pixSize of the first camera??
+                       alpha * _mp.getCamPixelSize(p, rc)) // TODO FACA: why do we fuse again? And only based on the pixSize of the first camera??
                     {
                         if(vi < nvi) // to remove duplicates
                         {
@@ -1624,13 +1618,13 @@ DelaunayGraphCut::GeometryIntersection DelaunayGraphCut::rayIntersectTriangle(co
     const double BCSize = (*B - *C).size();
     const double ACSize = (*A - *C).size();
 
-    const double marginEpsilon = std::min(std::min(ABSize, BCSize), ACSize) * epsilonFactor;
+    const double marginEpsilon = std::min({ABSize, BCSize, ACSize}) * epsilonFactor;
     const double ambiguityEpsilon = (ABSize + BCSize + ACSize) / 3.0 * 1.0e-2;
 
     Point3d tempIntersectPt;
     const Point2d triangleUv = getLineTriangleIntersectBarycCoords(&tempIntersectPt, A, B, C, &originPt, &DirVec);
 
-    if (!isnormal(tempIntersectPt.x) || !isnormal(tempIntersectPt.y) || !isnormal(tempIntersectPt.z))
+    if (!std::isnormal(tempIntersectPt.x) || !std::isnormal(tempIntersectPt.y) || !std::isnormal(tempIntersectPt.z))
     {
         // This is not suppose to happen in real life, we log a warning instead of raising an exeption if we face a border case
         // ALICEVISION_LOG_WARNING("Invalid/notNormal intersection point found during rayIntersectTriangle.");
@@ -1859,7 +1853,7 @@ void DelaunayGraphCut::fillGraph(double nPixelSizeBehind, bool labatutWeights, b
     }
 
     // choose random order to prevent waiting
-    const unsigned int seed = (unsigned int)mp->userParams.get<unsigned int>("delaunaycut.seed", 0);
+    const unsigned int seed = (unsigned int)_mp.userParams.get<unsigned int>("delaunaycut.seed", 0);
     const std::vector<int> verticesRandIds = mvsUtils::createRandomArrayOfIntegers(_verticesAttr.size(), seed);
 
     int64_t totalStepsFront = 0;
@@ -1875,7 +1869,10 @@ void DelaunayGraphCut::fillGraph(double nPixelSizeBehind, bool labatutWeights, b
     GeometriesCount totalGeometriesIntersectedFrontCount;
     GeometriesCount totalGeometriesIntersectedBehindCount;
 
-    boost::progress_display progressBar(std::min(size_t(100), verticesRandIds.size()), std::cout, "fillGraphPartPtRc\n");
+    auto progressDisplay =
+            system::createConsoleProgressDisplay(std::min(size_t(100), verticesRandIds.size()),
+                                                 std::cout, "fillGraphPartPtRc\n");
+
     size_t progressStep = verticesRandIds.size() / 100;
     progressStep = std::max(size_t(1), progressStep);
 #pragma omp parallel for reduction(+:totalStepsFront,totalRayFront,totalStepsBehind,totalRayBehind,totalCamHaveVisibilityOnVertex,totalOfVertex,totalIsRealNrc)
@@ -1883,12 +1880,14 @@ void DelaunayGraphCut::fillGraph(double nPixelSizeBehind, bool labatutWeights, b
     {
         if(i % progressStep == 0)
         {
-#pragma omp critical
-            ++progressBar;
+            ++progressDisplay;
         }
 
         const int vertexIndex = verticesRandIds[i];
         const GC_vertexInfo& v = _verticesAttr[vertexIndex];
+
+        GeometriesCount subTotalGeometriesIntersectedFrontCount;
+        GeometriesCount subTotalGeometriesIntersectedBehindCount;
 
         if(v.isReal())
         {
@@ -1899,7 +1898,7 @@ void DelaunayGraphCut::fillGraph(double nPixelSizeBehind, bool labatutWeights, b
             for(int c = 0; c < v.cams.size(); c++)
             {
                 assert(v.cams[c] >= 0);
-                assert(v.cams[c] < mp->ncams);
+                assert(v.cams[c] < _mp.ncams);
 
                 int stepsFront = 0;
                 int stepsBehind = 0;
@@ -1915,22 +1914,25 @@ void DelaunayGraphCut::fillGraph(double nPixelSizeBehind, bool labatutWeights, b
                 totalStepsBehind += stepsBehind;
                 totalRayBehind += 1;
 
-#pragma OMP_ATOMIC_UPDATE
-                totalGeometriesIntersectedFrontCount.facets += geometriesIntersectedFrontCount.facets;
-#pragma OMP_ATOMIC_UPDATE
-                totalGeometriesIntersectedFrontCount.vertices += geometriesIntersectedFrontCount.vertices;
-#pragma OMP_ATOMIC_UPDATE
-                totalGeometriesIntersectedFrontCount.edges += geometriesIntersectedFrontCount.edges;
-#pragma OMP_ATOMIC_UPDATE
-                totalGeometriesIntersectedBehindCount.facets += geometriesIntersectedBehindCount.facets;
-#pragma OMP_ATOMIC_UPDATE
-                totalGeometriesIntersectedBehindCount.vertices += geometriesIntersectedBehindCount.vertices;
-#pragma OMP_ATOMIC_UPDATE
-                totalGeometriesIntersectedBehindCount.edges += geometriesIntersectedBehindCount.edges;
+                subTotalGeometriesIntersectedFrontCount += geometriesIntersectedFrontCount;
+                subTotalGeometriesIntersectedBehindCount += geometriesIntersectedBehindCount;
             } // for c
 
             totalCamHaveVisibilityOnVertex += v.cams.size();
             totalOfVertex += 1;
+
+            boost::atomic_ref<std::size_t>{totalGeometriesIntersectedFrontCount.facets} +=
+                    subTotalGeometriesIntersectedFrontCount.facets;
+            boost::atomic_ref<std::size_t>{totalGeometriesIntersectedFrontCount.vertices} +=
+                    subTotalGeometriesIntersectedFrontCount.vertices;
+            boost::atomic_ref<std::size_t>{totalGeometriesIntersectedFrontCount.edges} +=
+                    subTotalGeometriesIntersectedFrontCount.edges;
+            boost::atomic_ref<std::size_t>{totalGeometriesIntersectedBehindCount.facets} +=
+                    subTotalGeometriesIntersectedBehindCount.facets;
+            boost::atomic_ref<std::size_t>{totalGeometriesIntersectedBehindCount.vertices} +=
+                    subTotalGeometriesIntersectedBehindCount.vertices;
+            boost::atomic_ref<std::size_t>{totalGeometriesIntersectedBehindCount.edges} +=
+                    subTotalGeometriesIntersectedBehindCount.edges;
         }
     }
 
@@ -1963,7 +1965,7 @@ void DelaunayGraphCut::fillGraphPartPtRc(
     const double maxDist = nPixelSizeBehind * pixSize;
 
     assert(cam >= 0);
-    assert(cam < mp->ncams);
+    assert(cam < _mp.ncams);
 
     if(fillOut) // EMPTY part
     {
@@ -1971,17 +1973,17 @@ void DelaunayGraphCut::fillGraphPartPtRc(
         GeometryIntersection geometry(vertexIndex); // Starting on global vertex index
         Point3d intersectPt = originPt;
         // toTheCam
-        const double pointCamDistance = (mp->CArr[cam] - originPt).size();
-        const Point3d dirVect = (mp->CArr[cam] - originPt).normalize();
+        const double pointCamDistance = (_mp.CArr[cam] - originPt).size();
+        const Point3d dirVect = (_mp.CArr[cam] - originPt).normalize();
 
 #ifdef ALICEVISION_DEBUG_VOTE
-        IntersectionHistory history(mp->CArr[cam], originPt, dirVect);
+        IntersectionHistory history(_mp.CArr[cam], originPt, dirVect);
 #endif
         outTotalStepsFront = 0;
         Facet lastIntersectedFacet;
         bool lastGeoIsVertex = false;
         // Break only when we reach our camera vertex (as long as we find a next geometry)
-        while (geometry.type != EGeometryType::Vertex || (mp->CArr[cam] - intersectPt).size() >= 1.0e-3)
+        while(geometry.type != EGeometryType::Vertex || (_mp.CArr[cam] - intersectPt).size() >= 1.0e-3)
         {
             lastGeoIsVertex = false;
             // Keep previous informations
@@ -1998,7 +2000,7 @@ void DelaunayGraphCut::fillGraphPartPtRc(
             if (geometry.type == EGeometryType::None)
             {
 #ifdef ALICEVISION_DEBUG_VOTE
-                // exportBackPropagationMesh("fillGraph_v" + std::to_string(vertexIndex) + "_ToCam_typeNone", history.geometries, originPt, mp->CArr[cam]);
+                // exportBackPropagationMesh("fillGraph_v" + std::to_string(vertexIndex) + "_ToCam_typeNone", history.geometries, originPt, _mp.CArr[cam]);
 #endif
                 // ALICEVISION_LOG_DEBUG(
                 //     "[Error]: fillGraph(toTheCam) cause: geometry cannot be found."
@@ -2020,7 +2022,7 @@ void DelaunayGraphCut::fillGraphPartPtRc(
                 auto it = std::find(history.geometries.begin(), end, geometry);
                 if (it != end)
                 {
-                    // exportBackPropagationMesh("fillGraph_ToCam_alreadyIntersected", history.geometries, originPt, mp->CArr[cam]);
+                    // exportBackPropagationMesh("fillGraph_ToCam_alreadyIntersected", history.geometries, originPt, _mp.CArr[cam]);
                     ALICEVISION_LOG_DEBUG("[Error]: fillGraph(toTheCam) cause: intersected geometry has already been intersected.");
                     break;
                 }
@@ -2030,15 +2032,11 @@ void DelaunayGraphCut::fillGraphPartPtRc(
             if (geometry.type == EGeometryType::Facet)
             {
                 ++outFrontCount.facets;
-                {
-#pragma OMP_ATOMIC_UPDATE
-                    _cellsAttr[geometry.facet.cellIndex].emptinessScore += weight;
-                }
+                boost::atomic_ref<float>{_cellsAttr[geometry.facet.cellIndex].emptinessScore} += weight;
 
                 {
                     const float dist = distFcn(maxDist, (originPt - lastIntersectPt).size(), distFcnHeight);
-#pragma OMP_ATOMIC_UPDATE
-                    _cellsAttr[geometry.facet.cellIndex].gEdgeVisWeight[geometry.facet.localVertexIndex] += weight * dist;
+                    boost::atomic_ref<float>{_cellsAttr[geometry.facet.cellIndex].gEdgeVisWeight[geometry.facet.localVertexIndex]} += weight * dist;
                 }
 
                 // Take the mirror facet to iterate over the next cell
@@ -2047,7 +2045,7 @@ void DelaunayGraphCut::fillGraphPartPtRc(
                 if (isInvalidOrInfiniteCell(mFacet.cellIndex))
                 {
 #ifdef ALICEVISION_DEBUG_VOTE
-                    // exportBackPropagationMesh("fillGraph_ToCam_invalidMirorFacet", history.geometries, originPt, mp->CArr[cam]);
+                    // exportBackPropagationMesh("fillGraph_ToCam_invalidMirorFacet", history.geometries, originPt, _mp.CArr[cam]);
 #endif
                     //ALICEVISION_LOG_DEBUG("[Error]: fillGraph(toTheCam) cause: invalidOrInfinite miror facet.");
                     break;
@@ -2065,8 +2063,7 @@ void DelaunayGraphCut::fillGraphPartPtRc(
                 // These geometries do not have a cellIndex, so we use the previousGeometry to retrieve the cell between the previous geometry and the current one.
                 if (previousGeometry.type == EGeometryType::Facet)
                 {
-#pragma OMP_ATOMIC_UPDATE
-                    _cellsAttr[previousGeometry.facet.cellIndex].emptinessScore += weight;
+                    boost::atomic_ref<float>{_cellsAttr[previousGeometry.facet.cellIndex].emptinessScore} += weight;
                 }
 
                 if (geometry.type == EGeometryType::Vertex)
@@ -2092,10 +2089,9 @@ void DelaunayGraphCut::fillGraphPartPtRc(
             
             // Declare the last part of the empty path as connected to EMPTY (S node in the graph cut)
             if (lastIntersectedFacet.cellIndex != GEO::NO_CELL &&
-                (mp->CArr[cam] - intersectPt).size() < 0.2 * pointCamDistance)
+                (_mp.CArr[cam] - intersectPt).size() < 0.2 * pointCamDistance)
             {
-    #pragma OMP_ATOMIC_WRITE
-                _cellsAttr[lastIntersectedFacet.cellIndex].cellSWeight = (float)maxint;
+                boost::atomic_ref<float>{_cellsAttr[lastIntersectedFacet.cellIndex].cellSWeight} = (float)maxint;
             }
         }
 
@@ -2107,8 +2103,7 @@ void DelaunayGraphCut::fillGraphPartPtRc(
                 // lastGeoIsVertex is supposed to be positive in almost all cases.
                 // If we do not reach the camera, we still vote on the last tetrehedra.
                 // Possible reaisons: the camera is not part of the vertices or we encounter a numerical error in intersectNextGeom
-#pragma OMP_ATOMIC_WRITE
-                _cellsAttr[lastIntersectedFacet.cellIndex].cellSWeight = (float)maxint;
+                boost::atomic_ref<float>{_cellsAttr[lastIntersectedFacet.cellIndex].cellSWeight} = (float)maxint;
             }
             // else
             // {
@@ -2132,10 +2127,10 @@ void DelaunayGraphCut::fillGraphPartPtRc(
         GeometryIntersection geometry(vertexIndex); // Starting on global vertex index
         Point3d intersectPt = originPt;
         // behindThePoint
-        const Point3d dirVect = (originPt - mp->CArr[cam]).normalize();
+        const Point3d dirVect = (originPt - _mp.CArr[cam]).normalize();
 
 #ifdef ALICEVISION_DEBUG_VOTE
-        IntersectionHistory history(mp->CArr[cam], originPt, dirVect);
+        IntersectionHistory history(_mp.CArr[cam], originPt, dirVect);
 #endif
         outTotalStepsBehind = 0;
 
@@ -2161,7 +2156,7 @@ void DelaunayGraphCut::fillGraphPartPtRc(
                 if (previousGeometry.type == EGeometryType::Facet)
                 {
 #ifdef ALICEVISION_DEBUG_VOTE
-                    // exportBackPropagationMesh("fillGraph_behindThePoint_NoneButPreviousIsFacet", history.geometries, originPt, mp->CArr[cam]);
+                    // exportBackPropagationMesh("fillGraph_behindThePoint_NoneButPreviousIsFacet", history.geometries, originPt, _mp.CArr[cam]);
 #endif
                     ALICEVISION_LOG_DEBUG("[Error]: fillGraph(behindThePoint) cause: None geometry but previous is Facet.");
                 }
@@ -2181,15 +2176,11 @@ void DelaunayGraphCut::fillGraphPartPtRc(
                 // Vote for the first cell found (only once)
                 if (firstIteration)
                 {
-#pragma OMP_ATOMIC_UPDATE
-                    _cellsAttr[geometry.facet.cellIndex].on += fWeight;
+                    boost::atomic_ref<float>{_cellsAttr[geometry.facet.cellIndex].on} += fWeight;
                     firstIteration = false;
                 }
 
-                {
-#pragma OMP_ATOMIC_UPDATE
-                    _cellsAttr[geometry.facet.cellIndex].fullnessScore += fWeight;
-                }
+                boost::atomic_ref<float>{_cellsAttr[geometry.facet.cellIndex].fullnessScore} += fWeight;
 
                 // Take the mirror facet to iterate over the next cell
                 const Facet mFacet = mirrorFacet(geometry.facet);
@@ -2203,8 +2194,7 @@ void DelaunayGraphCut::fillGraphPartPtRc(
 
                 {
                     const float dist = distFcn(maxDist, (originPt - lastIntersectPt).size(), distFcnHeight);
-#pragma OMP_ATOMIC_UPDATE
-                    _cellsAttr[geometry.facet.cellIndex].gEdgeVisWeight[geometry.facet.localVertexIndex] +=
+                    boost::atomic_ref<float>{_cellsAttr[geometry.facet.cellIndex].gEdgeVisWeight[geometry.facet.localVertexIndex]} +=
                         fWeight * dist;
                 }
                 if(previousGeometry.type == EGeometryType::Facet && outBehindCount.facets > 1000)
@@ -2233,8 +2223,7 @@ void DelaunayGraphCut::fillGraphPartPtRc(
 
                     for (const CellIndex& ci : neighboringCells)
                     {
-#pragma OMP_ATOMIC_UPDATE
-                        _cellsAttr[neighboringCells[0]].on += fWeight;
+                        boost::atomic_ref<float>{_cellsAttr[neighboringCells[0]].on} += fWeight;
                     }
                     firstIteration = false;
                 }
@@ -2243,8 +2232,7 @@ void DelaunayGraphCut::fillGraphPartPtRc(
                 // These geometries do not have a cellIndex, so we use the previousGeometry to retrieve the cell between the previous geometry and the current one.
                 if (previousGeometry.type == EGeometryType::Facet)
                 {
-#pragma OMP_ATOMIC_UPDATE
-                    _cellsAttr[previousGeometry.facet.cellIndex].fullnessScore += fWeight;
+                    boost::atomic_ref<float>{_cellsAttr[previousGeometry.facet.cellIndex].fullnessScore} += fWeight;
                 }
 
                 if (geometry.type == EGeometryType::Vertex)
@@ -2272,8 +2260,7 @@ void DelaunayGraphCut::fillGraphPartPtRc(
         // Vote for the last intersected facet (farthest from the camera)
         if (lastIntersectedFacet.cellIndex != GEO::NO_CELL)
         {
-#pragma OMP_ATOMIC_UPDATE
-            _cellsAttr[lastIntersectedFacet.cellIndex].cellTWeight += fWeight;
+            boost::atomic_ref<float>{_cellsAttr[lastIntersectedFacet.cellIndex].cellTWeight} += fWeight;
         }
     }
 }
@@ -2283,23 +2270,23 @@ void DelaunayGraphCut::forceTedgesByGradientIJCV(float nPixelSizeBehind)
     ALICEVISION_LOG_INFO("Forcing t-edges");
     long t2 = clock();
 
-    const float forceTEdgeDelta = (float)mp->userParams.get<double>("delaunaycut.forceTEdgeDelta", 0.1f);
+    const float forceTEdgeDelta = (float)_mp.userParams.get<double>("delaunaycut.forceTEdgeDelta", 0.1f);
     ALICEVISION_LOG_DEBUG("forceTEdgeDelta: " << forceTEdgeDelta);
 
-    const float minJumpPartRange = (float)mp->userParams.get<double>("delaunaycut.minJumpPartRange", 10000.0f);
+    const float minJumpPartRange = (float)_mp.userParams.get<double>("delaunaycut.minJumpPartRange", 10000.0f);
     ALICEVISION_LOG_DEBUG("minJumpPartRange: " << minJumpPartRange);
 
-    const float maxSilentPartRange = (float)mp->userParams.get<double>("delaunaycut.maxSilentPartRange", 100.0f);
+    const float maxSilentPartRange = (float)_mp.userParams.get<double>("delaunaycut.maxSilentPartRange", 100.0f);
     ALICEVISION_LOG_DEBUG("maxSilentPartRange: " << maxSilentPartRange);
 
-    const float nsigmaJumpPart = (float)mp->userParams.get<double>("delaunaycut.nsigmaJumpPart", 4.0f);
+    const float nsigmaJumpPart = (float)_mp.userParams.get<double>("delaunaycut.nsigmaJumpPart", 4.0f);
     ALICEVISION_LOG_DEBUG("nsigmaJumpPart: " << nsigmaJumpPart);
 
-    const float nsigmaFrontSilentPart = (float)mp->userParams.get<double>("delaunaycut.nsigmaFrontSilentPart", 2.0f);
+    const float nsigmaFrontSilentPart = (float)_mp.userParams.get<double>("delaunaycut.nsigmaFrontSilentPart", 2.0f);
     ALICEVISION_LOG_DEBUG("nsigmaFrontSilentPart: " << nsigmaFrontSilentPart);
 
     // This parameter allows to enlage the surface margin behind the point
-    const float nsigmaBackSilentPart = (float)mp->userParams.get<double>("delaunaycut.nsigmaBackSilentPart", 2.0f);
+    const float nsigmaBackSilentPart = (float)_mp.userParams.get<double>("delaunaycut.nsigmaBackSilentPart", 2.0f);
     ALICEVISION_LOG_DEBUG("nsigmaBackSilentPart: " << nsigmaBackSilentPart);
 
     for(GC_cellInfo& c: _cellsAttr)
@@ -2312,7 +2299,7 @@ void DelaunayGraphCut::forceTedgesByGradientIJCV(float nPixelSizeBehind)
     const double marginEpsilonFactor = 1.0e-4;
 
     // choose random order to prevent waiting
-    const unsigned int seed = (unsigned int)mp->userParams.get<unsigned int>("delaunaycut.seed", 0);
+    const unsigned int seed = (unsigned int)_mp.userParams.get<unsigned int>("delaunaycut.seed", 0);
     const std::vector<int> verticesRandIds = mvsUtils::createRandomArrayOfIntegers(_verticesAttr.size(), seed);
 
     size_t totalStepsFront = 0;
@@ -2344,7 +2331,7 @@ void DelaunayGraphCut::forceTedgesByGradientIJCV(float nPixelSizeBehind)
             GeometriesCount geometriesIntersectedFrontCount;
             GeometriesCount geometriesIntersectedBehindCount;
 
-            const float maxDist = nPixelSizeBehind * mp->getCamPixelSize(originPt, cam);
+            const float maxDist = nPixelSizeBehind * _mp.getCamPixelSize(originPt, cam);
 
             // float minJump = 10000000.0f;
             // float minSilent = 10000000.0f;
@@ -2357,15 +2344,15 @@ void DelaunayGraphCut::forceTedgesByGradientIJCV(float nPixelSizeBehind)
                 GeometryIntersection geometry(vertexIndex); // Starting on global vertex index
                 Point3d intersectPt = originPt;
                 // toTheCam
-                const Point3d dirVect = (mp->CArr[cam] - originPt).normalize();
+                const Point3d dirVect = (_mp.CArr[cam] - originPt).normalize();
 
 #ifdef ALICEVISION_DEBUG_VOTE
-                IntersectionHistory history(mp->CArr[cam], originPt, dirVect);
+                IntersectionHistory history(_mp.CArr[cam], originPt, dirVect);
 #endif
                 // As long as we find a next geometry
                 Point3d lastIntersectPt = originPt;
                 // Iterate on geometries in the direction of camera's vertex within margin defined by maxDist (as long as we find a next geometry)
-                while ((geometry.type != EGeometryType::Vertex || (mp->CArr[cam] - intersectPt).size() > 1.0e-3) // We reach our camera vertex
+                while ((geometry.type != EGeometryType::Vertex || (_mp.CArr[cam] - intersectPt).size() > 1.0e-3) // We reach our camera vertex
                     && (lastIntersectPt - originPt).size() <= (nsigmaJumpPart + nsigmaFrontSilentPart) * maxDist) // We are to far from the originPt
                 {
                     // Keep previous informations
@@ -2382,7 +2369,7 @@ void DelaunayGraphCut::forceTedgesByGradientIJCV(float nPixelSizeBehind)
                     if (geometry.type == EGeometryType::None)
                     {
 #ifdef ALICEVISION_DEBUG_VOTE
-                        // exportBackPropagationMesh("forceTedges_ToCam_typeNone", history.geometries, originPt, mp->CArr[cam]);
+                        // exportBackPropagationMesh("forceTedges_ToCam_typeNone", history.geometries, originPt, _mp.CArr[cam]);
 #endif
                         // ALICEVISION_LOG_DEBUG("[Error]: forceTedges(toTheCam) cause: geometry cannot be found.");
                         break;
@@ -2399,7 +2386,7 @@ void DelaunayGraphCut::forceTedgesByGradientIJCV(float nPixelSizeBehind)
                         auto it = std::find(history.geometries.begin(), end, geometry);
                         if (it != end)
                         {
-                            // exportBackPropagationMesh("forceTedges_ToCam_alreadyIntersected", history.geometries, originPt, mp->CArr[cam]);
+                            // exportBackPropagationMesh("forceTedges_ToCam_alreadyIntersected", history.geometries, originPt, _mp.CArr[cam]);
                             ALICEVISION_LOG_DEBUG("[Error]: forceTedges(toTheCam) cause: intersected geometry has already been intersected.");
                             break;
                         }
@@ -2426,7 +2413,7 @@ void DelaunayGraphCut::forceTedgesByGradientIJCV(float nPixelSizeBehind)
                         if (isInvalidOrInfiniteCell(mFacet.cellIndex))
                         {
 #ifdef ALICEVISION_DEBUG_VOTE
-                            // exportBackPropagationMesh("forceTedges_ToCam_invalidMirorFacet", history.geometries, originPt, mp->CArr[cam]);
+                            // exportBackPropagationMesh("forceTedges_ToCam_invalidMirorFacet", history.geometries, originPt, _mp.CArr[cam]);
 #endif
                             // ALICEVISION_LOG_DEBUG("[Error]: forceTedges(toTheCam) cause: invalidOrInfinite miror facet.");
                             break;
@@ -2458,22 +2445,22 @@ void DelaunayGraphCut::forceTedgesByGradientIJCV(float nPixelSizeBehind)
                     }
                 }
                 ++totalRayFront;
-#pragma OMP_ATOMIC_UPDATE
-                totalGeometriesIntersectedFrontCount.facets += geometriesIntersectedFrontCount.facets;
-#pragma OMP_ATOMIC_UPDATE
-                totalGeometriesIntersectedFrontCount.vertices += geometriesIntersectedFrontCount.vertices;
-#pragma OMP_ATOMIC_UPDATE
-                totalGeometriesIntersectedFrontCount.edges += geometriesIntersectedFrontCount.edges;
+                boost::atomic_ref<std::size_t>{totalGeometriesIntersectedFrontCount.facets} +=
+                        geometriesIntersectedFrontCount.facets;
+                boost::atomic_ref<std::size_t>{totalGeometriesIntersectedFrontCount.vertices} +=
+                        geometriesIntersectedFrontCount.vertices;
+                boost::atomic_ref<std::size_t>{totalGeometriesIntersectedFrontCount.edges} +=
+                        geometriesIntersectedFrontCount.edges;
             }
             {
                 // Initialisation
                 GeometryIntersection geometry(vertexIndex);
                 Point3d intersectPt = originPt;
                 // behindThePoint
-                const Point3d dirVect = (originPt - mp->CArr[cam]).normalize();
+                const Point3d dirVect = (originPt - _mp.CArr[cam]).normalize();
 
 #ifdef ALICEVISION_DEBUG_VOTE
-                IntersectionHistory history(mp->CArr[cam], originPt, dirVect);
+                IntersectionHistory history(_mp.CArr[cam], originPt, dirVect);
 #endif
 
                 Facet lastIntersectedFacet;
@@ -2500,7 +2487,7 @@ void DelaunayGraphCut::forceTedgesByGradientIJCV(float nPixelSizeBehind)
 //                         if (previousGeometry.type == EGeometryType::Facet)
 //                         {
 // #ifdef ALICEVISION_DEBUG_VOTE
-//                             // exportBackPropagationMesh("forceTedges_behindThePoint_NoneButPreviousIsFacet", history.geometries, originPt, mp->CArr[cam]);
+//                             // exportBackPropagationMesh("forceTedges_behindThePoint_NoneButPreviousIsFacet", history.geometries, originPt, _mp.CArr[cam]);
 // #endif
 //                             ALICEVISION_LOG_DEBUG("[Error]: forceTedges(behindThePoint) cause: None geometry but previous is Facet.");
 //                         }
@@ -2611,17 +2598,13 @@ void DelaunayGraphCut::forceTedgesByGradientIJCV(float nPixelSizeBehind)
                        (maxSilent < maxSilentPartRange)) // g < k_outl                  //// k_outl=100  // 400 in the paper
                         //(maxSilent-minSilent<maxSilentPartRange))
                     {
-#pragma OMP_ATOMIC_UPDATE
-                        _cellsAttr[lastIntersectedFacet.cellIndex].on += (maxJump - midSilent);
+                        boost::atomic_ref<float>{_cellsAttr[lastIntersectedFacet.cellIndex].on} += (maxJump - midSilent);
                     }
                 }
                 ++totalRayBehind;
-#pragma OMP_ATOMIC_UPDATE
-                totalGeometriesIntersectedBehindCount.facets += totalGeometriesIntersectedBehindCount.facets;
-#pragma OMP_ATOMIC_UPDATE
-                totalGeometriesIntersectedBehindCount.vertices += totalGeometriesIntersectedBehindCount.vertices;
-#pragma OMP_ATOMIC_UPDATE
-                totalGeometriesIntersectedBehindCount.edges += totalGeometriesIntersectedBehindCount.edges;
+                boost::atomic_ref<std::size_t>{totalGeometriesIntersectedBehindCount.facets} += totalGeometriesIntersectedBehindCount.facets;
+                boost::atomic_ref<std::size_t>{totalGeometriesIntersectedBehindCount.vertices} += totalGeometriesIntersectedBehindCount.vertices;
+                boost::atomic_ref<std::size_t>{totalGeometriesIntersectedBehindCount.edges} += totalGeometriesIntersectedBehindCount.edges;
             }
         }
         totalCamHaveVisibilityOnVertex += v.cams.size();
@@ -2696,13 +2679,13 @@ void DelaunayGraphCut::graphCutPostProcessing(const Point3d hexah[8], const std:
     long timer = std::clock();
     ALICEVISION_LOG_INFO("Graph cut post-processing.");
 
-    int minSegmentSize = mp->userParams.get<int>("hallucinationsFiltering.minSegmentSize", 10);
-    bool doRemoveBubbles = mp->userParams.get<bool>("hallucinationsFiltering.doRemoveBubbles", true);
-    bool doRemoveDust = mp->userParams.get<bool>("hallucinationsFiltering.doRemoveDust", true);
-    bool doLeaveLargestFullSegmentOnly = mp->userParams.get<bool>("hallucinationsFiltering.doLeaveLargestFullSegmentOnly", false);
-    int invertTetrahedronBasedOnNeighborsNbIterations = mp->userParams.get<bool>("hallucinationsFiltering.invertTetrahedronBasedOnNeighborsNbIterations", 10);
-    double minSolidAngleRatio = mp->userParams.get<double>("hallucinationsFiltering.minSolidAngleRatio", 0.2);
-    int nbSolidAngleFilteringIterations = mp->userParams.get<double>("hallucinationsFiltering.nbSolidAngleFilteringIterations", 10);
+    int minSegmentSize = _mp.userParams.get<int>("hallucinationsFiltering.minSegmentSize", 10);
+    bool doRemoveBubbles = _mp.userParams.get<bool>("hallucinationsFiltering.doRemoveBubbles", true);
+    bool doRemoveDust = _mp.userParams.get<bool>("hallucinationsFiltering.doRemoveDust", true);
+    bool doLeaveLargestFullSegmentOnly = _mp.userParams.get<bool>("hallucinationsFiltering.doLeaveLargestFullSegmentOnly", false);
+    int invertTetrahedronBasedOnNeighborsNbIterations = _mp.userParams.get<bool>("hallucinationsFiltering.invertTetrahedronBasedOnNeighborsNbIterations", 10);
+    double minSolidAngleRatio = _mp.userParams.get<double>("hallucinationsFiltering.minSolidAngleRatio", 0.2);
+    int nbSolidAngleFilteringIterations = _mp.userParams.get<double>("hallucinationsFiltering.nbSolidAngleFilteringIterations", 10);
 
     if(doRemoveBubbles)
     {
@@ -2719,7 +2702,7 @@ void DelaunayGraphCut::graphCutPostProcessing(const Point3d hexah[8], const std:
     {
         // free all full cell that have a camera vertex
         int nbModifiedCells = 0;
-        for(int rc = 0; rc < mp->ncams; rc++)
+        for(int rc = 0; rc < _mp.ncams; rc++)
         {
             VertexIndex cam_vi = _camsVertexes[rc];
             if(cam_vi == GEO::NO_VERTEX)
@@ -2783,7 +2766,7 @@ void DelaunayGraphCut::graphCutPostProcessing(const Point3d hexah[8], const std:
         saveDhInfo(folderName + "delaunayTriangulationInfoAfterHallRemoving.bin");
     }
 
-    if(mp->userParams.get<bool>("LargeScale.saveDelaunayTriangulation", false))
+    if(_mp.userParams.get<bool>("LargeScale.saveDelaunayTriangulation", false))
     {
       const std::string fileNameDh = folderName + "delaunayTriangulation.bin";
       const std::string fileNameInfo = folderName + "delaunayTriangulationInfo.bin";
@@ -2926,7 +2909,7 @@ void DelaunayGraphCut::cellsStatusFilteringBySolidAngleRatio(int nbSolidAngleFil
     // using solid angle ratio between full/empty parts.
     for(int i = 0; i < nbSolidAngleFilteringIterations; ++i)
     {
-        std::vector<bool> cellsInvertStatus(_cellIsFull.size(), false);
+        std::vector<std::uint8_t> cellsInvertStatus(_cellIsFull.size(), false);
         int toInvertCount = 0;
 
         std::vector<bool> vertexIsOnSurface;
@@ -3023,8 +3006,7 @@ void DelaunayGraphCut::cellsStatusFilteringBySolidAngleRatio(int nbSolidAngleFil
             {
                 if(_cellIsFull[ci] == invertFull)
                 {
-#pragma OMP_ATOMIC_WRITE
-                    cellsInvertStatus[ci] = true;
+                    boost::atomic_ref<std::uint8_t>{cellsInvertStatus[ci]} = true;
                     ++toInvertCount;
                 }
             }
@@ -3055,11 +3037,11 @@ void DelaunayGraphCut::createDensePointCloud(const Point3d hexah[8], const Stati
 
   ALICEVISION_LOG_INFO("Creating dense point cloud.");
 
-  float minDist = hexah ? (hexah[0] - hexah[1]).size() / 1000.0f : 0.00001f;
-  const int helperPointsGridSize = mp->userParams.get<int>("LargeScale.helperPointsGridSize", 10);
-  const int densifyNbFront = mp->userParams.get<int>("LargeScale.densifyNbFront", 0);
-  const int densifyNbBack = mp->userParams.get<int>("LargeScale.densifyNbBack", 0);
-  const double densifyScale = mp->userParams.get<double>("LargeScale.densifyScale", 1.0);
+  const float minDist = hexah ? (hexah[0] - hexah[1]).size() / 1000.0f : 0.00001f;
+  const int helperPointsGridSize = _mp.userParams.get<int>("LargeScale.helperPointsGridSize", 10);
+  const int densifyNbFront = _mp.userParams.get<int>("LargeScale.densifyNbFront", 0);
+  const int densifyNbBack = _mp.userParams.get<int>("LargeScale.densifyNbBack", 0);
+  const double densifyScale = _mp.userParams.get<double>("LargeScale.densifyScale", 1.0);
 
   // add points from depth maps
   if(depthMapsFuseParams != nullptr)
@@ -3238,21 +3220,21 @@ void DelaunayGraphCut::voteFullEmptyScore(const StaticVector<int>& cams, const s
     long t1;
 
     // TODO FACA: nPixelSizeBehind 2 or 4 by default?
-    const double nPixelSizeBehind = mp->userParams.get<double>("delaunaycut.nPixelSizeBehind", 4.0); // sigma value
-    const float fullWeight = float(mp->userParams.get<double>("delaunaycut.fullWeight", 1.0));
+    const double nPixelSizeBehind = _mp.userParams.get<double>("delaunaycut.nPixelSizeBehind", 4.0); // sigma value
+    const float fullWeight = float(_mp.userParams.get<double>("delaunaycut.fullWeight", 1.0));
 
     ALICEVISION_LOG_INFO("nPixelSizeBehind: " << nPixelSizeBehind);
 
     // 0 for distFcn equals 1 all the time
-    const float distFcnHeight = (float)mp->userParams.get<double>("delaunaycut.distFcnHeight", 0.0);
+    const float distFcnHeight = (float)_mp.userParams.get<double>("delaunaycut.distFcnHeight", 0.0);
 
-    const bool labatutCFG09 = mp->userParams.get<bool>("global.LabatutCFG09", false);
+    const bool labatutCFG09 = _mp.userParams.get<bool>("global.LabatutCFG09", false);
     // jancosekIJCV: "Exploiting Visibility Information in Surface Reconstruction to Preserve Weakly Supported Surfaces", Michal Jancosek and Tomas Pajdla, 2014
-    const bool jancosekIJCV = mp->userParams.get<bool>("global.JancosekIJCV", true);
+    const bool jancosekIJCV = _mp.userParams.get<bool>("global.JancosekIJCV", true);
 
     if(jancosekIJCV) // true by default
     {
-        const bool forceTEdge = mp->userParams.get<bool>("delaunaycut.voteFilteringForWeaklySupportedSurfaces", true);
+        const bool forceTEdge = _mp.userParams.get<bool>("delaunaycut.voteFilteringForWeaklySupportedSurfaces", true);
 
         displayCellsStats();
 
@@ -3271,7 +3253,7 @@ void DelaunayGraphCut::voteFullEmptyScore(const StaticVector<int>& cams, const s
         if(false)
         {
             std::unique_ptr<mesh::Mesh> meshf(createTetrahedralMesh(false, 0.9f, [](const fuseCut::GC_cellInfo& c) { return c.emptinessScore; }));
-            meshf->saveToObj(folderName + "tetrahedralMesh_beforeForceTEdge_emptiness.obj");
+            meshf->save(folderName + "tetrahedralMesh_beforeForceTEdge_emptiness");
         }
 
         if(forceTEdge)
@@ -3789,47 +3771,47 @@ void DelaunayGraphCut::exportDebugMesh(const std::string& filename, const Point3
     }
 
     const std::string tempDirPath = boost::filesystem::temp_directory_path().generic_string();
-    mesh->saveToObj(tempDirPath + "/" + filename + ".obj");
-    meshf->saveToObj(tempDirPath + "/" + filename + "Filtered.obj");
+    mesh->save(tempDirPath + "/" + filename);
+    meshf->save(tempDirPath + "/" + filename);
 }
 
 void DelaunayGraphCut::exportFullScoreMeshs(const std::string& outputFolder, const std::string& name) const
 {
-    const std::string nameExt = (name.empty() ? "" : "_" + name) + ".obj";
+    const std::string nameExt = (name.empty() ? "" : "_" + name);
     {
         std::unique_ptr<mesh::Mesh> meshEmptiness(
             createTetrahedralMesh(false, 0.999f, [](const GC_cellInfo& c) { return c.emptinessScore; }));
-        meshEmptiness->saveToObj(outputFolder + "/mesh_emptiness" + nameExt);
+        meshEmptiness->save(outputFolder + "/mesh_emptiness" + nameExt);
     }
     {
         std::unique_ptr<mesh::Mesh> meshFullness(
             createTetrahedralMesh(false, 0.999f, [](const GC_cellInfo& c) { return c.fullnessScore; }));
-        meshFullness->saveToObj(outputFolder + "/mesh_fullness" + nameExt);
+        meshFullness->save(outputFolder + "/mesh_fullness" + nameExt);
     }
     {
         std::unique_ptr<mesh::Mesh> meshSWeight(
             createTetrahedralMesh(false, 0.999f, [](const GC_cellInfo& c) { return c.cellSWeight; }));
-        meshSWeight->saveToObj(outputFolder + "/mesh_sWeight" + nameExt);
+        meshSWeight->save(outputFolder + "/mesh_sWeight" + nameExt);
     }
     {
         std::unique_ptr<mesh::Mesh> meshTWeight(
             createTetrahedralMesh(false, 0.999f, [](const GC_cellInfo& c) { return c.cellTWeight; }));
-        meshTWeight->saveToObj(outputFolder + "/mesh_tWeight" + nameExt);
+        meshTWeight->save(outputFolder + "/mesh_tWeight" + nameExt);
     }
     {
         std::unique_ptr<mesh::Mesh> meshOn(
             createTetrahedralMesh(false, 0.999f, [](const GC_cellInfo& c) { return c.on; }));
-        meshOn->saveToObj(outputFolder + "/mesh_on" + nameExt);
+        meshOn->save(outputFolder + "/mesh_on" + nameExt);
     }
     {
         std::unique_ptr<mesh::Mesh> mesh(createTetrahedralMesh(
             false, 0.99f, [](const fuseCut::GC_cellInfo& c) { return c.fullnessScore - c.emptinessScore; }));
-        mesh->saveToObj(outputFolder + "/mesh_fullness-emptiness" + nameExt);
+        mesh->save(outputFolder + "/mesh_fullness-emptiness" + nameExt);
     }
     {
         std::unique_ptr<mesh::Mesh> mesh(createTetrahedralMesh(
             false, 0.99f, [](const fuseCut::GC_cellInfo& c) { return c.cellSWeight - c.cellTWeight; }));
-        mesh->saveToObj(outputFolder + "/mesh_s-t" + nameExt);
+        mesh->save(outputFolder + "/mesh_s-t" + nameExt);
     }
 }
 
@@ -3855,7 +3837,7 @@ void DelaunayGraphCut::writeScoreInCsv(const std::string& filePath, const size_t
 {
     assert(boost::filesystem::path(filePath).extension().string() == std::string(".csv"));
 
-    const unsigned int seed = (unsigned int)mp->userParams.get<unsigned int>("delaunaycut.seed", 0);
+    const unsigned int seed = (unsigned int)_mp.userParams.get<unsigned int>("delaunaycut.seed", 0);
     std::mt19937 generator(seed != 0 ? seed : std::random_device{}());
 
     std::vector<int> idx(_cellsAttr.size());

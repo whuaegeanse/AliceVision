@@ -58,6 +58,21 @@ void saveView(const std::string& name, const sfmData::View& view, bpt::ptree& pa
     viewTree.add_child("metadata", metadataTree);
   }
 
+  // ancestors
+  if (!view.getAncestors().empty())
+  {
+    bpt::ptree ancestorsTree;
+
+    for(const auto & ancestor : view.getAncestors())
+    {
+      bpt::ptree ancestorTree;
+      ancestorTree.put("", ancestor);
+      ancestorsTree.push_back(std::make_pair("", ancestorTree));
+    }
+
+    viewTree.add_child("ancestors", ancestorsTree);
+  }
+
   parentTree.push_back(std::make_pair(name, viewTree));
 }
 
@@ -82,6 +97,14 @@ void loadView(sfmData::View& view, bpt::ptree& viewTree)
   view.setWidth(viewTree.get<std::size_t>("width", 0));
   view.setHeight(viewTree.get<std::size_t>("height", 0));
 
+  if (viewTree.count("ancestors"))
+  {
+    for (bpt::ptree::value_type &ancestor : viewTree.get_child("ancestors"))
+    {
+      view.addAncestor(ancestor.second.get_value<IndexT>());
+    }
+  }
+
   // metadata
   if(viewTree.count("metadata"))
     for(bpt::ptree::value_type &metaDataNode : viewTree.get_child("metadata"))
@@ -102,13 +125,21 @@ void saveIntrinsic(const std::string& name, IndexT intrinsicId, const std::share
   intrinsicTree.put("sensorHeight", intrinsic->sensorHeight());
   intrinsicTree.put("serialNumber", intrinsic->serialNumber());
   intrinsicTree.put("type", camera::EINTRINSIC_enumToString(intrinsicType));
-  intrinsicTree.put("initializationMode", camera::EIntrinsicInitMode_enumToString(intrinsic->getInitializationMode()));
+  intrinsicTree.put("initializationMode", camera::EInitMode_enumToString(intrinsic->getInitializationMode()));
 
   std::shared_ptr<camera::IntrinsicsScaleOffset> intrinsicScaleOffset = std::dynamic_pointer_cast<camera::IntrinsicsScaleOffset>(intrinsic);
   if (intrinsicScaleOffset)
   {
-    intrinsicTree.put("pxInitialFocalLength", intrinsicScaleOffset->initialScale());
-    intrinsicTree.put("pxFocalLength", intrinsicScaleOffset->getScale()(0));
+    
+    const double initialFocalLengthMM = (intrinsicScaleOffset->getInitialScale().x() > 0) ? intrinsicScaleOffset->sensorWidth() * intrinsicScaleOffset->getInitialScale().x() / double(intrinsic->w()): -1;
+    const double focalLengthMM = intrinsicScaleOffset->sensorWidth() * intrinsicScaleOffset->getScale().x() / double(intrinsic->w());
+    const double pixelRatio = (intrinsicScaleOffset->getScale().x()) / intrinsicScaleOffset->getScale().y();
+
+    intrinsicTree.put("initialFocalLength", initialFocalLengthMM);
+    intrinsicTree.put("focalLength", focalLengthMM);
+    intrinsicTree.put("pixelRatio", pixelRatio);
+    intrinsicTree.put("pixelRatioLocked", intrinsicScaleOffset->isRatioLocked());
+
     saveMatrix("principalPoint", intrinsicScaleOffset->getOffset(), intrinsicTree);
   }
 
@@ -123,6 +154,7 @@ void saveIntrinsic(const std::string& name, IndexT intrinsicId, const std::share
       paramTree.put("", param);
       distParamsTree.push_back(std::make_pair("", paramTree));
     }
+    intrinsicTree.put("distortionInitializationMode", camera::EInitMode_enumToString(intrinsicScaleOffsetDisto->getDistortionInitializationMode()));
 
     intrinsicTree.add_child("distortionParams", distParamsTree);
   }
@@ -135,12 +167,14 @@ void saveIntrinsic(const std::string& name, IndexT intrinsicId, const std::share
     intrinsicTree.put("fisheyeCircleRadius", intrinsicEquidistant->getCircleRadius());
   }
 
-  intrinsicTree.put("locked", static_cast<int>(intrinsic->isLocked())); // convert bool to integer to avoid using "true/false" in exported file instead of "1/0".
+  intrinsicTree.put("locked", intrinsic->isLocked());
 
   parentTree.push_back(std::make_pair(name, intrinsicTree));
+ 
 }
 
-void loadIntrinsic(IndexT& intrinsicId, std::shared_ptr<camera::IntrinsicBase>& intrinsic, bpt::ptree& intrinsicTree)
+void loadIntrinsic(const Version & version, IndexT& intrinsicId, std::shared_ptr<camera::IntrinsicBase>& intrinsic,
+                   bpt::ptree& intrinsicTree)
 {
   intrinsicId = intrinsicTree.get<IndexT>("intrinsicId");
   const unsigned int width = intrinsicTree.get<unsigned int>("width");
@@ -148,16 +182,44 @@ void loadIntrinsic(IndexT& intrinsicId, std::shared_ptr<camera::IntrinsicBase>& 
   const double sensorWidth = intrinsicTree.get<double>("sensorWidth", 36.0);
   const double sensorHeight = intrinsicTree.get<double>("sensorHeight", 24.0);
   const camera::EINTRINSIC intrinsicType = camera::EINTRINSIC_stringToEnum(intrinsicTree.get<std::string>("type"));
-  const camera::EIntrinsicInitMode initializationMode = camera::EIntrinsicInitMode_stringToEnum(intrinsicTree.get<std::string>("initializationMode", camera::EIntrinsicInitMode_enumToString(camera::EIntrinsicInitMode::CALIBRATED)));
-  const double pxFocalLength = intrinsicTree.get<double>("pxFocalLength");
+  const camera::EInitMode initializationMode = camera::EInitMode_stringToEnum(intrinsicTree.get<std::string>("initializationMode", camera::EInitMode_enumToString(camera::EInitMode::CALIBRATED)));
 
   // principal point
   Vec2 principalPoint;
   loadMatrix("principalPoint", principalPoint, intrinsicTree);
 
+  if (version < Version(1,2,1))
+  {
+    principalPoint[0] -= (double(width) / 2.0);
+    principalPoint[1] -= (double(height) / 2.0);
+  }
+
+  // Focal length
+  Vec2 pxFocalLength;
+  if (version < Version(1,2,0))
+  {
+      pxFocalLength(0) = intrinsicTree.get<double>("pxFocalLength", -1);
+      // Only one focal value for X and Y in previous versions
+      pxFocalLength(1) = pxFocalLength(0);
+  }
+  else if (version < Version(1,2,2)) // version >= 1.2
+  {
+    loadMatrix("pxFocalLength", pxFocalLength, intrinsicTree);
+  }
+  else 
+  {
+    const double fmm = intrinsicTree.get<double>("focalLength", 1.0);
+    const double ratio = intrinsicTree.get<double>("pixelRatio", 1.0);
+
+    const double px = (fmm / sensorWidth) * double(width);
+    const double py = px / ratio;
+
+    pxFocalLength(0) = px;
+    pxFocalLength(1) = py;
+  }
 
   // pinhole parameters
-  intrinsic = camera::createIntrinsic(intrinsicType, width, height, pxFocalLength, principalPoint(0), principalPoint(1));  
+  intrinsic = camera::createIntrinsic(intrinsicType, width, height, pxFocalLength(0), pxFocalLength(1), principalPoint(0), principalPoint(1));  
   
   intrinsic->setSerialNumber(intrinsicTree.get<std::string>("serialNumber"));
   intrinsic->setInitializationMode(initializationMode);
@@ -174,7 +236,25 @@ void loadIntrinsic(IndexT& intrinsicId, std::shared_ptr<camera::IntrinsicBase>& 
 
   std::shared_ptr<camera::IntrinsicsScaleOffset> intrinsicWithScale = std::dynamic_pointer_cast<camera::IntrinsicsScaleOffset>(intrinsic);
   if (intrinsicWithScale != nullptr) {
-    intrinsicWithScale->setInitialScale(intrinsicTree.get<double>("pxInitialFocalLength"));
+
+    if (version < Version(1, 2, 2))
+    {
+      Vec2 initialFocalLengthPx;
+      initialFocalLengthPx(0) = intrinsicTree.get<double>("pxInitialFocalLength");
+      initialFocalLengthPx(1) = (initialFocalLengthPx(0) > 0)?initialFocalLengthPx(0) * pxFocalLength(1) / pxFocalLength(0):-1;
+      intrinsicWithScale->setInitialScale(initialFocalLengthPx);
+    }
+    else 
+    {
+      double initialFocalLengthMM = intrinsicTree.get<double>("initialFocalLength");
+      
+      Vec2 initialFocalLengthPx;
+      initialFocalLengthPx(0) = (initialFocalLengthMM / sensorWidth) * double(width);
+      initialFocalLengthPx(1) = (initialFocalLengthPx(0) > 0)?initialFocalLengthPx(0) * pxFocalLength(1) / pxFocalLength(0):-1;
+
+      intrinsicWithScale->setInitialScale(initialFocalLengthPx);
+      intrinsicWithScale->setRatioLocked(intrinsicTree.get<bool>("pixelRatioLocked"));
+    }
   }
 
   // Load distortion
@@ -188,6 +268,10 @@ void loadIntrinsic(IndexT& intrinsicId, std::shared_ptr<camera::IntrinsicBase>& 
     //ensure that we have the right number of params
     distortionParams.resize(intrinsicWithDistoEnabled->getDistortionParams().size(), 0.0);
     intrinsicWithDistoEnabled->setDistortionParams(distortionParams);
+
+    const camera::EInitMode distortionInitializationMode = camera::EInitMode_stringToEnum(intrinsicTree.get<std::string>("distortionInitializationMode", camera::EInitMode_enumToString(camera::EInitMode::NONE)));
+
+    intrinsicWithDistoEnabled->setDistortionInitializationMode(distortionInitializationMode);
   }
 
   // Load EquiDistant params
@@ -314,7 +398,7 @@ void loadLandmark(IndexT& landmarkId, sfmData::Landmark& landmark, bpt::ptree& l
 
 bool saveJSON(const sfmData::SfMData& sfmData, const std::string& filename, ESfMData partFlag)
 {
-  const Vec3 version = {1, 0, 0};
+  const Vec3i version = {ALICEVISION_SFMDATAIO_VERSION_MAJOR, ALICEVISION_SFMDATAIO_VERSION_MINOR, ALICEVISION_SFMDATAIO_VERSION_REVISION};
 
   // save flags
   const bool saveViews = (partFlag & VIEWS) == VIEWS;
@@ -324,7 +408,6 @@ bool saveJSON(const sfmData::SfMData& sfmData, const std::string& filename, ESfM
   const bool saveControlPoints = (partFlag & CONTROL_POINTS) == CONTROL_POINTS;
   const bool saveFeatures = (partFlag & OBSERVATIONS_WITH_FEATURES) == OBSERVATIONS_WITH_FEATURES;
   const bool saveObservations = saveFeatures || ((partFlag & OBSERVATIONS) == OBSERVATIONS);
-
 
   // main tree
   bpt::ptree fileTree;
@@ -447,7 +530,7 @@ bool saveJSON(const sfmData::SfMData& sfmData, const std::string& filename, ESfM
 bool loadJSON(sfmData::SfMData& sfmData, const std::string& filename, ESfMData partFlag, bool incompleteViews,
               EViewIdMethod viewIdMethod, const std::string& viewIdRegex)
 {
-  Vec3 version;
+  Version version;
 
   // load flags
   const bool loadViews = (partFlag & VIEWS) == VIEWS;
@@ -465,7 +548,11 @@ bool loadJSON(sfmData::SfMData& sfmData, const std::string& filename, ESfMData p
   bpt::read_json(filename, fileTree);
 
   // version
-  loadMatrix("version", version, fileTree);
+  {
+    Vec3i v;
+    loadMatrix("version", v, fileTree);
+    version = v;
+  }
 
   // folders
   if(fileTree.count("featuresFolders"))
@@ -486,7 +573,7 @@ bool loadJSON(sfmData::SfMData& sfmData, const std::string& filename, ESfMData p
       IndexT intrinsicId;
       std::shared_ptr<camera::IntrinsicBase> intrinsic;
 
-      loadIntrinsic(intrinsicId, intrinsic, intrinsicNode.second);
+      loadIntrinsic(version, intrinsicId, intrinsic, intrinsicNode.second);
 
       intrinsics.emplace(intrinsicId, intrinsic);
     }

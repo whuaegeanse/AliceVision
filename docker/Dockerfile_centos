@@ -1,7 +1,8 @@
+ARG AV_DEPS_VERSION
 ARG AV_VERSION
 ARG CUDA_VERSION
 ARG CENTOS_VERSION
-FROM alicevision/alicevision-deps:${AV_VERSION}-centos${CENTOS_VERSION}-cuda${CUDA_VERSION}
+FROM alicevision/alicevision-deps:${AV_DEPS_VERSION}-centos${CENTOS_VERSION}-cuda${CUDA_VERSION}
 LABEL maintainer="AliceVision Team alicevision-team@googlegroups.com"
 ARG TARGET_ARCHITECTURE=core
 
@@ -22,6 +23,7 @@ ENV AV_DEV=/opt/AliceVision_git \
 
 COPY CMakeLists.txt *.md ${AV_DEV}/
 COPY src ${AV_DEV}/src
+COPY docker ${AV_DEV}/docker
 
 WORKDIR "${AV_BUILD}"
 
@@ -32,14 +34,14 @@ RUN cmake -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_PREFIX_PATH:PATH="${AV_INSTALL}" \
       -DCMAKE_INSTALL_PREFIX:PATH="${AV_INSTALL}" \
       -DALICEVISION_BUNDLE_PREFIX="${AV_BUNDLE}" \
-      -DALICEVISION_USE_ALEMBIC=ON -DMINIGLOG=ON -DALICEVISION_USE_CCTAG=ON -DALICEVISION_USE_OPENCV=ON -DALICEVISION_USE_OPENGV=ON \
+      -DALICEVISION_USE_ALEMBIC=ON -DMINIGLOG=ON -DALICEVISION_USE_CCTAG=ON -DALICEVISION_USE_APRILTAG=ON -DALICEVISION_USE_OPENCV=ON -DALICEVISION_USE_OPENGV=ON \
       -DALICEVISION_USE_POPSIFT=ON -DALICEVISION_USE_CUDA=ON -DALICEVISION_BUILD_DOC=OFF -DALICEVISION_BUILD_EXAMPLES=OFF \
       "${AV_DEV}" || (cat "${AV_BUILD}/CMakeFiles/CMakeOutput.log" "${AV_BUILD}/CMakeFiles/CMakeError.log" && false)
 
-RUN make -j"$(nproc)" && \
+RUN export CPU_CORES=`${AV_DEV}/docker/check-cpu.sh`; \
+    make -j"${CPU_CORES}" && \
     make install && \
     make bundle && \
     rm -rf "${AV_DEV}" "${AV_BUILD}" && \
-    echo "export ALICEVISION_SENSOR_DB=${AV_BUNDLE}/share/aliceVision/cameraSensors.db" >> /etc/profile.d/alicevision.sh
-
-
+    echo "export ALICEVISION_SENSOR_DB=${AV_BUNDLE}/share/aliceVision/cameraSensors.db" >> /etc/profile.d/alicevision.sh && \
+	echo "export ALICEVISION_ROOT=${AV_BUNDLE}" >> /etc/profile.d/alicevision.sh
