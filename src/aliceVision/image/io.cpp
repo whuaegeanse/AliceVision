@@ -13,6 +13,7 @@
 #include <OpenImageIO/imagebuf.h>
 #include <OpenImageIO/imagebufalgo.h>
 #include <OpenImageIO/color.h>
+#include <OpenImageIO/imagecache.h>
 
 #include <aliceVision/half.hpp>
 #include <aliceVision/stl/mapUtils.hpp>
@@ -278,7 +279,7 @@ ERawColorInterpretation ERawColorInterpretation_stringToEnum(const std::string& 
     std::string type = rawColorInterpretation;
     std::transform(type.begin(), type.end(), type.begin(), ::tolower); //tolower
 
-    if (type == "none")
+    if (type == "none" || type == "")
         return ERawColorInterpretation::None;
     if (type == "librawnowhitebalancing")
         return ERawColorInterpretation::LibRawNoWhiteBalancing;
@@ -666,7 +667,8 @@ void readImage(const std::string& path,
         // even if no conversion is needed.
     }
     else if ((imageReadOptions.workingColorSpace == EImageColorSpace::ACES2065_1) || (imageReadOptions.workingColorSpace == EImageColorSpace::ACEScg) ||
-             (EImageColorSpace_stringToEnum(fromColorSpaceName) == EImageColorSpace::ACES2065_1) || (EImageColorSpace_stringToEnum(fromColorSpaceName) == EImageColorSpace::ACEScg))
+             (EImageColorSpace_stringToEnum(fromColorSpaceName) == EImageColorSpace::ACES2065_1) || (EImageColorSpace_stringToEnum(fromColorSpaceName) == EImageColorSpace::ACEScg) ||
+             (EImageColorSpace_stringToEnum(fromColorSpaceName) == EImageColorSpace::REC709))
     {
         const auto colorConfigPath = getAliceVisionOCIOConfig();
         if (colorConfigPath.empty())
@@ -829,19 +831,18 @@ void writeImage(const std::string& path,
     oiio::ImageSpec imageSpec(image.Width(), image.Height(), nchannels, typeDesc);
     imageSpec.extra_attribs = metadata; // add custom metadata
 
-  imageSpec.attribute("jpeg:subsampling", "4:4:4");           // if possible, always subsampling 4:4:4 for jpeg
-  imageSpec.attribute("compression", isEXR ? "zips" : "none"); // if possible, set compression (zips for EXR, none for the other)
+    imageSpec.attribute("jpeg:subsampling", "4:4:4");           // if possible, always subsampling 4:4:4 for jpeg
+    imageSpec.attribute("compression", isEXR ? "zips" : "none"); // if possible, set compression (zips for EXR, none for the other)
 
-  if(displayRoi.defined() && isEXR)
-  {
-      imageSpec.set_roi_full(displayRoi);
-  }
+    if(displayRoi.defined() && isEXR)
+    {
+        imageSpec.set_roi_full(displayRoi);
+    }
 
-  if(pixelRoi.defined() && isEXR)
-  {
-      imageSpec.set_roi(pixelRoi);
-  }
-
+    if(pixelRoi.defined() && isEXR)
+    {
+        imageSpec.set_roi(pixelRoi);
+    }
 
     imageSpec.attribute("AliceVision:ColorSpace",
                         (toColorSpace == EImageColorSpace::NO_CONVERSION)
@@ -857,7 +858,8 @@ void writeImage(const std::string& path,
         // even if no conversion is needed.
     }
     else if ((toColorSpace == EImageColorSpace::ACES2065_1) || (toColorSpace == EImageColorSpace::ACEScg) ||
-             (fromColorSpace == EImageColorSpace::ACES2065_1) || (fromColorSpace == EImageColorSpace::ACEScg))
+             (fromColorSpace == EImageColorSpace::ACES2065_1) || (fromColorSpace == EImageColorSpace::ACEScg) ||
+             (fromColorSpace == EImageColorSpace::REC709))
     {
         const auto colorConfigPath = getAliceVisionOCIOConfig();
         if (colorConfigPath.empty())
@@ -1014,6 +1016,33 @@ void readImage(const std::string& path, Image<RGBfColor>& image, const ImageRead
 void readImage(const std::string& path, Image<RGBColor>& image, const ImageReadOptions & imageReadOptions)
 {
   readImage(path, oiio::TypeDesc::UINT8, 3, image, imageReadOptions);
+}
+
+void logOIIOImageCacheInfo()
+{
+  oiio::ImageCache* cache = oiio::ImageCache::create(true);
+
+  int maxOpenFiles = -1;
+  cache->getattribute("max_open_files", maxOpenFiles);
+
+  int totalFiles = -1;
+  cache->getattribute("total_files", totalFiles);
+
+  float maxMemoryMB = -1.f;
+  cache->getattribute("max_memory_MB", maxMemoryMB);
+
+  int64_t cacheMemoryUsed = -1;
+  cache->getattribute("stat:cache_memory_used", oiio::TypeDesc::INT64, &cacheMemoryUsed);
+
+  int64_t bytesRead = -1;
+  cache->getattribute("stat:bytes_read", oiio::TypeDesc::INT64, &bytesRead);
+
+  ALICEVISION_LOG_INFO("OIIO image cache info: " << 
+                      "\n * max open files: " << maxOpenFiles << 
+                      "\n * total files: " << totalFiles << 
+                      "\n * max memory (MB): " << maxMemoryMB << 
+                      "\n * cache memory used: " << cacheMemoryUsed << 
+                      "\n * bytes read: " << bytesRead);
 }
 
 void writeImage(const std::string& path, const Image<unsigned char>& image,

@@ -12,7 +12,7 @@
 #include <aliceVision/lensCorrectionProfile/lcp.hpp>
 #include <aliceVision/system/Logger.hpp>
 #include <aliceVision/system/main.hpp>
-#include <aliceVision/system/cmdline.hpp>
+#include <aliceVision/cmdline/cmdline.hpp>
 #include <aliceVision/image/io.cpp>
 #include <aliceVision/image/dcp.hpp>
 
@@ -135,6 +135,25 @@ inline std::istream& operator>>(std::istream& in, EGroupCameraFallback& s)
     s = EGroupCameraFallback_stringToEnum(token);
     return in;
 }
+
+bool rigHasUniqueFrameIds(const sfmData::SfMData & sfmData)
+{
+    std::set<std::tuple<IndexT, IndexT, IndexT>> unique_ids;
+    for (auto vitem : sfmData.getViews())
+    {
+        std::tuple<IndexT, IndexT, IndexT> tuple = { vitem.second->getRigId(), vitem.second->getSubPoseId(), vitem.second->getFrameId() };
+
+        if (unique_ids.find(tuple) != unique_ids.end())
+        {
+            return false;
+        }
+
+        unique_ids.insert(tuple);
+    }
+
+    return true;
+}
+
 
 /**
  * @brief Create the description of an input image dataset for AliceVision toolsuite
@@ -996,6 +1015,14 @@ int aliceVision_main(int argc, char **argv)
     return EXIT_FAILURE;
   }
 
+
+  //Check unique frame id per rig element
+  if (!rigHasUniqueFrameIds(sfmData))
+  {
+    ALICEVISION_LOG_ERROR("Multiple frames have the same frame id.");
+    return EXIT_FAILURE;
+  }
+  
   // store SfMData views & intrinsic data
   if(!Save(sfmData, outputFilePath, ESfMData(VIEWS|INTRINSICS|EXTRINSICS)))
   {
