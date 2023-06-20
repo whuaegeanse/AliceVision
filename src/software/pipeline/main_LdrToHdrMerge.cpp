@@ -36,11 +36,18 @@ using namespace aliceVision;
 namespace po = boost::program_options;
 namespace fs = boost::filesystem;
 
-std::string getHdrImagePath(const std::string& outputPath, std::size_t g)
+std::string getHdrImagePath(const std::string& outputPath, std::size_t g, const std::string& rootname="")
 {
     // Output image file path
     std::stringstream sstream;
-    sstream << "hdr_" << std::setfill('0') << std::setw(4) << g << ".exr";
+    if (rootname == "")
+    {
+        sstream << "hdr_" << std::setfill('0') << std::setw(4) << g << ".exr";
+    }
+    else
+    {
+        sstream << rootname << ".exr";
+    }
     const std::string hdrImagePath = (fs::path(outputPath) / sstream.str()).string();
     return hdrImagePath;
 }
@@ -53,6 +60,7 @@ int aliceVision_main(int argc, char** argv)
     std::string sfmOutputDataFilepath;
     int nbBrackets = 3;
     bool byPass = false;
+    bool keepSourceImageName = false;
     int channelQuantizationPower = 10;
     int offsetRefBracketIndex = 1000; // By default, use the automatic selection
     double meanTargetedLumaForMerging = 0.4;
@@ -83,6 +91,8 @@ int aliceVision_main(int argc, char** argv)
          "bracket count per HDR image (0 means automatic).")
         ("byPass", po::value<bool>(&byPass)->default_value(byPass),
          "bypass HDR creation and use medium bracket as input for next steps")
+        ("keepSourceImageName", po::value<bool>(&keepSourceImageName)->default_value(keepSourceImageName),
+         "Keep the filename of the input image selected as central image for the output image filename")
         ("channelQuantizationPower", po::value<int>(&channelQuantizationPower)->default_value(channelQuantizationPower),
          "Quantization level like 8 bits or 10 bits.")
         ("workingColorSpace", po::value<image::EImageColorSpace>(&workingColorSpace)->default_value(workingColorSpace),
@@ -149,6 +159,9 @@ int aliceVision_main(int argc, char** argv)
     }
 
     const std::size_t channelQuantization = std::pow(2, channelQuantizationPower);
+
+    // Fusion always produces linear image. sRGB is the only non linear color space that must be changed to linear (sRGB linear). 
+    image::EImageColorSpace mergedColorSpace = (workingColorSpace == image::EImageColorSpace::SRGB) ? image::EImageColorSpace::LINEAR : workingColorSpace;
 
     // Make groups
     std::vector<std::vector<std::shared_ptr<sfmData::View>>> groupedViews;
@@ -257,9 +270,11 @@ int aliceVision_main(int argc, char** argv)
             }
             if(!byPass)
             {
-                const std::string hdrImagePath = getHdrImagePath(outputPath, g);
+                boost::filesystem::path p(targetViews[g]->getImagePath());
+                const std::string hdrImagePath = getHdrImagePath(outputPath, g, keepSourceImageName ? p.stem().string() : "");
                 hdrView->setImagePath(hdrImagePath);
             }
+            hdrView->addMetadata("AliceVision:ColorSpace", image::EImageColorSpace_enumToString(mergedColorSpace));
             outputSfm.getViews()[hdrView->getViewId()] = hdrView;
         }
 
@@ -302,6 +317,14 @@ int aliceVision_main(int argc, char** argv)
             options.workingColorSpace = workingColorSpace;
             options.rawColorInterpretation = image::ERawColorInterpretation_stringToEnum(group[i]->getRawColorInterpretation());
             options.colorProfileFileName = group[i]->getColorProfileFileName();
+            // Whatever the raw color interpretation mode, the default read processing for raw images is to apply white balancing in libRaw, before demosaicing.
+            // The DcpMetadata mode allows to not apply color management after demosaicing.
+            // Because if requested after demosaicing, white balancing is done at color management stage, we can set this option to true to get real raw data,
+            // without any white balancing, when the DcpMetadata mode is selected.
+            if (options.rawColorInterpretation == image::ERawColorInterpretation::DcpMetadata)
+            {
+                options.doWBAfterDemosaicing = true;
+            }
             image::readImage(filepath, images[i], options);
 
             exposuresSetting[i] = group[i]->getCameraExposureSetting(/*targetView->getMetadataISO(), targetView->getMetadataFNumber()*/);
@@ -331,7 +354,8 @@ int aliceVision_main(int argc, char** argv)
             HDRimage = images[0];
         }
 
-        const std::string hdrImagePath = getHdrImagePath(outputPath, g);
+        boost::filesystem::path p(targetView->getImagePath());
+        const std::string hdrImagePath = getHdrImagePath(outputPath, g, keepSourceImageName ? p.stem().string() : "");
 
         // Write an image with parameters from the target view
         std::map<std::string, std::string> viewMetadata = targetView->getMetadata();
@@ -348,9 +372,6 @@ int aliceVision_main(int argc, char** argv)
                 targetMetadata.add_or_replace(oiio::ParamValue(meta.first, meta.second));
             }
         }
-
-        // Fusion always produces linear image. sRGB is the only non linear color space that must be changed to linear (sRGB linear). 
-        image::EImageColorSpace mergedColorSpace = (workingColorSpace == image::EImageColorSpace::SRGB) ? image::EImageColorSpace::LINEAR : workingColorSpace;
 
         targetMetadata.add_or_replace(oiio::ParamValue("AliceVision:ColorSpace", image::EImageColorSpace_enumToString(mergedColorSpace)));
 
