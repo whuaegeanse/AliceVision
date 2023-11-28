@@ -28,10 +28,11 @@ AliceVision depends on external libraries:
 * CoinUtils >= 2.9.3 use [our fork](https://github.com/alicevision/CoinUtils) with a CMake build system so that it can be easily found
 * Coin-or linear programming (Clp) use [our fork](https://github.com/alicevision/Clp) with a CMake build system
 * [Eigen >= 3.3.4](https://gitlab.com/libeigen/eigen)
-* [Geogram >= 1.7.5](https://github.com/BrunoLevy/geogram)
 * [Expat >= 2.4.8](https://libexpat.github.io/)
+* Flann >= 1.8.4, use [our fork](https://github.com/alicevision/flann) with a CMake build system
+* [Geogram >= 1.7.5](https://github.com/BrunoLevy/geogram)
 * [OpenEXR >= 2.5](https://github.com/AcademySoftwareFoundation/openexr)
-* [OpenImageIO >= 2.1.0 (recommended >= 2.4.6)](https://github.com/OpenImageIO/oiio)
+* [OpenImageIO >= 2.1.0 (recommended >= 2.4.13)](https://github.com/OpenImageIO/oiio)
 * Open Solver Interface (Osi) >= 0.106.10 use [our fork](https://github.com/alicevision/Osi)) with a CMake build system
 * [zlib](https://www.zlib.net)
 
@@ -48,12 +49,10 @@ Other optional libraries can enable specific features (check "CMake Options" for
 * PCL (Point Cloud Library) >= 1.12.1 for the registration module
 * PopSift (feature extraction on GPU)
 * UncertaintyTE (Uncertainty computation)
-
+* Lemon >= 1.3
 
 AliceVision also depends on some embedded libraries:
 
-* Flann >= 1.8.4 (internal)
-* Lemon >= 1.3 (internal)
 * MeshSDFilter (internal)
 * OpenMesh (internal)
 
@@ -82,16 +81,18 @@ cd <VCPKG_INSTALL_DIR>
 set VCPKG_ROOT=%cd%
 
 vcpkg install ^
-          boost-algorithm boost-accumulators boost-atomic boost-container boost-date-time boost-exception boost-filesystem boost-graph boost-json boost-log ^
+          boost-algorithm boost-accumulators boost-atomic boost-container boost-date-time boost-exception boost-filesystem boost-geometry boost-graph boost-json boost-log ^
           boost-program-options boost-property-tree boost-ptr-container boost-regex boost-serialization boost-system boost-test boost-thread boost-timer ^
           lz4 ^
+          liblemon ^
           openexr ^
           alembic ^
           geogram ^
           eigen3 ^
           expat ^
+          flann ^
           onnxruntime-gpu ^
-          opencv[eigen,ffmpeg,webp,contrib,nonFree,cuda] ^
+          opencv[eigen,ffmpeg,webp,contrib,nonfree,cuda] ^
           openimageio[libraw,ffmpeg,freetype,opencv,gif,openjpeg,webp] ^
           ceres[suitesparse,cxsparse] ^
           cuda ^
@@ -175,8 +176,8 @@ At the end of the cmake process, a report shows for each library which version (
 ```
 -- EIGEN: 3.3.4
 -- CERES: 1.10.0
--- FLANN: 1.8.4 (external)
--- LEMON: 1.3 (internal)
+-- FLANN: 1.8.4
+-- LEMON: 1.3
 ```
 
 

@@ -6,7 +6,7 @@ add_subdirectory(system)
 add_subdirectory(cmdline)
 add_subdirectory(stl)
 add_subdirectory(utils)
-add_subdirectory(panorama)
+add_subdirectory(gpu)
 
 # SfM modules
 
@@ -15,9 +15,9 @@ if(ALICEVISION_BUILD_SFM)
   add_subdirectory(colorHarmonization)
   add_subdirectory(dataio)
   add_subdirectory(feature)
+  add_subdirectory(featureEngine)
   add_subdirectory(geometry)
   add_subdirectory(graph)
-  add_subdirectory(gpu)
   add_subdirectory(imageMatching)
   add_subdirectory(linearProgramming)
   add_subdirectory(lensCorrectionProfile)
@@ -40,6 +40,10 @@ if(ALICEVISION_BUILD_SFM)
   endif()
 endif()
 
+if (ALICEVISION_BUILD_PANORAMA)
+  add_subdirectory(panorama)
+endif()
+
 if(ALICEVISION_BUILD_HDR)
   add_subdirectory(hdr)
 endif()
@@ -56,18 +60,25 @@ if(ALICEVISION_BUILD_MVS)
   if(ALICEVISION_HAVE_CUDA)
     add_subdirectory(depthMap)
   endif()
+
+  if(ALICEVISION_HAVE_ONNX)
+    add_subdirectory(segmentation)
+  endif()
 endif()
+
 
 
 if(ALICEVISION_BUILD_SFM AND ALICEVISION_BUILD_MVS)
   add_subdirectory(sfmMvsUtils)
 endif()
 
-if(ALICEVISION_HAVE_OPENCV)
-  add_subdirectory(photometricStereo)
-  if(ALICEVISION_HAVE_ONNX)
-    add_subdirectory(sphereDetection)
-  endif()
+if (ALICEVISION_BUILD_STEREOPHOTOMETRY)
+    if(ALICEVISION_HAVE_OPENCV)
+        add_subdirectory(photometricStereo)
+        if(ALICEVISION_HAVE_ONNX)
+            add_subdirectory(sphereDetection)
+        endif()
+    endif()
 endif()
 
 # Install rules

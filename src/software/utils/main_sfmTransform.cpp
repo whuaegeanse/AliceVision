@@ -14,6 +14,7 @@
 
 #include <boost/program_options.hpp>
 
+#include <iomanip>
 #include <string>
 #include <sstream>
 #include <vector>
@@ -217,7 +218,7 @@ IndexT getReferenceViewId(const sfmData::SfMData & sfmData, const std::string & 
                 continue;
             }
             
-            int64_t t = v.second->getMetadataDateTimestamp();
+            int64_t t = v.second->getImage().getMetadataDateTimestamp();
             sorted_views.push_back(std::make_pair(t, v.first));
         }
         std::sort(sorted_views.begin(), sorted_views.end());
@@ -512,7 +513,8 @@ int aliceVision_main(int argc, char **argv)
   }
 
   {
-      ALICEVISION_LOG_INFO("Transformation:" << std::endl
+      ALICEVISION_LOG_INFO(std::setprecision(17)
+          << "Transformation:" << std::endl
           << "\t- Scale: " << S << std::endl
           << "\t- Rotation:\n" << R << std::endl
           << "\t- Translate: " << t.transpose());

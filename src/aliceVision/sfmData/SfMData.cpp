@@ -20,29 +20,35 @@ using namespace aliceVision::image;
 
 namespace fs = boost::filesystem;
 
-SfMData::SfMData()
-{
-}
-
-SfMData::~SfMData()
-{
-}
 
 bool SfMData::operator==(const SfMData& other) const
 {
     // Views
-    if (views.size() != other.views.size())
+    if (_views.size() != other._views.size())
         return false;
 
-    for (Views::const_iterator it = views.begin(); it != views.end(); ++it)
+    for (Views::const_iterator it = _views.begin(); it != _views.end(); ++it)
     {
         const View& view1 = *(it->second.get());
-        const View& view2 = *(other.views.at(it->first).get());
+        const View& view2 = *(other._views.at(it->first).get());
         if (view1 != view2)
             return false;
 
         // Image paths
-        if (view1.getImagePath() != view2.getImagePath())
+        if (view1.getImage().getImagePath() != view2.getImage().getImagePath())
+            return false;
+    }
+
+    // Ancestors
+    if (_ancestors.size() != other._ancestors.size())
+        return false;
+
+    for (ImageInfos::const_iterator it = _ancestors.begin(); it != _ancestors.end(); ++it)
+    {
+        const ImageInfo& ancestor1 = *(it->second);
+        const ImageInfo& ancestor2 = *(other._ancestors.at(it->first));
+
+        if (ancestor1 != ancestor2)
             return false;
     }
 
@@ -55,12 +61,12 @@ bool SfMData::operator==(const SfMData& other) const
         return false;
 
     // Intrinsics
-    if (intrinsics.size() != other.intrinsics.size())
+    if (_intrinsics.size() != other._intrinsics.size())
         return false;
 
-    Intrinsics::const_iterator it = intrinsics.begin();
-    Intrinsics::const_iterator otherIt = other.intrinsics.begin();
-    for (; it != intrinsics.end() && otherIt != other.intrinsics.end(); ++it, ++otherIt)
+    Intrinsics::const_iterator it = _intrinsics.begin();
+    Intrinsics::const_iterator otherIt = other._intrinsics.begin();
+    for (; it != _intrinsics.end() && otherIt != other._intrinsics.end(); ++it, ++otherIt)
     {
         // Index
         if (it->first != otherIt->first)
@@ -74,12 +80,12 @@ bool SfMData::operator==(const SfMData& other) const
     }
 
     // Points IDs are not preserved
-    if (structure.size() != other.structure.size())
+    if (_structure.size() != other._structure.size())
         return false;
 
-    Landmarks::const_iterator landMarkIt = structure.begin();
-    Landmarks::const_iterator otherLandmarkIt = other.structure.begin();
-    for (; landMarkIt != structure.end() && otherLandmarkIt != other.structure.end(); ++landMarkIt, ++otherLandmarkIt)
+    Landmarks::const_iterator landMarkIt = _structure.begin();
+    Landmarks::const_iterator otherLandmarkIt = other._structure.begin();
+    for (; landMarkIt != _structure.end() && otherLandmarkIt != other._structure.end(); ++landMarkIt, ++otherLandmarkIt)
     {
         // Points IDs are not preserved
         // Landmark
@@ -88,10 +94,6 @@ bool SfMData::operator==(const SfMData& other) const
         if (landmark1 != landmark2)
             return false;
     }
-
-    // Control points
-    if (control_points != other.control_points)
-        return false;
 
     if (constraints2d.size() != other.constraints2d.size())
         return false;
@@ -122,7 +124,7 @@ std::vector<std::string> toAbsoluteFolders(const std::vector<std::string>& folde
     // Else, convert relative paths to absolute paths
     std::vector<std::string> absolutePaths;
     absolutePaths.reserve(folders.size());
-    for (const auto& folder: folders)
+    for (const auto& folder : folders)
     {
         const fs::path f = fs::absolute(folder, fs::path(absolutePath).parent_path());
         if (fs::exists(f))
@@ -138,7 +140,7 @@ std::vector<std::string> toAbsoluteFolders(const std::vector<std::string>& folde
     return absolutePaths;
 }
 
-/** 
+/**
  * @brief Add paths contained in \p folders to \p dst as relative paths to \p absolutePath.
  *        Paths already present in \p dst are omitted.
  * @param[in] dst list in which paths should be added
@@ -147,7 +149,7 @@ std::vector<std::string> toAbsoluteFolders(const std::vector<std::string>& folde
  */
 void addAsRelativeFolders(std::vector<std::string>& dst, const std::vector<std::string>& folders, const std::string& absolutePath)
 {
-    for (auto folderPath: folders)
+    for (auto folderPath : folders)
     {
         // If absolutePath is set, convert to relative path
         if (!absolutePath.empty() && fs::path(folderPath).is_absolute())
@@ -162,25 +164,13 @@ void addAsRelativeFolders(std::vector<std::string>& dst, const std::vector<std::
     }
 }
 
-std::vector<std::string> SfMData::getFeaturesFolders() const
-{
-    return toAbsoluteFolders(_featuresFolders, _absolutePath);
-}
+std::vector<std::string> SfMData::getFeaturesFolders() const { return toAbsoluteFolders(_featuresFolders, _absolutePath); }
 
-std::vector<std::string> SfMData::getMatchesFolders() const
-{
-    return toAbsoluteFolders(_matchesFolders, _absolutePath);
-}
+std::vector<std::string> SfMData::getMatchesFolders() const { return toAbsoluteFolders(_matchesFolders, _absolutePath); }
 
-void SfMData::addFeaturesFolders(const std::vector<std::string>& folders)
-{
-    addAsRelativeFolders(_featuresFolders, folders, _absolutePath);
-}
+void SfMData::addFeaturesFolders(const std::vector<std::string>& folders) { addAsRelativeFolders(_featuresFolders, folders, _absolutePath); }
 
-void SfMData::addMatchesFolders(const std::vector<std::string>& folders)
-{
-    addAsRelativeFolders(_matchesFolders, folders, _absolutePath);
-}
+void SfMData::addMatchesFolders(const std::vector<std::string>& folders) { addAsRelativeFolders(_matchesFolders, folders, _absolutePath); }
 
 void SfMData::setAbsolutePath(const std::string& path)
 {
@@ -198,9 +188,9 @@ void SfMData::setAbsolutePath(const std::string& path)
 std::set<IndexT> SfMData::getValidViews() const
 {
     std::set<IndexT> valid_idx;
-    for (Views::const_iterator it = views.begin(); it != views.end(); ++it)
+    for (Views::const_iterator it = _views.begin(); it != _views.end(); ++it)
     {
-        const View * v = it->second.get();
+        const View* v = it->second.get();
         if (isPoseAndIntrinsicDefined(v))
         {
             valid_idx.insert(v->getViewId());
@@ -212,9 +202,9 @@ std::set<IndexT> SfMData::getValidViews() const
 std::set<IndexT> SfMData::getReconstructedIntrinsics() const
 {
     std::set<IndexT> valid_idx;
-    for (Views::const_iterator it = views.begin(); it != views.end(); ++it)
+    for (Views::const_iterator it = _views.begin(); it != _views.end(); ++it)
     {
-        const View * v = it->second.get();
+        const View* v = it->second.get();
         if (isPoseAndIntrinsicDefined(v))
         {
             valid_idx.insert(v->getIntrinsicId());
@@ -254,7 +244,6 @@ void SfMData::setPose(const View& view, const CameraPose& absolutePose)
     throw std::runtime_error("SfMData::setPose: dependant view pose not part of an initialized rig.");
 }
 
-
 void SfMData::combine(const SfMData& sfmData)
 {
     if (!_rigs.empty() && !sfmData._rigs.empty())
@@ -267,10 +256,10 @@ void SfMData::combine(const SfMData& sfmData)
     addMatchesFolders(sfmData.getMatchesFolders());
 
     // views
-    views.insert(sfmData.views.begin(), sfmData.views.end());
+    _views.insert(sfmData._views.begin(), sfmData._views.end());
 
     // intrinsics
-    intrinsics.insert(sfmData.intrinsics.begin(), sfmData.intrinsics.end());
+    _intrinsics.insert(sfmData._intrinsics.begin(), sfmData._intrinsics.end());
 
     // poses
     _poses.insert(sfmData._poses.begin(), sfmData._poses.end());
@@ -279,10 +268,7 @@ void SfMData::combine(const SfMData& sfmData)
     _rigs.insert(sfmData._rigs.begin(), sfmData._rigs.end());
 
     // structure
-    structure.insert(sfmData.structure.begin(), sfmData.structure.end());
-
-    // control points
-    control_points.insert(sfmData.control_points.begin(), sfmData.control_points.end());
+    _structure.insert(sfmData._structure.begin(), sfmData._structure.end());
 
     // constraints
     constraints2d.insert(constraints2d.end(), sfmData.constraints2d.begin(), sfmData.constraints2d.end());
@@ -290,10 +276,9 @@ void SfMData::combine(const SfMData& sfmData)
 
 void SfMData::clear()
 {
-    views.clear();
-    intrinsics.clear();
-    structure.clear();
-    control_points.clear();
+    _views.clear();
+    _intrinsics.clear();
+    _structure.clear();
     _posesUncertainty.clear();
     _landmarksUncertainty.clear();
     constraints2d.clear();
@@ -319,8 +304,8 @@ LandmarksPerView getLandmarksPerViews(const SfMData& sfmData)
         }
     }
 
-    // Sort landmark Ids in each view
-    #pragma omp parallel for
+// Sort landmark Ids in each view
+#pragma omp parallel for
     for (int i = 0; i < landmarksPerView.size(); ++i)
     {
         LandmarksPerView::iterator it = landmarksPerView.begin();
@@ -331,5 +316,5 @@ LandmarksPerView getLandmarksPerViews(const SfMData& sfmData)
     return landmarksPerView;
 }
 
-} // namespace sfmData
-} // namespace aliceVision
+}  // namespace sfmData
+}  // namespace aliceVision

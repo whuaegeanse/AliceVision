@@ -50,8 +50,10 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 option(ALICEVISION_BUILD_SFM "Build AliceVision SfM part" ON)
 option(ALICEVISION_BUILD_MVS "Build AliceVision MVS part" ON)
 option(ALICEVISION_BUILD_HDR "Build AliceVision HDR part" ON)
+option(ALICEVISION_BUILD_SEGMENTATION "Build AliceVision Segmentation part" ON)
+option(ALICEVISION_BUILD_STEREOPHOTOMETRY "Build AliceVision StereoPhotometry part" ON)
+option(ALICEVISION_BUILD_PANORAMA "Build AliceVision panorama part" ON)
 option(ALICEVISION_BUILD_SOFTWARE "Build AliceVision command line tools." ON)
-option(ALICEVISION_BUILD_EXAMPLES "Build AliceVision samples applications." OFF)
 option(ALICEVISION_BUILD_COVERAGE "Enable code coverage generation (gcc only)" OFF)
 trilean_option(ALICEVISION_BUILD_DOC "Build AliceVision documentation" AUTO)
 
@@ -63,6 +65,7 @@ trilean_option(ALICEVISION_USE_OPENGV "Enable use of OpenGV algorithms" AUTO)
 trilean_option(ALICEVISION_USE_ALEMBIC "Enable Alembic I/O" AUTO)
 trilean_option(ALICEVISION_USE_UNCERTAINTYTE "Enable Uncertainty computation" AUTO)
 trilean_option(ALICEVISION_USE_ONNX "Enable ONNX Runtime" AUTO)
+option(ALICEVISION_USE_ONNX_GPU "Use CUDA with ONNX Runtime" ON)
 trilean_option(ALICEVISION_USE_CUDA "Enable CUDA" ON)
 trilean_option(ALICEVISION_USE_OPENCV "Enable use of OpenCV algorithms" OFF)
 trilean_option(ALICEVISION_USE_OPENCV_CONTRIB "Enable use of OpenCV algorithms from extra modules" AUTO)
@@ -82,6 +85,14 @@ option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 # Default build is in Release mode
 if(NOT CMAKE_BUILD_TYPE AND NOT MSVC)
   set(CMAKE_BUILD_TYPE "Release")
+endif()
+
+if(NOT ALICEVISION_BUILD_SFM)
+    SET(ALICEVISION_BUILD_MVS OFF)
+    SET(ALICEVISION_BUILD_HDR OFF)
+    SET(ALICEVISION_BUILD_SEGMENTATION OFF)
+    SET(ALICEVISION_BUILD_STEREOPHOTOMETRY OFF)
+    SET(ALICEVISION_BUILD_PANORAMA OFF)
 endif()
 
 # ==============================================================================
@@ -163,7 +174,7 @@ endmacro(add_target_properties)
 # ==============================================================================
 # Check that submodule have been initialized and updated
 # ==============================================================================
-if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/flann/src)
+if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/MeshSDFilter/external)
   message(FATAL_ERROR
     "\n submodule(s) are missing, please update your repository:\n"
     "  > git submodule update -i\n")
@@ -375,6 +386,7 @@ endif()
 # onnxruntime
 # ==============================================================================
 set(ALICEVISION_HAVE_ONNX 0)
+set(ALICEVISION_HAVE_ONNX_GPU 1)
 
 if(NOT ALICEVISION_USE_ONNX STREQUAL "OFF")
   find_package(ONNXRuntime)
@@ -385,6 +397,10 @@ if(NOT ALICEVISION_USE_ONNX STREQUAL "OFF")
   elseif(ALICEVISION_USE_ONNX STREQUAL "ON")
     message(SEND_ERROR "Failed to find ONNX Runtime.")
   endif()
+endif()
+
+if(ALICEVISION_USE_ONNX_GPU STREQUAL "OFF" OR ALICEVISION_USE_CUDA STREQUAL "OFF")
+  set(ALICEVISION_HAVE_ONNX_GPU 0)
 endif()
 
 # ==============================================================================
@@ -428,18 +444,18 @@ endif()
 # ==============================================================================
 # Flann
 # ==============================================================================
-# - internal by default (flann),
-# - external if FLANN_INCLUDE_DIR_HINTS and a valid Flann setup is found
-# ==============================================================================
 if(ALICEVISION_BUILD_SFM)
-  if(NOT DEFINED FLANN_INCLUDE_DIR_HINTS)
-    set(FLANN_INCLUDE_DIR_HINTS ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/flann/src/cpp)
-    set(ALICEVISION_USE_INTERNAL_FLANN ON)
-  endif()
-  find_package(Flann QUIET)
-  if(NOT FLANN_FOUND OR ALICEVISION_USE_INTERNAL_FLANN)
-    set(FLANN_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/flann/src/cpp)
-    set(FLANN_LIBRARY flann_cpp_s)
+  find_package(lz4 REQUIRED)
+  find_package(flann REQUIRED)
+
+  if (TARGET lz4::lz4)
+    set(FLANN_LIBRARIES flann::flann_cpp lz4::lz4)
+  elseif (TARGET LZ4::lz4_static)
+    set(FLANN_LIBRARIES flann::flann_cpp LZ4::lz4_static)
+  elseif (TARGET LZ4::lz4_shared)
+    set(FLANN_LIBRARIES flann::flann_cpp LZ4::lz4_shared)
+  else()
+    message(FATAL_ERROR "FLANN can not be found")
   endif()
 endif()
 
@@ -452,24 +468,9 @@ if(ALICEVISION_BUILD_SFM)
   find_package(Osi REQUIRED)
 endif()
 
-# ==============================================================================
-# Lemon
-# ==============================================================================
-# - internal by default (Lemon),
-# - external if LEMON_INCLUDE_DIR_HINTS and a valid Lemon setup is found
-# ==============================================================================
+
 if(ALICEVISION_BUILD_SFM)
-  if(NOT DEFINED LEMON_INCLUDE_DIR_HINTS)
-    set(LEMON_INCLUDE_DIR_HINTS ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/lemon)
-    set(ALICEVISION_USE_INTERNAL_LEMON ON)
-  endif()
-  find_package(Lemon QUIET)
-  if(NOT LEMON_FOUND OR ALICEVISION_USE_INTERNAL_LEMON)
-    set(LEMON_INCLUDE_DIRS
-      ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/lemon
-      ${CMAKE_CURRENT_BINARY_DIR}/dependencies/lemon)
-    set(LEMON_LIBRARY lemon)
-  endif()
+  find_package(LEMON REQUIRED)
 endif()
 
 
@@ -552,6 +553,24 @@ if(ALICEVISION_BUILD_SFM) # or ALICEVISION_BUILD_MVS
     elseif(ALICEVISION_USE_ALEMBIC STREQUAL "ON")
       message(SEND_ERROR "Failed to find Alembic.")
     endif()
+  endif()
+endif()
+
+# ==============================================================================
+# USD
+# ==============================================================================
+# - optional, it allows to export the geometry and textures as USD
+# ==============================================================================
+set(ALICEVISION_HAVE_USD 0)
+
+if(NOT ALICEVISION_USE_USD STREQUAL "OFF")
+  find_package(pxr CONFIG)
+
+  if(pxr_FOUND)
+    set(ALICEVISION_HAVE_USD 1)
+    message(STATUS "USD version ${PXR_VERSION} found.")
+  elseif(ALICEVISION_USE_USD STREQUAL "ON")
+    message(SEND_ERROR "Failed to find USD.")
   endif()
 endif()
 
@@ -910,7 +929,6 @@ message("** Build SfM part: " ${ALICEVISION_BUILD_SFM})
 message("** Build MVS part: " ${ALICEVISION_BUILD_MVS})
 message("** Build AliceVision tests: " ${ALICEVISION_BUILD_TESTS})
 message("** Build AliceVision documentation: " ${ALICEVISION_HAVE_DOC})
-message("** Build AliceVision samples programs: " ${ALICEVISION_BUILD_EXAMPLES})
 message("** Build AliceVision+OpenCV samples programs: " ${ALICEVISION_HAVE_OPENCV})
 message("** Build UncertaintyTE: " ${ALICEVISION_HAVE_UNCERTAINTYTE})
 message("** Build MeshSDFilter: " ${ALICEVISION_HAVE_MESHSDFILTER})
@@ -923,28 +941,19 @@ message("** Use PopSift feature extractor: " ${ALICEVISION_HAVE_POPSIFT})
 message("** Use CCTAG markers: " ${ALICEVISION_HAVE_CCTAG})
 message("** Use AprilTag markers: " ${ALICEVISION_HAVE_APRILTAG})
 message("** Use OpenGV for rig localization: " ${ALICEVISION_HAVE_OPENGV})
+message("** Use ONNX: " ${ALICEVISION_HAVE_ONNX})
+message("** Use ONNX with CUDA: " ${ALICEVISION_HAVE_ONNX_GPU})
 message("\n")
 
 message(STATUS "EIGEN: " ${EIGEN_VERSION} "")
 
 if(ALICEVISION_BUILD_SFM)
   message(STATUS "CERES: " ${CERES_VERSION} "")
-
-  if(ALICEVISION_USE_INTERNAL_FLANN)
-    message(STATUS "FLANN: " ${FLANN_VERSION} " (internal)")
-  else()
-    message(STATUS "FLANN: " ${FLANN_VERSION} " (external)")
-  endif()
-
+  message(STATUS "FLANN: " ${FLANN_VERSION} "")
   message(STATUS "CLP: " ${Clp_VERSION} "")
   message(STATUS "COINUTILS: " ${CoinUtils_VERSION} "")
   message(STATUS "OSI: " ${Osi_VERSION} "")
-
-  if(ALICEVISION_USE_INTERNAL_LEMON)
-    message(STATUS "LEMON: " ${LEMON_VERSION} " (internal)")
-  else()
-    message(STATUS "LEMON: " ${LEMON_VERSION} " (external)")
-  endif()
+  message(STATUS "LEMON: " ${LEMON_VERSION} "")
 endif()
 
 message("\n")
@@ -971,11 +980,6 @@ endif()
 
 # The aliceVision library itself
 add_subdirectory(aliceVision)
-
-# aliceVision tutorial examples
-if(ALICEVISION_BUILD_EXAMPLES AND ALICEVISION_BUILD_SFM)
-  add_subdirectory(samples)
-endif()
 
 # Complete software(s) build on aliceVision libraries
 if(ALICEVISION_BUILD_SOFTWARE)

@@ -34,6 +34,7 @@ using namespace aliceVision::camera;
 std::string toNuke(std::shared_ptr<Undistortion> undistortion, EINTRINSIC intrinsicType)
 {
     const std::vector<double>& params = undistortion->getParameters();
+    const auto& size = undistortion->getSize();
 
     std::stringstream ss;
 
@@ -54,6 +55,10 @@ std::string toNuke(std::shared_ptr<Undistortion> undistortion, EINTRINSIC intrin
            << " distortionNumeratorY11 " << params[7] << "\n"
            << " distortionNumeratorY20 " << params[9] << "\n"
            << " output Undistort" << "\n"
+           << " distortionScalingType Format" << "\n"
+           << " distortionScalingFormat \""
+           << size(0) << " " << size(1) << " 0 0 "
+           << size(0) << " " << size(1) << " 1 AV_undist_fmt \"" << "\n"
            << " distortionModelType \"Radial Asymmetric\"" << "\n"
            << " distortionOrder {2 0}" << "\n"
            << " normalisationType Diagonal" << "\n"
@@ -69,7 +74,7 @@ std::string toNuke(std::shared_ptr<Undistortion> undistortion, EINTRINSIC intrin
 }
 
 void toSTMap(image::Image<image::RGBAfColor>& stmap,
-             std::shared_ptr<camera::IntrinsicsScaleOffsetDisto> intrinsic,
+             std::shared_ptr<camera::IntrinsicScaleOffsetDisto> intrinsic,
              bool distort,
              const oiio::ROI& roi = oiio::ROI())
 {
@@ -140,7 +145,7 @@ int aliceVision_main(int argc, char* argv[])
     {
         ALICEVISION_LOG_INFO("Exporting distortion for intrinsic " << intrinsicId);
 
-        auto intrinsicDisto = std::dynamic_pointer_cast<IntrinsicsScaleOffsetDisto>(intrinsicPtr);
+        auto intrinsicDisto = std::dynamic_pointer_cast<IntrinsicScaleOffsetDisto>(intrinsicPtr);
         if (!intrinsicDisto) continue;
 
         auto undistortion = intrinsicDisto->getUndistortion();

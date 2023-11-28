@@ -88,7 +88,7 @@ int aliceVision_main(int argc, char* argv[])
               {
                   if(a == nullptr || b == nullptr)
                       return true;
-                  return (a->getImagePath() < b->getImagePath());
+                  return (a->getImage().getImagePath() < b->getImage().getImagePath());
               });
 
     // Define range to compute
@@ -120,12 +120,12 @@ int aliceVision_main(int argc, char* argv[])
         IndexT viewId = view->getViewId();
 
         //Load image and convert it to sRGB colorspace
-        std::string imagePath = view->getImagePath();
+        std::string imagePath = view->getImage().getImagePath();
         ALICEVISION_LOG_INFO("Load image with path " << imagePath);
         image::Image<image::RGBColor> source;
         image::readImage(imagePath, source, image::EImageColorSpace::SRGB);
 
-        double pixelRatio = view->getDoubleMetadata({"PixelAspectRatio"});
+        double pixelRatio = view->getImage().getDoubleMetadata({"PixelAspectRatio"});
         if (pixelRatio < 0.0)
         {
             pixelRatio = 1.0;
@@ -142,15 +142,8 @@ int aliceVision_main(int argc, char* argv[])
 
             ALICEVISION_LOG_DEBUG("Resize image with dimensions " << nw << "x" << nh);
 
-            image::Image<image::RGBColor> resizedInput(nw, nh);
-
-            const oiio::ImageSpec imageSpecResized(nw, nh, 3, oiio::TypeDesc::UCHAR);
-            const oiio::ImageSpec imageSpecOrigin(w, h, 3, oiio::TypeDesc::UCHAR);
-
-            const oiio::ImageBuf inBuf(imageSpecOrigin, source.data());
-            oiio::ImageBuf outBuf(imageSpecResized, resizedInput.data());
-
-            oiio::ImageBufAlgo::resize(outBuf, inBuf);
+            image::Image<image::RGBColor> resizedInput;
+            imageAlgo::resizeImage(nw, nh, source, resizedInput);
             source.swap(resizedInput);
         }
 

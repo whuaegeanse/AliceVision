@@ -54,10 +54,14 @@ RUN echo "export ALICEVISION_VOCTREE=${AV_INSTALL}/share/aliceVision/vlfeat_K80L
 COPY dl/sphereDetection_Mask-RCNN.onnx ${AV_INSTALL}/share/aliceVision/
 RUN echo "export ALICEVISION_SPHERE_DETECTION_MODEL=${AV_INSTALL}/share/aliceVision/sphereDetection_Mask-RCNN.onnx" > /etc/profile.d/alicevision.sh
 
+COPY dl/fcn_resnet50.onnx ${AV_INSTALL}/share/aliceVision/
+RUN echo "export ALICEVISION_SEMANTIC_SEGMENTATION_MODEL=${AV_INSTALL}/share/aliceVision/fcn_resnet50.onnx" > /etc/profile.d/alicevision.sh
+
 COPY docker/check-cpu.sh ${AV_DEV}/docker/check-cpu.sh
 RUN export CPU_CORES=`${AV_DEV}/docker/check-cpu.sh` && echo "Build multithreading number of cores: ${CPU_CORES}"
 
 COPY CMakeLists.txt ${AV_DEV}/
+COPY src/cmake/Dependencies.cmake ${AV_DEV}/src/cmake/
 
 COPY dl/deps ${AV_BUILD}/external/download/
 
@@ -101,4 +105,3 @@ RUN test -e /usr/local/cuda/lib64/libcublas.so || ln -s /usr/lib/x86_64-linux-gn
 RUN cmake --build . -j ${CPU_CORES} && \
     mv "${AV_INSTALL}/bin" "${AV_INSTALL}/bin-deps" && \
     rm -rf "${AV_BUILD}"
-

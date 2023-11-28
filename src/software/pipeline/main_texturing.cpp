@@ -55,7 +55,7 @@ int aliceVision_main(int argc, char* argv[])
     image::EImageColorSpace workingColorSpace = image::EImageColorSpace::SRGB;
     image::EImageColorSpace outputColorSpace = image::EImageColorSpace::AUTO;
     bool flipNormals = false;
-    bool correctEV = false;
+    bool correctEV = true;
 
     mesh::TexturingParams texParams;
     std::string unwrapMethod = mesh::EUnwrapMethod_enumToString(mesh::EUnwrapMethod::Basic);
@@ -144,6 +144,13 @@ int aliceVision_main(int argc, char* argv[])
     {
         return EXIT_FAILURE;
     }
+
+    // set maxThreads
+    HardwareContext hwc = cmdline.getHardwareContext();
+    omp_set_num_threads(hwc.getMaxThreads());
+    oiio::attribute("threads", std::min(4, static_cast<int>(hwc.getMaxThreads())));
+    oiio::attribute("exr_threads", std::min(4, static_cast<int>(hwc.getMaxThreads())));
+
     // set bump mapping file type
     bumpMappingParams.bumpMappingFileType = (bumpMappingParams.bumpType == mesh::EBumpMappingType::Normal) ? normalFileType : heightFileType;
 
@@ -196,12 +203,6 @@ int aliceVision_main(int argc, char* argv[])
         ALICEVISION_LOG_INFO("Unwrapping done.");
     }
 
-    // save final obj file
-    if(!inputMeshFilepath.empty())
-    {
-        mesh.saveAs(outputFolder, "texturedMesh", outputMeshFileType, texParams.textureFileType, bumpMappingParams);
-    }
-
     if(texParams.subdivisionTargetRatio > 0)
     {
         const bool remapVisibilities = false;
@@ -226,7 +227,7 @@ int aliceVision_main(int argc, char* argv[])
     if(!inputMeshFilepath.empty() && !sfmDataFilename.empty() && texParams.textureFileType != image::EImageFileType::NONE)
     {
         ALICEVISION_LOG_INFO("Generate textures.");
-        mesh.generateTextures(mp, outputFolder, texParams.textureFileType);
+        mesh.generateTextures(mp, outputFolder, hwc.getMaxMemory(), texParams.textureFileType);
     }
 
 
@@ -240,6 +241,12 @@ int aliceVision_main(int argc, char* argv[])
         denseMesh.load(inputRefMeshFilepath);
 
         mesh.generateNormalAndHeightMaps(mp, denseMesh, outputFolder, bumpMappingParams);
+    }
+
+    // save final obj file
+    if(!inputMeshFilepath.empty())
+    {
+        mesh.saveAs(outputFolder, "texturedMesh", outputMeshFileType);
     }
 
     ALICEVISION_LOG_INFO("Task done in (s): " + std::to_string(timer.elapsed()));

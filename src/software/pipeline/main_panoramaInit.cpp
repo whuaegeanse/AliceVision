@@ -1,3 +1,9 @@
+// This file is part of the AliceVision project.
+// Copyright (c) 2020 AliceVision contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public License,
+// v. 2.0. If a copy of the MPL was not distributed with this file,
+// You can obtain one at https://mozilla.org/MPL/2.0/.
+
 #include <aliceVision/image/all.hpp>
 #include <aliceVision/cmdline/cmdline.hpp>
 #include <aliceVision/system/Logger.hpp>
@@ -1019,10 +1025,10 @@ int main(int argc, char* argv[])
                 const Eigen::AngleAxis<double> Mroll(roll, Eigen::Vector3d::UnitZ());
                 const Eigen::AngleAxis<double> Mimage(additionalAngle - M_PI_2, Eigen::Vector3d::UnitZ());
 
-                const Eigen::Matrix3d cRo = Myaw.toRotationMatrix() * Mpitch.toRotationMatrix() *
+                const Eigen::Matrix3d oRc = Myaw.toRotationMatrix() * Mpitch.toRotationMatrix() *
                                             Mroll.toRotationMatrix() * Mimage.toRotationMatrix();
 
-                rotations[rank] = cRo.transpose();
+                rotations[rank] = oRc.transpose();
             }
 
             if(sfmData.getViews().size() != rotations.size())
@@ -1035,17 +1041,18 @@ int main(int argc, char* argv[])
         }
         else if(boost::algorithm::contains(initializeCameras, "horizontal"))
         {
-            constexpr double zenithPitch = -0.5 * boost::math::constants::pi<double>();
+            constexpr double zenithPitch = 0.5 * boost::math::constants::pi<double>();
             const Eigen::AngleAxis<double> zenithMpitch(zenithPitch, Eigen::Vector3d::UnitX());
             const Eigen::AngleAxis<double> zenithMroll(additionalAngle, Eigen::Vector3d::UnitZ());
-            const Eigen::Matrix3d zenithRo = zenithMpitch.toRotationMatrix() * zenithMroll.toRotationMatrix();
+            const Eigen::Matrix3d oRzenith = zenithMpitch.toRotationMatrix() * zenithMroll.toRotationMatrix();
 
             const bool withZenith = boost::algorithm::contains(initializeCameras, "zenith");
             if(initializeCameras == "zenith+horizontal")
             {
                 ALICEVISION_LOG_TRACE("Add zenith first");
-                rotations[rotations.size()] = zenithRo.transpose();
+                rotations[rotations.size()] = oRzenith.transpose();
             }
+
             const std::size_t nbHorizontalViews = sfmData.getViews().size() - int(withZenith);
             for(int x = 0; x < nbHorizontalViews; ++x)
             {
@@ -1060,15 +1067,15 @@ int main(int argc, char* argv[])
                 const Eigen::AngleAxis<double> Myaw(yaw, Eigen::Vector3d::UnitY());
                 const Eigen::AngleAxis<double> Mroll(additionalAngle, Eigen::Vector3d::UnitZ());
 
-                const Eigen::Matrix3d cRo = Myaw.toRotationMatrix() * Mroll.toRotationMatrix();
+                const Eigen::Matrix3d oRc = Myaw.toRotationMatrix() * Mroll.toRotationMatrix();
 
                 ALICEVISION_LOG_TRACE("Add rotation: yaw=" << yaw);
-                rotations[rotations.size()] = cRo.transpose();
+                rotations[rotations.size()] = oRc.transpose();
             }
             if(initializeCameras == "horizontal+zenith")
             {
                 ALICEVISION_LOG_TRACE("Add zenith");
-                rotations[rotations.size()] = zenithRo.transpose();
+                rotations[rotations.size()] = oRzenith.transpose();
             }
         }
         else if(initializeCameras == "spherical" || (initializeCameras.empty() && !nbViewsPerLineString.empty()))
@@ -1159,12 +1166,12 @@ int main(int argc, char* argv[])
                     const Eigen::AngleAxis<double> Mpitch(pitch, Eigen::Vector3d::UnitX());
                     const Eigen::AngleAxis<double> Mroll(roll + additionalAngle, Eigen::Vector3d::UnitZ());
 
-                    const Eigen::Matrix3d cRo =
+                    const Eigen::Matrix3d oRc =
                         Myaw.toRotationMatrix() * Mpitch.toRotationMatrix() * Mroll.toRotationMatrix();
 
                     ALICEVISION_LOG_TRACE("Add rotation: yaw=" << yaw << ", pitch=" << pitch << ", roll=" << roll
                                                                << ".");
-                    rotations[i++] = cRo.transpose();
+                    rotations[i++] = oRc.transpose();
                 }
             }
         }
@@ -1189,7 +1196,7 @@ int main(int argc, char* argv[])
             std::vector<std::pair<std::string, int>> namesWithRank;
             for(const auto& v : sfmData.getViews())
             {
-                boost::filesystem::path path_image(v.second->getImagePath());
+                boost::filesystem::path path_image(v.second->getImage().getImagePath());
                 namesWithRank.push_back(std::make_pair(path_image.stem().string(), v.first));
             }
             std::sort(namesWithRank.begin(), namesWithRank.end());
@@ -1207,10 +1214,10 @@ int main(int argc, char* argv[])
 
                         const sfmData::View& v = sfmData.getView(viewId);
 
-                        item.second.path = v.getImagePath();
-                        item.second.width = v.getWidth();
-                        item.second.height = v.getHeight();
-                        item.second.orientation = v.getMetadataOrientation();
+                        item.second.path = v.getImage().getImagePath();
+                        item.second.width = v.getImage().getWidth();
+                        item.second.height = v.getImage().getHeight();
+                        item.second.orientation = v.getImage().getMetadataOrientation();
                     }
                 }
 
@@ -1229,7 +1236,7 @@ int main(int argc, char* argv[])
                 IndexT viewIdx = namesWithRank[index].second;
                 const sfmData::View& v = sfmData.getView(viewIdx);
 
-                sfmData::EEXIFOrientation orientation = v.getMetadataOrientation();
+                sfmData::EEXIFOrientation orientation = v.getImage().getMetadataOrientation();
                 double orientationAngle = 0.;
                 switch (orientation)
                 {
@@ -1266,19 +1273,19 @@ int main(int argc, char* argv[])
         for(auto& intrinsic_pair : intrinsics)
         {
             std::shared_ptr<camera::IntrinsicBase>& intrinsic = intrinsic_pair.second;
-            std::shared_ptr<camera::IntrinsicsScaleOffset> intrinsicSO =
-                std::dynamic_pointer_cast<camera::IntrinsicsScaleOffset>(intrinsic);
-            std::shared_ptr<camera::EquiDistantRadialK3> equidistant =
-                std::dynamic_pointer_cast<camera::EquiDistantRadialK3>(intrinsic);
+            std::shared_ptr<camera::IntrinsicScaleOffset> intrinsicSO =
+                std::dynamic_pointer_cast<camera::IntrinsicScaleOffset>(intrinsic);
+            std::shared_ptr<camera::Equidistant> equidistant =
+                std::dynamic_pointer_cast<camera::Equidistant>(intrinsic);
 
             if(intrinsicSO != nullptr && equidistant == nullptr)
             {
                 ALICEVISION_LOG_INFO("Replace intrinsic " << intrinsic_pair.first << " of type "
                                                           << intrinsic->getTypeStr()
-                                                          << " to an EquiDistant camera model.");
-                // convert non-EquiDistant intrinsics to EquiDistant
-                std::shared_ptr<camera::EquiDistantRadialK3> newEquidistant =
-                    std::dynamic_pointer_cast<camera::EquiDistantRadialK3>(
+                                                          << " to an Equidistant camera model.");
+                // convert non-Equidistant intrinsics to Equidistant
+                std::shared_ptr<camera::Equidistant> newEquidistant =
+                    std::dynamic_pointer_cast<camera::Equidistant>(
                         camera::createIntrinsic(camera::EINTRINSIC::EQUIDISTANT_CAMERA_RADIAL3));
 
                 newEquidistant->copyFrom(*intrinsicSO);
@@ -1320,7 +1327,7 @@ int main(int argc, char* argv[])
                 {
                     // Read original image
                     image::Image<float> grayscale;
-                    image::readImage(v.second->getImagePath(), grayscale, image::EImageColorSpace::SRGB);
+                    image::readImage(v.second->getImage().getImagePath(), grayscale, image::EImageColorSpace::SRGB);
 
                     const bool res = detector.appendImage(grayscale);
                     if(!res)
@@ -1355,14 +1362,14 @@ int main(int argc, char* argv[])
         for(const auto& intrinsic_pair : intrinsics)
         {
             std::shared_ptr<camera::IntrinsicBase> intrinsic = intrinsic_pair.second;
-            std::shared_ptr<camera::EquiDistant> equidistant =
-                std::dynamic_pointer_cast<camera::EquiDistant>(intrinsic);
+            std::shared_ptr<camera::Equidistant> equidistant =
+                std::dynamic_pointer_cast<camera::Equidistant>(intrinsic);
             if(!equidistant)
             {
                 // skip non equidistant cameras
                 continue;
             }
-            ALICEVISION_LOG_INFO("Update EquiDistant camera intrinsic " << intrinsic_pair.first
+            ALICEVISION_LOG_INFO("Update Equidistant camera intrinsic " << intrinsic_pair.first
                                                                         << " with center and offset.");
 
             equidistant->setCircleCenterX(double(equidistant->w()) / 2.0 + fisheyeCenterOffset(0));
