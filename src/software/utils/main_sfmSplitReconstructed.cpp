@@ -33,31 +33,36 @@ int aliceVision_main(int argc, char** argv)
     std::string outRSfMDataFilename;
     std::string outNRSfMDataFilename;
 
+    // clang-format off
     po::options_description requiredParams("Required parameters");
     requiredParams.add_options()
-        ("input,i", po::value<std::string>(&sfmDataFilename)->required(), "SfMData file to align.")
-        ("reconstructedOutput", po::value<std::string>(&outRSfMDataFilename)->required(), "Output SfMData scene.")
-        ("notReconstructedOutput", po::value<std::string>(&outNRSfMDataFilename)->required(), "Output SfMData scene.");
+        ("input,i", po::value<std::string>(&sfmDataFilename)->required(),
+         "SfMData file to align.")
+        ("reconstructedOutput", po::value<std::string>(&outRSfMDataFilename)->required(),
+         "Output SfMData scene.")
+        ("notReconstructedOutput", po::value<std::string>(&outNRSfMDataFilename)->required(),
+         "Output SfMData scene.");
+    // clang-format on
 
-    CmdLine cmdline("AliceVision sfmTransform");
+    CmdLine cmdline("AliceVision sfmSplitReconstructed");
     cmdline.add(requiredParams);
-    if(!cmdline.execute(argc, argv))
+    if (!cmdline.execute(argc, argv))
     {
         return EXIT_FAILURE;
     }
 
     // Load input scene
     sfmData::SfMData sfmData;
-    if(!sfmDataIO::Load(sfmData, sfmDataFilename, sfmDataIO::ESfMData::ALL))
+    if (!sfmDataIO::load(sfmData, sfmDataFilename, sfmDataIO::ESfMData::ALL))
     {
         ALICEVISION_LOG_ERROR("The input SfMData file '" << sfmDataFilename << "' cannot be read");
         return EXIT_FAILURE;
     }
 
-    //Create reconstructed only sfmData
+    // Create reconstructed only sfmData
     {
         sfmData::SfMData outReconstructed = sfmData;
-        auto & views = outReconstructed.getViews();
+        auto& views = outReconstructed.getViews();
 
         auto it = views.begin();
         while (it != views.end())
@@ -72,20 +77,20 @@ int aliceVision_main(int argc, char** argv)
         }
 
         // Export the SfMData scene in the expected format
-        if(!sfmDataIO::Save(outReconstructed, outRSfMDataFilename, sfmDataIO::ESfMData::ALL))
+        if (!sfmDataIO::save(outReconstructed, outRSfMDataFilename, sfmDataIO::ESfMData::ALL))
         {
             ALICEVISION_LOG_ERROR("An error occurred while trying to save '" << outRSfMDataFilename << "'");
             return EXIT_FAILURE;
         }
     }
 
-    //Create non reconstructed only sfmData
+    // Create non reconstructed only sfmData
     {
         sfmData::SfMData outNonReconstructed = sfmData;
         outNonReconstructed.getConstraints2D().clear();
         outNonReconstructed.getRotationPriors().clear();
         outNonReconstructed.getLandmarks().clear();
-        auto & views = outNonReconstructed.getViews();
+        auto& views = outNonReconstructed.getViews();
 
         auto it = views.begin();
         while (it != views.end())
@@ -99,9 +104,8 @@ int aliceVision_main(int argc, char** argv)
             it = views.erase(it);
         }
 
-
         // Export the SfMData scene in the expected format
-        if(!sfmDataIO::Save(outNonReconstructed, outNRSfMDataFilename, sfmDataIO::ESfMData::ALL))
+        if (!sfmDataIO::save(outNonReconstructed, outNRSfMDataFilename, sfmDataIO::ESfMData::ALL))
         {
             ALICEVISION_LOG_ERROR("An error occurred while trying to save '" << outNRSfMDataFilename << "'");
             return EXIT_FAILURE;

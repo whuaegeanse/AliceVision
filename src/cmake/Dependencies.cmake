@@ -104,8 +104,8 @@ if(AV_BUILD_ZLIB)
     set(ZLIB_TARGET zlib)
 
     ExternalProject_Add(${ZLIB_TARGET}
-        URL http://www.zlib.net/zlib-1.3.tar.gz
-        URL_HASH SHA256=ff0ba4c292013dbc27530b3a81e1f9a813cd39de01ca5e0f8bf355702efa593e
+        URL https://www.zlib.net/zlib-1.3.1.tar.gz
+        URL_HASH SHA256=9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23
         DOWNLOAD_DIR ${BUILD_DIR}/download/zlib
         PREFIX ${BUILD_DIR}
         BUILD_IN_SOURCE 0
@@ -618,7 +618,7 @@ if(AV_BUILD_BOOST)
         INSTALL_DIR ${CMAKE_INSTALL_PREFIX}
         CONFIGURE_COMMAND 
             cd <SOURCE_DIR> && 
-            ./bootstrap.${SCRIPT_EXTENSION} --prefix=<INSTALL_DIR> --with-libraries=atomic,container,date_time,exception,filesystem,graph,iostreams,json,log,math,program_options,regex,serialization,system,test,thread,stacktrace,timer
+            ./bootstrap.${SCRIPT_EXTENSION} --prefix=<INSTALL_DIR> --with-libraries=atomic,container,date_time,exception,graph,iostreams,json,log,math,program_options,regex,serialization,system,test,thread,stacktrace,timer
         BUILD_COMMAND 
             cd <SOURCE_DIR> && 
             ./b2 --prefix=<INSTALL_DIR> variant=${DEPS_CMAKE_BUILD_TYPE_LOWERCASE} cxxstd=11 link=shared threading=multi -j8
@@ -1170,8 +1170,8 @@ if(AV_BUILD_SUITESPARSE)
     endif()
 
     ExternalProject_Add(${SUITESPARSE_TARGET}
-        URL https://github.com/DrTimothyAldenDavis/SuiteSparse/archive/v7.0.1.tar.gz
-        URL_HASH MD5=d31bbe2a26dced338b23e71f7c9b541a
+        URL https://github.com/DrTimothyAldenDavis/SuiteSparse/archive/v7.3.0.tar.gz
+        URL_HASH MD5=6ff86003a85d73eb383d82db04af7373
         DOWNLOAD_DIR ${BUILD_DIR}/download/suitesparse
         PREFIX ${BUILD_DIR}
         BUILD_IN_SOURCE 0
@@ -1195,7 +1195,7 @@ if(AV_BUILD_CERES)
 
     ExternalProject_Add(${CERES_TARGET}
         GIT_REPOSITORY https://github.com/ceres-solver/ceres-solver
-        GIT_TAG a3a062d72cc8c0f5f1f09b36d8b7c1ea3bef4d73  # 2022/12/19
+        GIT_TAG 2.2.0
         PREFIX ${BUILD_DIR}
         BUILD_IN_SOURCE 0
         BUILD_ALWAYS 0

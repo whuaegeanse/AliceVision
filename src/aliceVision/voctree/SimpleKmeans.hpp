@@ -32,12 +32,8 @@ namespace voctree {
  */
 struct InitRandom
 {
-    template<class Feature, class Distance, class FeatureAllocator>
-    void operator()(const std::vector<Feature*>& features,
-                    size_t k,
-                    std::vector<Feature, FeatureAllocator>& centers,
-                    Distance distance,
-                    const int verbose = 0)
+    template<class Feature, class Distance>
+    void operator()(const std::vector<Feature*>& features, size_t k, std::vector<Feature>& centers, Distance distance, const int verbose = 0)
     {
         ALICEVISION_LOG_DEBUG("#\t\tRandom initialization");
         // Construct a random permutation of the features using a Fisher-Yates shuffle
@@ -63,12 +59,8 @@ struct InitRandom
  */
 struct InitKmeanspp
 {
-    template<class Feature, class Distance, class FeatureAllocator>
-    void operator()(const std::vector<Feature*>& features,
-                    size_t k,
-                    std::vector<Feature, FeatureAllocator>& centers,
-                    Distance distance,
-                    const int verbose = 0)
+    template<class Feature, class Distance>
+    void operator()(const std::vector<Feature*>& features, size_t k, std::vector<Feature>& centers, Distance distance, const int verbose = 0)
     {
         typedef typename Distance::result_type squared_distance_type;
 
@@ -218,12 +210,8 @@ struct InitKmeanspp
  */
 struct InitGiven
 {
-    template<class Feature, class Distance, class FeatureAllocator>
-    void operator()(const std::vector<Feature*>& features,
-                    std::size_t k,
-                    std::vector<Feature, FeatureAllocator>& centers,
-                    Distance distance,
-                    const int verbose = 0)
+    template<class Feature, class Distance>
+    void operator()(const std::vector<Feature*>& features, std::size_t k, std::vector<Feature>& centers, Distance distance, const int verbose = 0)
     {
         // Do nothing!
     }
@@ -235,8 +223,8 @@ inline void printFeat(const Feature& f)
     ALICEVISION_LOG_DEBUG(f);
 }
 
-template<class Feature, class FeatureAllocator = typename DefaultAllocator<Feature>::type>
-void printFeatVector(const std::vector<Feature, FeatureAllocator>& f)
+template<class Feature>
+void printFeatVector(const std::vector<Feature>& f)
 {
     for (std::size_t j = 0; j < f.size(); ++j)
     {
@@ -279,8 +267,8 @@ bool checkElements(const Feature& f, const char* str)
  * @return true if everything is ok
  * @see checkElements( const Feature &f, const char* str )
  */
-template<class Feature, class FeatureAllocator = typename DefaultAllocator<Feature>::type>
-bool checkVectorElements(const std::vector<Feature, FeatureAllocator>& f, const char* str)
+template<class Feature>
+bool checkVectorElements(const std::vector<Feature>& f, const char* str)
 {
     bool correct = true;
     for (std::size_t i = 0; i < f.size(); ++i)
@@ -296,21 +284,18 @@ bool checkVectorElements(const std::vector<Feature, FeatureAllocator>& f, const 
  *
  * The standard Lloyd's algorithm is used. By default, cluster centers are initialized randomly.
  */
-template<class Feature, class Distance = L2<Feature, Feature>, class FeatureAllocator = typename DefaultAllocator<Feature>::type>
+template<class Feature, class Distance = L2<Feature, Feature>>
 class SimpleKmeans
 {
   public:
     typedef typename Distance::result_type squared_distance_type;
-    typedef boost::function<void(const std::vector<Feature*>&, std::size_t, std::vector<Feature, FeatureAllocator>&, Distance, const int verbose)>
-      Initializer;
+    typedef boost::function<void(const std::vector<Feature*>&, std::size_t, std::vector<Feature>&, Distance, const int verbose)> Initializer;
 
     /**
      * @brief Constructor
      *
      * @param zero Object representing zero in the feature space
      * @param d    Functor for calculating squared distance
-     *
-     * @todo FeatureAllocator parameter
      */
     SimpleKmeans(const Feature& zero = Feature(), Distance d = Distance(), const int verbose = 0);
 
@@ -338,9 +323,9 @@ class SimpleKmeans
      * @param[out] centers    A set of k cluster centers.
      * @param[out] membership Cluster assignment for each feature
      */
-    squared_distance_type cluster(const std::vector<Feature, FeatureAllocator>& features,
+    squared_distance_type cluster(const std::vector<Feature>& features,
                                   std::size_t k,
-                                  std::vector<Feature, FeatureAllocator>& centers,
+                                  std::vector<Feature>& centers,
                                   std::vector<unsigned int>& membership) const;
 
     /**
@@ -356,13 +341,13 @@ class SimpleKmeans
      */
     squared_distance_type clusterPointers(const std::vector<Feature*>& features,
                                           std::size_t k,
-                                          std::vector<Feature, FeatureAllocator>& centers,
+                                          std::vector<Feature>& centers,
                                           std::vector<unsigned int>& membership) const;
 
   private:
     squared_distance_type clusterOnce(const std::vector<Feature*>& features,
                                       std::size_t k,
-                                      std::vector<Feature, FeatureAllocator>& centers,
+                                      std::vector<Feature>& centers,
                                       std::vector<unsigned int>& membership) const;
 
     Feature zero_;
@@ -373,8 +358,8 @@ class SimpleKmeans
     int verbose_;
 };
 
-template<class Feature, class Distance, class FeatureAllocator>
-SimpleKmeans<Feature, Distance, FeatureAllocator>::SimpleKmeans(const Feature& zero, Distance d, const int verbose)
+template<class Feature, class Distance>
+SimpleKmeans<Feature, Distance>::SimpleKmeans(const Feature& zero, Distance d, const int verbose)
   : zero_(zero),
     distance_(d),
     //    choose_centers_( InitRandom( ) ),
@@ -384,12 +369,11 @@ SimpleKmeans<Feature, Distance, FeatureAllocator>::SimpleKmeans(const Feature& z
     restarts_(1)
 {}
 
-template<class Feature, class Distance, class FeatureAllocator>
-typename SimpleKmeans<Feature, Distance, FeatureAllocator>::squared_distance_type SimpleKmeans<Feature, Distance, FeatureAllocator>::cluster(
-  const std::vector<Feature, FeatureAllocator>& features,
-  size_t k,
-  std::vector<Feature, FeatureAllocator>& centers,
-  std::vector<unsigned int>& membership) const
+template<class Feature, class Distance>
+typename SimpleKmeans<Feature, Distance>::squared_distance_type SimpleKmeans<Feature, Distance>::cluster(const std::vector<Feature>& features,
+                                                                                                         size_t k,
+                                                                                                         std::vector<Feature>& centers,
+                                                                                                         std::vector<unsigned int>& membership) const
 {
     std::vector<Feature*> feature_ptrs;
     feature_ptrs.reserve(features.size());
@@ -398,14 +382,14 @@ typename SimpleKmeans<Feature, Distance, FeatureAllocator>::squared_distance_typ
     return clusterPointers(feature_ptrs, k, centers, membership);
 }
 
-template<class Feature, class Distance, class FeatureAllocator>
-typename SimpleKmeans<Feature, Distance, FeatureAllocator>::squared_distance_type SimpleKmeans<Feature, Distance, FeatureAllocator>::clusterPointers(
+template<class Feature, class Distance>
+typename SimpleKmeans<Feature, Distance>::squared_distance_type SimpleKmeans<Feature, Distance>::clusterPointers(
   const std::vector<Feature*>& features,
   size_t k,
-  std::vector<Feature, FeatureAllocator>& centers,
+  std::vector<Feature>& centers,
   std::vector<unsigned int>& membership) const
 {
-    std::vector<Feature, FeatureAllocator> new_centers(centers);
+    std::vector<Feature> new_centers(centers);
     new_centers.resize(k);
     std::vector<unsigned int> new_membership(features.size());
 
@@ -432,18 +416,18 @@ typename SimpleKmeans<Feature, Distance, FeatureAllocator>::squared_distance_typ
     return least_sse;
 }
 
-template<class Feature, class Distance, class FeatureAllocator>
-typename SimpleKmeans<Feature, Distance, FeatureAllocator>::squared_distance_type SimpleKmeans<Feature, Distance, FeatureAllocator>::clusterOnce(
+template<class Feature, class Distance>
+typename SimpleKmeans<Feature, Distance>::squared_distance_type SimpleKmeans<Feature, Distance>::clusterOnce(
   const std::vector<Feature*>& features,
   std::size_t k,
-  std::vector<Feature, FeatureAllocator>& centers,
+  std::vector<Feature>& centers,
   std::vector<unsigned int>& membership) const
 {
-    typedef typename std::vector<Feature, FeatureAllocator>::value_type centerType;
+    typedef typename std::vector<Feature>::value_type centerType;
     typedef typename Distance::value_type feature_value_type;
 
     std::vector<std::size_t> new_center_counts(k);
-    std::vector<Feature, FeatureAllocator> new_centers(k);
+    std::vector<Feature> new_centers(k);
     std::vector<std::mutex> centersLocks(k);
     squared_distance_type max_center_shift = std::numeric_limits<squared_distance_type>::max();
 

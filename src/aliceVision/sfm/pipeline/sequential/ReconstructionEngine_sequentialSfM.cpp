@@ -376,7 +376,7 @@ void ReconstructionEngine_sequentialSfM::registerChanges(std::set<IndexT>& linke
 
             // Check that this view is a registered observation of this landmark (confirmed track)
             const Landmark& l = landmarks.at(idTrack);
-            if (l.observations.find(id) == l.observations.end())
+            if (l.getObservations().find(id) == l.getObservations().end())
             {
                 continue;
             }
@@ -424,8 +424,8 @@ void ReconstructionEngine_sequentialSfM::remapLandmarkIdsToTrackIds()
     for (const auto& landmarkPair : landmarks)
     {
         const IndexT landmarkId = landmarkPair.first;
-        const IndexT firstViewId = landmarkPair.second.observations.begin()->first;
-        const IndexT firstFeatureId = landmarkPair.second.observations.begin()->second.id_feat;
+        const IndexT firstViewId = landmarkPair.second.getObservations().begin()->first;
+        const IndexT firstFeatureId = landmarkPair.second.getObservations().begin()->second.getFeatureId();
         const feature::EImageDescriberType descType = landmarkPair.second.descType;
 
         obsToLandmark.emplace(ObsKey(firstViewId, firstFeatureId, descType), landmarkId);
@@ -586,7 +586,7 @@ double ReconstructionEngine_sequentialSfM::incrementalReconstruction()
                 auto chrono_start = std::chrono::steady_clock::now();
                 std::ostringstream os;
                 os << "sfm_" << std::setw(8) << std::setfill('0') << _resectionId;
-                sfmDataIO::Save(_sfmData, (fs::path(_sfmStepFolder) / (os.str() + _params.sfmStepFileExtension)).string(), _params.sfmStepFilter);
+                sfmDataIO::save(_sfmData, (fs::path(_sfmStepFolder) / (os.str() + _params.sfmStepFileExtension)).string(), _params.sfmStepFilter);
                 ALICEVISION_LOG_DEBUG(
                   "Save of file " << os.str() << " took "
                                   << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - chrono_start).count()
@@ -722,9 +722,9 @@ void ReconstructionEngine_sequentialSfM::triangulate(const std::set<IndexT>& pre
 
     // allow to use to the old triangulatation algorithm (using 2 views only)
     if (_params.minNbObservationsForTriangulation == 0)
-        triangulate_2Views(_sfmData, prevReconstructedViews, newReconstructedViews);
+        triangulate2Views(_sfmData, prevReconstructedViews, newReconstructedViews);
     else
-        triangulate_multiViewsLORANSAC(_sfmData, prevReconstructedViews, newReconstructedViews);
+        triangulateMultiViewsLORANSAC(_sfmData, prevReconstructedViews, newReconstructedViews);
 
     ALICEVISION_LOG_DEBUG(
       "Triangulation of the " << newReconstructedViews.size() << " newly reconstructed views took "
@@ -773,8 +773,8 @@ bool ReconstructionEngine_sequentialSfM::bundleAdjustment(std::set<IndexT>& newR
         // use the graph-distances to assign a state (Refine, Constant & Ignore) for each parameter (poses, intrinsics & landmarks)
         _localStrategyGraph->convertDistancesToStates(_sfmData);
 
-        const std::size_t nbRefinedPoses = _localStrategyGraph->getNbPosesPerState(BundleAdjustment::EParameterState::REFINED);
-        const std::size_t nbConstantPoses = _localStrategyGraph->getNbPosesPerState(BundleAdjustment::EParameterState::CONSTANT);
+        const std::size_t nbRefinedPoses = _localStrategyGraph->getNbPosesPerState(EEstimatorParameterState::REFINED);
+        const std::size_t nbConstantPoses = _localStrategyGraph->getNbPosesPerState(EEstimatorParameterState::CONSTANT);
 
         // restore the Dense linear solver type if the number of cameras in the solver is <= 20
         if (nbRefinedPoses + nbConstantPoses <= 20)
@@ -795,8 +795,10 @@ bool ReconstructionEngine_sequentialSfM::bundleAdjustment(std::set<IndexT>& newR
     BundleAdjustmentCeres BA(options, _params.minNbCamerasToRefinePrincipalPoint);
 
     // give the local strategy graph is local strategy is enable
-    if (enableLocalStrategy)
-        BA.useLocalStrategyGraph(_localStrategyGraph);
+    if (!enableLocalStrategy)
+    {
+        _sfmData.resetParameterStates();
+    }
 
     // perform BA until all point are under the given precision
     do
@@ -951,7 +953,7 @@ void ReconstructionEngine_sequentialSfM::exportStatistics(double reconstructionT
         std::map<std::size_t, std::size_t> obsHistogram;
         for (const auto& iterTracks : _sfmData.getLandmarks())
         {
-            const Observations& obs = iterTracks.second.observations;
+            const Observations& obs = iterTracks.second.getObservations();
             if (obsHistogram.count(obs.size()))
                 obsHistogram[obs.size()]++;
             else
@@ -1253,7 +1255,7 @@ bool ReconstructionEngine_sequentialSfM::makeInitialPair3D(const Pair& currentPa
         // triangulate
         const std::set<IndexT> prevImageIndex = {static_cast<IndexT>(I)};
         const std::set<IndexT> newImageIndex = {static_cast<IndexT>(J)};
-        triangulate_2Views(_sfmData, prevImageIndex, newImageIndex);
+        triangulate2Views(_sfmData, prevImageIndex, newImageIndex);
 
         // refine only structure & rotations & translations (keep intrinsic constant)
         {
@@ -1450,8 +1452,10 @@ bool ReconstructionEngine_sequentialSfM::getBestInitialImagePairs(std::vector<Pa
                 multiview::TriangulateDLT(PI, xI.col(inlier_idx), PJ, xJ.col(inlier_idx), X);
                 IndexT trackId = commonTracksIds[inlier_idx];
                 auto iter = map_tracksCommon[trackId].featPerView.begin();
-                const Vec2 featI = _featuresPerView->getFeatures(I, map_tracksCommon[trackId].descType)[iter->second.featureId].coords().cast<double>();
-                const Vec2 featJ = _featuresPerView->getFeatures(J, map_tracksCommon[trackId].descType)[(++iter)->second.featureId].coords().cast<double>();
+                const Vec2 featI =
+                  _featuresPerView->getFeatures(I, map_tracksCommon[trackId].descType)[iter->second.featureId].coords().cast<double>();
+                const Vec2 featJ =
+                  _featuresPerView->getFeatures(J, map_tracksCommon[trackId].descType)[(++iter)->second.featureId].coords().cast<double>();
                 vec_angles[i] = angleBetweenRays(pose_I, camI, pose_J, camJ, featI, featJ);
                 validCommonTracksIds[i] = trackId;
                 ++i;
@@ -1572,7 +1576,7 @@ bool ReconstructionEngine_sequentialSfM::computeResection(const IndexT viewId, R
 
     // B. Look if intrinsic data is known or not
     std::shared_ptr<View> view_I = _sfmData.getViews().at(viewId);
-    std::shared_ptr<camera::IntrinsicBase> intrinsics = _sfmData.getIntrinsicsharedPtr(view_I->getIntrinsicId());
+    std::shared_ptr<camera::IntrinsicBase> intrinsics = _sfmData.getIntrinsicSharedPtr(view_I->getIntrinsicId());
     if (intrinsics == nullptr)
     {
         throw std::runtime_error("Intrinsic " + std::to_string(view_I->getIntrinsicId()) +
@@ -1593,7 +1597,7 @@ bool ReconstructionEngine_sequentialSfM::computeResection(const IndexT viewId, R
     // C. Do the resectioning: compute the camera pose.
     ALICEVISION_LOG_INFO("[" << _sfmData.getValidViews().size() + 1 << "/" << _sfmData.getViews().size() << "] Robust Resection of view: " << viewId);
 
-    const bool bResection = sfm::SfMLocalizer::Localize(Pair(view_I->getImage().getWidth(), view_I->getImage().getHeight()),
+    const bool bResection = sfm::SfMLocalizer::localize(Pair(view_I->getImage().getWidth(), view_I->getImage().getHeight()),
                                                         intrinsics.get(),
                                                         _randomNumberGenerator,
                                                         resectionData,
@@ -1632,7 +1636,7 @@ bool ReconstructionEngine_sequentialSfM::computeResection(const IndexT viewId, R
         // If we use a camera intrinsic for the first time we need to refine it.
         const bool intrinsicsFirstUsage = (reconstructedIntrinsics.count(view_I->getIntrinsicId()) == 0);
 
-        if (!sfm::SfMLocalizer::RefinePose(intrinsics.get(), resectionData.pose, resectionData, true, intrinsicsFirstUsage))
+        if (!sfm::SfMLocalizer::refinePose(intrinsics.get(), resectionData.pose, resectionData, true, intrinsicsFirstUsage))
         {
             ALICEVISION_LOG_INFO("Resection of view " << viewId << " failed during pose refinement.");
             return false;
@@ -1651,7 +1655,7 @@ void ReconstructionEngine_sequentialSfM::updateScene(const IndexT viewIndex, con
     const View& view = *_sfmData.getViews().at(viewIndex);
     _sfmData.setPose(view, CameraPose(resectionData.pose));
 
-    std::shared_ptr<camera::IntrinsicBase> intrinsics = _sfmData.getIntrinsicsharedPtr(view.getIntrinsicId());
+    std::shared_ptr<camera::IntrinsicBase> intrinsics = _sfmData.getIntrinsicSharedPtr(view.getIntrinsicId());
 
     // B. Update the observations into the global scene structure
     // - Add the new 2D observations to the reconstructed tracks
@@ -1669,7 +1673,7 @@ void ReconstructionEngine_sequentialSfM::updateScene(const IndexT viewIndex, con
                                    ? 0.0
                                    : _featuresPerView->getFeatures(viewIndex, landmark.descType)[idFeat].scale();
             // Inlier, add the point to the reconstructed track
-            landmark.observations[viewIndex] = Observation(x, idFeat, scale);
+            landmark.getObservations()[viewIndex] = Observation(x, idFeat, scale);
         }
     }
 }
@@ -1773,7 +1777,7 @@ ObservationData getObservationData(const SfMData& scene, feature::FeaturesPerVie
 
     if (!camPinHole)
     {
-        ALICEVISION_LOG_ERROR("Camera is not pinhole in triangulate_multiViewsLORANSAC");
+        ALICEVISION_LOG_ERROR("Camera is not pinhole in triangulateMultiViewsLORANSAC");
         return {nullptr, {}, {}, {}, {}};
     }
 
@@ -1789,9 +1793,9 @@ ObservationData getObservationData(const SfMData& scene, feature::FeaturesPerVie
 
 }  // namespace
 
-void ReconstructionEngine_sequentialSfM::triangulate_multiViewsLORANSAC(SfMData& scene,
-                                                                        const std::set<IndexT>& previousReconstructedViews,
-                                                                        const std::set<IndexT>& newReconstructedViews)
+void ReconstructionEngine_sequentialSfM::triangulateMultiViewsLORANSAC(SfMData& scene,
+                                                                       const std::set<IndexT>& previousReconstructedViews,
+                                                                       const std::set<IndexT>& newReconstructedViews)
 {
     ALICEVISION_LOG_DEBUG("Triangulating (mode: multi-view LO-RANSAC)... ");
 
@@ -1918,7 +1922,7 @@ void ReconstructionEngine_sequentialSfM::triangulate_multiViewsLORANSAC(SfMData&
                 const Vec2 x = _featuresPerView->getFeatures(viewId, track.descType)[track.featPerView.at(viewId).featureId].coords().cast<double>();
                 const feature::PointFeature& p = _featuresPerView->getFeatures(viewId, track.descType)[track.featPerView.at(viewId).featureId];
                 const double scale = (_params.featureConstraint == EFeatureConstraint::BASIC) ? 0.0 : p.scale();
-                landmark.observations[viewId] = Observation(x, track.featPerView.at(viewId).featureId, scale);
+                landmark.getObservations()[viewId] = Observation(x, track.featPerView.at(viewId).featureId, scale);
             }
 #pragma omp critical
             {
@@ -1936,9 +1940,9 @@ void ReconstructionEngine_sequentialSfM::triangulate_multiViewsLORANSAC(SfMData&
     }  // for all shared tracks
 }
 
-void ReconstructionEngine_sequentialSfM::triangulate_2Views(SfMData& scene,
-                                                            const std::set<IndexT>& previousReconstructedViews,
-                                                            const std::set<IndexT>& newReconstructedViews)
+void ReconstructionEngine_sequentialSfM::triangulate2Views(SfMData& scene,
+                                                           const std::set<IndexT>& previousReconstructedViews,
+                                                           const std::set<IndexT>& newReconstructedViews)
 {
     {
         std::vector<IndexT> intersection;
@@ -1982,7 +1986,7 @@ void ReconstructionEngine_sequentialSfM::triangulate_2Views(SfMData& scene,
             std::shared_ptr<camera::Pinhole> camIPinHole = std::dynamic_pointer_cast<camera::Pinhole>(camI);
             if (!camIPinHole)
             {
-                ALICEVISION_LOG_ERROR("Camera is not pinhole in triangulate_multiViewsLORANSAC");
+                ALICEVISION_LOG_ERROR("Camera is not pinhole in triangulateMultiViewsLORANSAC");
                 continue;
             }
 
@@ -1990,7 +1994,7 @@ void ReconstructionEngine_sequentialSfM::triangulate_2Views(SfMData& scene,
             std::shared_ptr<camera::Pinhole> camJPinHole = std::dynamic_pointer_cast<camera::Pinhole>(camJ);
             if (!camJPinHole)
             {
-                ALICEVISION_LOG_ERROR("Camera is not pinhole in triangulate_multiViewsLORANSAC");
+                ALICEVISION_LOG_ERROR("Camera is not pinhole in triangulateMultiViewsLORANSAC");
                 continue;
             }
 
@@ -2020,7 +2024,7 @@ void ReconstructionEngine_sequentialSfM::triangulate_2Views(SfMData& scene,
 #pragma omp critical
                     {
                         Landmark& landmark = scene.getLandmarks().at(trackId);
-                        if (landmark.observations.count(I) == 0)
+                        if (landmark.getObservations().count(I) == 0)
                         {
                             const Vec2 residual = camI->residual(poseI, landmark.X.homogeneous(), xI);
                             // TODO: scale in residual
@@ -2030,11 +2034,11 @@ void ReconstructionEngine_sequentialSfM::triangulate_2Views(SfMData& scene,
                             if (poseI.depth(landmark.X) > 0 && residual.norm() < std::max(4.0, acThreshold))
                             {
                                 const double scale = (_params.featureConstraint == EFeatureConstraint::BASIC) ? 0.0 : featI.scale();
-                                landmark.observations[I] = Observation(xI, track.featPerView.at(I).featureId, scale);
+                                landmark.getObservations()[I] = Observation(xI, track.featPerView.at(I).featureId, scale);
                                 ++extented_track;
                             }
                         }
-                        if (landmark.observations.count(J) == 0)
+                        if (landmark.getObservations().count(J) == 0)
                         {
                             const Vec2 residual = camJ->residual(poseJ, landmark.X.homogeneous(), xJ);
                             const auto& acThresholdIt = _map_ACThreshold.find(J);
@@ -2043,7 +2047,7 @@ void ReconstructionEngine_sequentialSfM::triangulate_2Views(SfMData& scene,
                             if (poseJ.depth(landmark.X) > 0 && residual.norm() < std::max(4.0, acThreshold))
                             {
                                 const double scale = (_params.featureConstraint == EFeatureConstraint::BASIC) ? 0.0 : featJ.scale();
-                                landmark.observations[J] = Observation(xJ, track.featPerView.at(J).featureId, scale);
+                                landmark.getObservations()[J] = Observation(xJ, track.featPerView.at(J).featureId, scale);
                                 ++extented_track;
                             }
                         }
@@ -2093,8 +2097,8 @@ void ReconstructionEngine_sequentialSfM::triangulate_2Views(SfMData& scene,
 
                             const double scaleI = (_params.featureConstraint == EFeatureConstraint::BASIC) ? 0.0 : featI.scale();
                             const double scaleJ = (_params.featureConstraint == EFeatureConstraint::BASIC) ? 0.0 : featJ.scale();
-                            landmark.observations[I] = Observation(xI, track.featPerView.at(I).featureId, scaleI);
-                            landmark.observations[J] = Observation(xJ, track.featPerView.at(J).featureId, scaleJ);
+                            landmark.getObservations()[I] = Observation(xI, track.featPerView.at(I).featureId, scaleI);
+                            landmark.getObservations()[J] = Observation(xJ, track.featPerView.at(J).featureId, scaleJ);
 
                             ++new_added_track;
                         }  // critical
@@ -2116,8 +2120,9 @@ void ReconstructionEngine_sequentialSfM::triangulate_2Views(SfMData& scene,
 
 std::size_t ReconstructionEngine_sequentialSfM::removeOutliers()
 {
-    const std::size_t nbOutliersResidualErr = RemoveOutliers_PixelResidualError(_sfmData, _params.featureConstraint, _params.maxReprojectionError, 2);
-    const std::size_t nbOutliersAngleErr = RemoveOutliers_AngleError(_sfmData, _params.minAngleForLandmark);
+    const std::size_t nbOutliersResidualErr =
+      removeOutliersWithPixelResidualError(_sfmData, _params.featureConstraint, _params.maxReprojectionError, 2);
+    const std::size_t nbOutliersAngleErr = removeOutliersWithAngleError(_sfmData, _params.minAngleForLandmark);
 
     ALICEVISION_LOG_INFO("Remove outliers: " << std::endl
                                              << "\t- # outliers residual error: " << nbOutliersResidualErr << std::endl

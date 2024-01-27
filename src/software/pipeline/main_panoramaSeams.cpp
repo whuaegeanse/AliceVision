@@ -4,7 +4,6 @@
 // v. 2.0. If a copy of the MPL was not distributed with this file,
 // You can obtain one at https://mozilla.org/MPL/2.0/.
 
-
 #include <aliceVision/panorama/seams.hpp>
 
 // Input and geometry
@@ -25,11 +24,11 @@
 #include <aliceVision/system/main.hpp>
 
 // IO
+#include <filesystem>
 #include <fstream>
 #include <algorithm>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
-#include <boost/filesystem.hpp>
 #include <regex>
 
 // These constants define the current software version.
@@ -41,9 +40,13 @@ using namespace aliceVision;
 
 namespace po = boost::program_options;
 namespace bpt = boost::property_tree;
-namespace fs = boost::filesystem;
+namespace fs = std::filesystem;
 
-bool computeWTALabels(image::Image<IndexT> & labels, const std::vector<std::shared_ptr<sfmData::View>> & views, const std::string & inputPath, const std::pair<int, int> & panoramaSize, int downscale)
+bool computeWTALabels(image::Image<IndexT>& labels,
+                      const std::vector<std::shared_ptr<sfmData::View>>& views,
+                      const std::string& inputPath,
+                      const std::pair<int, int>& panoramaSize,
+                      int downscale)
 {
     ALICEVISION_LOG_INFO("Estimating initial labels for panorama");
 
@@ -79,7 +82,7 @@ bool computeWTALabels(image::Image<IndexT> & labels, const std::vector<std::shar
             imageAlgo::resizeImage(downscale, weights);
         }
 
-        if (!seams.appendWithLoop(mask, weights, viewId, offsetX, offsetY)) 
+        if (!seams.appendWithLoop(mask, weights, viewId, offsetX, offsetY))
         {
             return false;
         }
@@ -90,8 +93,11 @@ bool computeWTALabels(image::Image<IndexT> & labels, const std::vector<std::shar
     return true;
 }
 
-bool computeGCLabels(image::Image<IndexT>& labels, const std::vector<std::shared_ptr<sfmData::View>>& views,
-                     const std::string& inputPath, std::pair<int, int>& panoramaSize, int smallestViewScale,
+bool computeGCLabels(image::Image<IndexT>& labels,
+                     const std::vector<std::shared_ptr<sfmData::View>>& views,
+                     const std::string& inputPath,
+                     std::pair<int, int>& panoramaSize,
+                     int smallestViewScale,
                      int downscale)
 {
     ALICEVISION_LOG_INFO("Estimating smart seams for panorama");
@@ -101,7 +107,7 @@ bool computeGCLabels(image::Image<IndexT>& labels, const std::vector<std::shared
 
     HierarchicalGraphcutSeams seams(panoramaSize.first / downscale, panoramaSize.second / downscale, pyramidSize);
 
-    if (!seams.initialize(labels)) 
+    if (!seams.initialize(labels))
     {
         return false;
     }
@@ -143,7 +149,7 @@ bool computeGCLabels(image::Image<IndexT>& labels, const std::vector<std::shared
         }
     }
 
-    if (!seams.process()) 
+    if (!seams.process())
     {
         return false;
     }
@@ -167,10 +173,10 @@ size_t getGraphcutOptimalScale(int width, int height)
     const size_t gaussianFilterRadius = 2;
 
     const int gaussianFilterSize = 1 + 2 * gaussianFilterRadius;
-    
+
     const size_t optimal_scale = size_t(floor(std::log2(double(minsize) / gaussianFilterSize)));
-    
-    return (optimal_scale - 1/*Security*/);
+
+    return (optimal_scale - 1 /*Security*/);
 }
 
 int aliceVision_main(int argc, char** argv)
@@ -186,18 +192,26 @@ int aliceVision_main(int argc, char** argv)
     image::EStorageDataType storageDataType = image::EStorageDataType::Float;
 
     // Description of mandatory parameters
+    // clang-format off
     po::options_description requiredParams("Required parameters");
     requiredParams.add_options()
-        ("input,i", po::value<std::string>(&sfmDataFilepath)->required(), "Input sfmData.")
-        ("warpingFolder,w", po::value<std::string>(&warpingFolder)->required(), "Folder with warped images.")
-        ("output,o", po::value<std::string>(&outputLabels)->required(), "Path of the output labels.")
-        ("outputSfm,o", po::value<std::string>(&sfmOutDataFilepath)->required(), "Path of the output SfMData file.");
+        ("input,i", po::value<std::string>(&sfmDataFilepath)->required(),
+         "Input SfMData.")
+        ("warpingFolder,w", po::value<std::string>(&warpingFolder)->required(),
+         "Folder with warped images.")
+        ("output,o", po::value<std::string>(&outputLabels)->required(),
+         "Path of the output labels.")
+        ("outputSfm,o", po::value<std::string>(&sfmOutDataFilepath)->required(),
+         "Path of the output SfMData file.");
         
     // Description of optional parameters
     po::options_description optionalParams("Optional parameters");
     optionalParams.add_options()
-        ("maxWidth", po::value<int>(&maxPanoramaWidth)->required(), "Max Panorama Width.")
-        ("useGraphCut,g", po::value<bool>(&useGraphCut)->default_value(useGraphCut), "Enable graphcut algorithm to improve seams.");
+        ("maxWidth", po::value<int>(&maxPanoramaWidth)->required(),
+         "Maximum panorama width.")
+        ("useGraphCut,g", po::value<bool>(&useGraphCut)->default_value(useGraphCut),
+         "Enable graphcut algorithm to improve seams.");
+    // clang-format on
 
     CmdLine cmdline("Estimates the ideal path for the transition between images in order to minimize seams artifacts.\n"
                     "AliceVision panoramaSeams");
@@ -214,8 +228,7 @@ int aliceVision_main(int argc, char** argv)
 
     // load input scene
     sfmData::SfMData sfmData;
-    if(!sfmDataIO::Load(sfmData, sfmDataFilepath,
-                        sfmDataIO::ESfMData(sfmDataIO::VIEWS | sfmDataIO::EXTRINSICS | sfmDataIO::INTRINSICS)))
+    if (!sfmDataIO::load(sfmData, sfmDataFilepath, sfmDataIO::ESfMData(sfmDataIO::VIEWS | sfmDataIO::EXTRINSICS | sfmDataIO::INTRINSICS)))
     {
         ALICEVISION_LOG_ERROR("The input file '" + sfmDataFilepath + "' cannot be read");
         return EXIT_FAILURE;
@@ -226,8 +239,8 @@ int aliceVision_main(int argc, char** argv)
     const std::regex pattern("([0-9]+)_([0-9]+).exr");
 
     std::map<IndexT, std::vector<std::string>> paths_per_view;
-    for (auto & iter : boost::filesystem::directory_iterator(p))
-    { 
+    for (auto& iter : fs::directory_iterator(p))
+    {
         if (!fs::is_regular_file(iter))
         {
             continue;
@@ -242,21 +255,21 @@ int aliceVision_main(int argc, char** argv)
 
         IndexT index = std::stol(m[1].str());
         paths_per_view[index].push_back(iter.path().stem().string());
-    }   
+    }
 
     auto copyviews = sfmData.getViews();
     sfmData.getViews().clear();
 
     for (auto pv : copyviews)
     {
-        std::vector<std::string> & images = paths_per_view[pv.first];
+        std::vector<std::string>& images = paths_per_view[pv.first];
         if (images.empty())
             continue;
 
         for (int idx = 0; idx < images.size(); idx++)
         {
             std::shared_ptr<sfmData::View> newView(pv.second->clone());
-            
+
             newView->getImage().addMetadata("AliceVision:previousViewId", std::to_string(pv.first));
             newView->getImage().addMetadata("AliceVision:imageCounter", std::to_string(idx));
             newView->getImage().addMetadata("AliceVision:warpedPath", images[idx]);
@@ -266,8 +279,8 @@ int aliceVision_main(int argc, char** argv)
             sfmData.getViews().emplace(newIndex, newView);
         }
     }
-    
-    sfmDataIO::Save(sfmData, sfmOutDataFilepath, sfmDataIO::ESfMData::ALL);
+
+    sfmDataIO::save(sfmData, sfmOutDataFilepath, sfmDataIO::ESfMData::ALL);
 
     int tileSize;
     std::pair<int, int> panoramaSize;
@@ -284,19 +297,19 @@ int aliceVision_main(int argc, char** argv)
         panoramaSize.second = metadata.find("AliceVision:panoramaHeight")->get_int();
         tileSize = metadata.find("AliceVision:tileSize")->get_int();
 
-        if(panoramaSize.first == 0 || panoramaSize.second == 0)
+        if (panoramaSize.first == 0 || panoramaSize.second == 0)
         {
             ALICEVISION_LOG_ERROR("The output panorama size is empty.");
             return EXIT_FAILURE;
         }
 
-        if(tileSize == 0)
+        if (tileSize == 0)
         {
             ALICEVISION_LOG_ERROR("no information on tileSize");
             return EXIT_FAILURE;
         }
 
-        if(maxPanoramaWidth > 0 && panoramaSize.first > maxPanoramaWidth)
+        if (maxPanoramaWidth > 0 && panoramaSize.first > maxPanoramaWidth)
         {
             downscaleFactor = divideRoundUp(panoramaSize.first, maxPanoramaWidth);
         }
@@ -310,12 +323,12 @@ int aliceVision_main(int argc, char** argv)
     // Get a list of views ordered by their image scale
     int smallestScale = 10000;
     std::vector<std::shared_ptr<sfmData::View>> views;
-    for (auto it : sfmData.getViews()) 
+    for (auto it : sfmData.getViews())
     {
         auto view = it.second;
         IndexT viewId = view->getViewId();
 
-        if(!sfmData.isPoseAndIntrinsicDefined(view.get()))
+        if (!sfmData.isPoseAndIntrinsicDefined(view.get()))
         {
             // skip unreconstructed views
             continue;
@@ -340,7 +353,7 @@ int aliceVision_main(int argc, char** argv)
     ALICEVISION_LOG_INFO(views.size() << " views to process");
 
     image::Image<IndexT> labels;
-    if(!computeWTALabels(labels, views, warpingFolder, panoramaSize, downscaleFactor))
+    if (!computeWTALabels(labels, views, warpingFolder, panoramaSize, downscaleFactor))
     {
         ALICEVISION_LOG_ERROR("Error computing initial labels");
         return EXIT_FAILURE;
@@ -348,15 +361,14 @@ int aliceVision_main(int argc, char** argv)
 
     if (useGraphCut)
     {
-        if(!computeGCLabels(labels, views, warpingFolder, panoramaSize, smallestScale, downscaleFactor))
+        if (!computeGCLabels(labels, views, warpingFolder, panoramaSize, smallestScale, downscaleFactor))
         {
             ALICEVISION_LOG_ERROR("Error computing graph cut labels");
             return EXIT_FAILURE;
         }
     }
 
-    image::writeImage(outputLabels, labels,
-                      image::ImageWriteOptions().toColorSpace(image::EImageColorSpace::NO_CONVERSION));
+    image::writeImage(outputLabels, labels, image::ImageWriteOptions().toColorSpace(image::EImageColorSpace::NO_CONVERSION));
 
     return EXIT_SUCCESS;
 }

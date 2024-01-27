@@ -8,8 +8,9 @@ set(sfmData_files_headers
   uid.hpp
   colorize.hpp
   exif.hpp
-  imageInfo.hpp
-  exposureSetting.hpp
+  ImageInfo.hpp
+  ExposureSetting.hpp
+  Observation.hpp
 )
 
 # Sources
@@ -19,7 +20,8 @@ set(sfmData_files_sources
   View.cpp
   colorize.cpp
   exif.cpp
-  imageInfo.cpp
+  ImageInfo.cpp
+  Observation.cpp
 )
 
 alicevision_add_library(aliceVision_sfmData
@@ -33,7 +35,6 @@ alicevision_add_library(aliceVision_sfmData
     aliceVision_camera
     aliceVision_sensorDB
     aliceVision_stl
-    Boost::filesystem
   PRIVATE_LINKS
     Boost::boost
 )

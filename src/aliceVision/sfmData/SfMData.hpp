@@ -117,8 +117,8 @@ class SfMData
      * @brief Get landmarks
      * @return landmarks
      */
-    const Landmarks& getLandmarks() const { return _structure; }
-    Landmarks& getLandmarks() { return _structure; }
+    const Landmarks& getLandmarks() const { return _landmarks; }
+    Landmarks& getLandmarks() { return _landmarks; }
 
     /**
      * @brief Get Constraints2D
@@ -196,8 +196,21 @@ class SfMData
      * @brief Return a shared pointer to an intrinsic if available or nullptr otherwise.
      * @param[in] intrinsicId
      */
-    std::shared_ptr<camera::IntrinsicBase> getIntrinsicsharedPtr(IndexT intrinsicId)
+    std::shared_ptr<camera::IntrinsicBase> getIntrinsicSharedPtr(IndexT intrinsicId)
     {
+        if (_intrinsics.count(intrinsicId))
+            return _intrinsics.at(intrinsicId);
+        return nullptr;
+    }
+
+    /**
+     * @brief Return a shared pointer to an intrinsic if available or nullptr otherwise.
+     * @param[in] v
+     */
+    std::shared_ptr<camera::IntrinsicBase> getIntrinsicSharedPtr(const View& v)
+    {
+        IndexT intrinsicId = v.getIntrinsicId();
+
         if (_intrinsics.count(intrinsicId))
             return _intrinsics.at(intrinsicId);
         return nullptr;
@@ -207,8 +220,21 @@ class SfMData
      * @brief Return a shared pointer to an intrinsic if available or nullptr otherwise.
      * @param[in] intrinsicId
      */
-    const std::shared_ptr<camera::IntrinsicBase> getIntrinsicsharedPtr(IndexT intrinsicId) const
+    const std::shared_ptr<camera::IntrinsicBase> getIntrinsicSharedPtr(IndexT intrinsicId) const
     {
+        if (_intrinsics.count(intrinsicId))
+            return _intrinsics.at(intrinsicId);
+        return nullptr;
+    }
+
+    /**
+     * @brief Return a shared pointer to an intrinsic if available or nullptr otherwise.
+     * @param[in] v
+     */
+    const std::shared_ptr<camera::IntrinsicBase> getIntrinsicSharedPtr(const View& v) const
+    {
+        IndexT intrinsicId = v.getIntrinsicId();
+
         if (_intrinsics.count(intrinsicId))
             return _intrinsics.at(intrinsicId);
         return nullptr;
@@ -487,9 +513,15 @@ class SfMData
 
     void clear();
 
+    /**
+     * @Brief For all required items, update the
+     * state with respect to the associated lock
+     */
+    void resetParameterStates();
+
   private:
     /// Structure (3D points with their 2D observations)
-    Landmarks _structure;
+    Landmarks _landmarks;
     /// Considered camera intrinsics (indexed by view.getIntrinsicId())
     Intrinsics _intrinsics;
     /// Considered views

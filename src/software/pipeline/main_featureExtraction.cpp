@@ -11,10 +11,9 @@
 #include <aliceVision/sfmDataIO/sfmDataIO.hpp>
 #include <aliceVision/feature/imageDescriberCommon.hpp>
 #include <aliceVision/feature/feature.hpp>
-#if ALICEVISION_IS_DEFINED(ALICEVISION_HAVE_POPSIFT) \
- || ALICEVISION_IS_DEFINED(ALICEVISION_HAVE_CCTAG)
-#define ALICEVISION_HAVE_GPU_FEATURES
-#include <aliceVision/gpu/gpu.hpp>
+#if ALICEVISION_IS_DEFINED(ALICEVISION_HAVE_POPSIFT) || ALICEVISION_IS_DEFINED(ALICEVISION_HAVE_CCTAG)
+    #define ALICEVISION_HAVE_GPU_FEATURES
+    #include <aliceVision/gpu/gpu.hpp>
 #endif
 #include <aliceVision/system/Timer.hpp>
 #include <aliceVision/system/Logger.hpp>
@@ -22,8 +21,8 @@
 #include <aliceVision/cmdline/cmdline.hpp>
 
 #include <boost/program_options.hpp>
-#include <boost/filesystem.hpp>
 
+#include <filesystem>
 #include <string>
 #include <iostream>
 #include <functional>
@@ -37,11 +36,11 @@
 using namespace aliceVision;
 
 namespace po = boost::program_options;
-namespace fs = boost::filesystem;
+namespace fs = std::filesystem;
 
 /// - Compute view image description (feature & descriptor extraction)
 /// - Export computed data
-int aliceVision_main(int argc, char **argv)
+int aliceVision_main(int argc, char** argv)
 {
     // command-line parameters
     std::string sfmDataFilename;
@@ -60,6 +59,7 @@ int aliceVision_main(int argc, char **argv)
     std::string maskExtension = "png";
     bool maskInvert = false;
 
+    // clang-format off
     po::options_description requiredParams("Required parameters");
     requiredParams.add_options()
         ("input,i", po::value<std::string>(&sfmDataFilename)->required(),
@@ -73,13 +73,13 @@ int aliceVision_main(int argc, char **argv)
          feature::EImageDescriberType_informations().c_str())
         ("describerPreset,p", po::value<feature::EImageDescriberPreset>(&featDescConfig.descPreset)->default_value(featDescConfig.descPreset),
          "Control the ImageDescriber configuration (low, medium, normal, high, ultra).\n"
-         "Configuration 'ultra' can take long time !")
+         "Configuration 'ultra' can take a long time!")
         ("describerQuality", po::value<feature::EFeatureQuality>(&featDescConfig.quality)->default_value(featDescConfig.quality),
          feature::EFeatureQuality_information().c_str())
         ("gridFiltering", po::value<bool>(&featDescConfig.gridFiltering)->default_value(featDescConfig.gridFiltering),
-         "Enable grid filtering. Highly recommended to ensure usable number of features.")
+         "Enable grid filtering. Highly recommended to ensure a usable number of features.")
         ("maxNbFeatures", po::value<int>(&featDescConfig.maxNbFeatures)->default_value(featDescConfig.maxNbFeatures),
-         "Max number of features extracted (0 means default value based on describerPreset).")
+         "Maximum number of features extracted (0 means default value based on describerPreset).")
         ("contrastFiltering", po::value<feature::EFeatureConstrastFiltering>(&featDescConfig.contrastFiltering)->default_value(featDescConfig.contrastFiltering),
          feature::EFeatureConstrastFiltering_information().c_str())
         ("relativePeakThreshold", po::value<float>(&featDescConfig.relativePeakThreshold)->default_value(featDescConfig.relativePeakThreshold),
@@ -100,6 +100,7 @@ int aliceVision_main(int argc, char **argv)
          "Range size.")
         ("maxThreads", po::value<int>(&maxThreads)->default_value(maxThreads),
          "Specifies the maximum number of threads to run simultaneously (0 for automatic mode).");
+    // clang-format on
 
     CmdLine cmdline("AliceVision featureExtraction");
     cmdline.add(requiredParams);
@@ -109,16 +110,16 @@ int aliceVision_main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    if(describerTypesName.empty())
+    if (describerTypesName.empty())
     {
         ALICEVISION_LOG_ERROR("--describerTypes option is empty.");
         return EXIT_FAILURE;
     }
 
     // create output folder
-    if(!fs::exists(outputFolder))
+    if (!fs::exists(outputFolder))
     {
-        if(!fs::create_directory(outputFolder))
+        if (!fs::create_directory(outputFolder))
         {
             ALICEVISION_LOG_ERROR("Cannot create output folder");
             return EXIT_FAILURE;
@@ -132,8 +133,8 @@ int aliceVision_main(int argc, char **argv)
 
     // load input scene
     sfmData::SfMData sfmData;
-    std::cout << sfmData.getViews().size()  << std::endl;
-    if(!sfmDataIO::Load(sfmData, sfmDataFilename, sfmDataIO::ESfMData(sfmDataIO::VIEWS|sfmDataIO::INTRINSICS)))
+    std::cout << sfmData.getViews().size() << std::endl;
+    if (!sfmDataIO::load(sfmData, sfmDataFilename, sfmDataIO::ESfMData(sfmDataIO::VIEWS | sfmDataIO::INTRINSICS)))
     {
         ALICEVISION_LOG_ERROR("The input file '" + sfmDataFilename + "' cannot be read");
         return EXIT_FAILURE;
@@ -149,18 +150,18 @@ int aliceVision_main(int argc, char **argv)
     hwc.setUserCoresLimit(maxThreads);
 
     // set extraction range
-    if(rangeStart != -1)
+    if (rangeStart != -1)
     {
-        if(rangeStart < 0 || rangeSize < 0)
+        if (rangeStart < 0 || rangeSize < 0)
         {
             ALICEVISION_LOG_ERROR("Range is incorrect");
             return EXIT_FAILURE;
         }
 
-        if(rangeStart + rangeSize > sfmData.getViews().size())
+        if (rangeStart + rangeSize > sfmData.getViews().size())
             rangeSize = sfmData.getViews().size() - rangeStart;
 
-        if(rangeSize <= 0)
+        if (rangeSize <= 0)
         {
             ALICEVISION_LOG_WARNING("Nothing to compute.");
             return EXIT_SUCCESS;
@@ -173,11 +174,11 @@ int aliceVision_main(int argc, char **argv)
     {
         std::vector<feature::EImageDescriberType> imageDescriberTypes = feature::EImageDescriberType_stringToEnums(describerTypesName);
 
-        for(const auto& imageDescriberType: imageDescriberTypes)
+        for (const auto& imageDescriberType : imageDescriberTypes)
         {
             std::shared_ptr<feature::ImageDescriber> imageDescriber = feature::createImageDescriber(imageDescriberType);
             imageDescriber->setConfigurationPreset(featDescConfig);
-            if(forceCpuExtraction)
+            if (forceCpuExtraction)
                 imageDescriber->setUseCuda(false);
 
             extractor.addImageDescriber(imageDescriber);

@@ -26,22 +26,24 @@
 namespace po = boost::program_options;
 using namespace aliceVision;
 
-int aliceVision_main(int argc, char **argv)
+int aliceVision_main(int argc, char** argv)
 {
     // command-line parameters
     std::string sfmDataFilename;
     std::string outSfMDataFilename;
     std::string sfmDataCalibratedFilename;
 
+    // clang-format off
     po::options_description requiredParams("Required parameters");
     requiredParams.add_options()
         ("input,i", po::value<std::string>(&sfmDataFilename)->required(),
-             "SfMData scene to apply calibration to.")
+         "SfMData scene to apply calibration to.")
         ("output,o", po::value<std::string>(&outSfMDataFilename)->required(),
-            "Output SfMData scene.")
+         "Output SfMData scene.")
         ("calibration,c", po::value<std::string>(&sfmDataCalibratedFilename)->required(),
-            "Calibrated SfMData scene.");
-    
+         "Calibrated SfMData scene.");
+    // clang-format on
+
     CmdLine cmdline("AliceVision applyCalibration");
     cmdline.add(requiredParams);
     if (!cmdline.execute(argc, argv))
@@ -51,7 +53,7 @@ int aliceVision_main(int argc, char **argv)
 
     // Load input scene
     sfmData::SfMData sfmData;
-    if (!sfmDataIO::Load(sfmData, sfmDataFilename, sfmDataIO::ESfMData::ALL))
+    if (!sfmDataIO::load(sfmData, sfmDataFilename, sfmDataIO::ESfMData::ALL))
     {
         ALICEVISION_LOG_ERROR("The input SfMData file '" << sfmDataFilename << "' cannot be read");
         return EXIT_FAILURE;
@@ -63,7 +65,7 @@ int aliceVision_main(int argc, char **argv)
     if (sfmDataCalibratedFilename.empty())
     {
         // Save sfmData to disk
-        if (!sfmDataIO::Save(sfmData, outSfMDataFilename, sfmDataIO::ESfMData::ALL))
+        if (!sfmDataIO::save(sfmData, outSfMDataFilename, sfmDataIO::ESfMData::ALL))
         {
             ALICEVISION_LOG_ERROR("The output SfMData file '" << outSfMDataFilename << "' cannot be written.");
             return EXIT_FAILURE;
@@ -74,7 +76,7 @@ int aliceVision_main(int argc, char **argv)
 
     // Load calibrated scene
     sfmData::SfMData sfmDataCalibrated;
-    if (!sfmDataIO::Load(sfmDataCalibrated, sfmDataCalibratedFilename, sfmDataIO::ESfMData::ALL))
+    if (!sfmDataIO::load(sfmDataCalibrated, sfmDataCalibratedFilename, sfmDataIO::ESfMData::ALL))
     {
         ALICEVISION_LOG_ERROR("The calibrated SfMData file '" << sfmDataCalibratedFilename << "' cannot be read");
         return EXIT_FAILURE;
@@ -118,7 +120,8 @@ int aliceVision_main(int argc, char **argv)
         // Copy calibrated sub-poses
         for (std::size_t idx = 0; idx < subPoses.size(); ++idx)
         {
-            if (calibratedSubPoses[idx].status != sfmData::ERigSubPoseStatus::CONSTANT) continue;
+            if (calibratedSubPoses[idx].status != sfmData::ERigSubPoseStatus::CONSTANT)
+                continue;
 
             subPoses[idx] = calibratedSubPoses[idx];
             subPoses[idx].status = sfmData::ERigSubPoseStatus::ESTIMATED;
@@ -151,7 +154,8 @@ int aliceVision_main(int argc, char **argv)
             IndexT subPoseId = UndefinedIndexT;
             for (const auto& [viewId, view] : sfmData.getViews())
             {
-                if (view->getIntrinsicId() != intrinsicId) continue;
+                if (view->getIntrinsicId() != intrinsicId)
+                    continue;
 
                 subPoseId = view->getSubPoseId();
                 break;
@@ -160,13 +164,16 @@ int aliceVision_main(int argc, char **argv)
             bool found = false;
             for (const auto& [calibIntrId, calibIntr] : calibratedIntrinsics)
             {
-                if (found) break;
+                if (found)
+                    break;
 
                 for (const auto& [viewId, view] : sfmDataCalibrated.getViews())
                 {
-                    if (view->getIntrinsicId() != calibIntrId) continue;
+                    if (view->getIntrinsicId() != calibIntrId)
+                        continue;
 
-                    if (view->getSubPoseId() != subPoseId) continue;
+                    if (view->getSubPoseId() != subPoseId)
+                        continue;
 
                     calibratedIntrinsic = std::dynamic_pointer_cast<camera::IntrinsicScaleOffsetDisto>(calibIntr);
                     found = true;
@@ -174,17 +181,18 @@ int aliceVision_main(int argc, char **argv)
                 }
             }
         }
-        
+
         if (!calibratedIntrinsic)
         {
             ALICEVISION_LOG_ERROR("Unable to find a corresponding calibrated intrinsic");
             return EXIT_FAILURE;
         }
-        
+
         const bool isIntrinsicCalibrated = calibratedIntrinsic->getInitializationMode() == camera::EInitMode::CALIBRATED;
         const bool isDistortionCalibrated = calibratedIntrinsic->getDistortionInitializationMode() == camera::EInitMode::CALIBRATED;
 
-        if (!isIntrinsicCalibrated && !isDistortionCalibrated) continue;
+        if (!isIntrinsicCalibrated && !isDistortionCalibrated)
+            continue;
 
         // Aspect ratio of input intrinsic
         const unsigned int width = intrinsic->w();
@@ -204,9 +212,7 @@ int aliceVision_main(int argc, char **argv)
         }
 
         // Copy original intrinsic
-        auto newIntrinsic =
-            std::dynamic_pointer_cast<camera::IntrinsicScaleOffsetDisto>(
-                camera::createIntrinsic(intrinsic->getType()));
+        auto newIntrinsic = std::dynamic_pointer_cast<camera::IntrinsicScaleOffsetDisto>(camera::createIntrinsic(intrinsic->getType()));
         newIntrinsic->assign(*intrinsic);
 
         if (isIntrinsicCalibrated)
@@ -228,8 +234,7 @@ int aliceVision_main(int argc, char **argv)
             // Use calibrated distortion
             newIntrinsic->setDistortionObject(nullptr);
             auto calibratedUndistortion = calibratedIntrinsic->getUndistortion();
-            auto undistortion = camera::createUndistortion(
-                calibratedUndistortion->getType());
+            auto undistortion = camera::createUndistortion(calibratedUndistortion->getType());
             undistortion->setSize(width, height);
             undistortion->setParameters(calibratedUndistortion->getParameters());
             newIntrinsic->setUndistortionObject(undistortion);
@@ -241,7 +246,7 @@ int aliceVision_main(int argc, char **argv)
     }
 
     // Save sfmData to disk
-    if (!sfmDataIO::Save(sfmData, outSfMDataFilename, sfmDataIO::ESfMData(sfmDataIO::ALL)))
+    if (!sfmDataIO::save(sfmData, outSfMDataFilename, sfmDataIO::ESfMData(sfmDataIO::ALL)))
     {
         ALICEVISION_LOG_ERROR("The output SfMData file '" << outSfMDataFilename << "' cannot be written.");
         return EXIT_FAILURE;

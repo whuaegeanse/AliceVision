@@ -23,9 +23,9 @@
 // IO
 #include <fstream>
 #include <algorithm>
+#include <filesystem>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
-#include <boost/filesystem.hpp>
 
 // These constants define the current software version.
 // They must be updated when the command line is changed.
@@ -36,7 +36,7 @@ using namespace aliceVision;
 
 namespace po = boost::program_options;
 namespace bpt = boost::property_tree;
-namespace fs = boost::filesystem;
+namespace fs = std::filesystem;
 
 int aliceVision_main(int argc, char** argv)
 {
@@ -48,21 +48,27 @@ int aliceVision_main(int argc, char** argv)
     bool useTiling = true;
 
     // Description of mandatory parameters
+    // clang-format off
     po::options_description requiredParams("Required parameters");
     requiredParams.add_options()
-        ("input,i", po::value<std::string>(&sfmDataFilepath)->required(), "Input sfmData.")
-        ("compositingFolder,w", po::value<std::string>(&compositingFolder)->required(), "Folder with composited images.")
-        ("outputPanorama,o", po::value<std::string>(&outputPanoramaPath)->required(), "Path of the output panorama.");
+        ("input,i", po::value<std::string>(&sfmDataFilepath)->required(),
+         "Input SfMData.")
+        ("compositingFolder,w", po::value<std::string>(&compositingFolder)->required(),
+         "Folder with composited images.")
+        ("outputPanorama,o", po::value<std::string>(&outputPanoramaPath)->required(),
+         "Path of the output panorama.");
 
     // Description of optional parameters
     po::options_description optionalParams("Optional parameters");
     optionalParams.add_options()
-        ("storageDataType", po::value<image::EStorageDataType>(&storageDataType)->default_value(storageDataType), ("Storage data type: " + image::EStorageDataType_informations()).c_str())
-        ("useTiling,n", po::value<bool>(&useTiling)->default_value(useTiling), "use tiling for compositing.");
+        ("storageDataType", po::value<image::EStorageDataType>(&storageDataType)->default_value(storageDataType),
+         ("Storage data type: " + image::EStorageDataType_informations()).c_str())
+        ("useTiling,n", po::value<bool>(&useTiling)->default_value(useTiling),
+         "Use tiling for compositing.");
+    // clang-format on
 
-    CmdLine cmdline(
-        "Merges all the image tiles created by the PanoramaCompositing.\n"
-        "AliceVision PanoramaMerging");
+    CmdLine cmdline("Merges all the image tiles created by the PanoramaCompositing.\n"
+                    "AliceVision panoramaMerging");
     cmdline.add(requiredParams);
     cmdline.add(optionalParams);
     if (!cmdline.execute(argc, argv))
@@ -76,7 +82,7 @@ int aliceVision_main(int argc, char** argv)
 
     // load input scene
     sfmData::SfMData sfmData;
-    if(!sfmDataIO::Load(sfmData, sfmDataFilepath, sfmDataIO::ESfMData(sfmDataIO::VIEWS | sfmDataIO::EXTRINSICS | sfmDataIO::INTRINSICS)))
+    if (!sfmDataIO::load(sfmData, sfmDataFilepath, sfmDataIO::ESfMData(sfmDataIO::VIEWS | sfmDataIO::EXTRINSICS | sfmDataIO::INTRINSICS)))
     {
         ALICEVISION_LOG_ERROR("The input file '" + sfmDataFilepath + "' cannot be read");
         return EXIT_FAILURE;
@@ -84,15 +90,14 @@ int aliceVision_main(int argc, char** argv)
 
     bool clampHalf = false;
     oiio::TypeDesc typeColor = oiio::TypeDesc::FLOAT;
-    if (storageDataType == image::EStorageDataType::Half || storageDataType == image::EStorageDataType::HalfFinite) 
+    if (storageDataType == image::EStorageDataType::Half || storageDataType == image::EStorageDataType::HalfFinite)
     {
         typeColor = oiio::TypeDesc::HALF;
-        if (storageDataType == image::EStorageDataType::HalfFinite) 
+        if (storageDataType == image::EStorageDataType::HalfFinite)
         {
             clampHalf = true;
         }
-    } 
-
+    }
 
     std::vector<std::pair<IndexT, std::string>> sourcesList;
     if (useTiling)
@@ -100,7 +105,7 @@ int aliceVision_main(int argc, char** argv)
         for (auto viewItem : sfmData.getViews())
         {
             IndexT viewId = viewItem.first;
-            if(!sfmData.isPoseAndIntrinsicDefined(viewId))
+            if (!sfmData.isPoseAndIntrinsicDefined(viewId))
             {
                 continue;
             }
@@ -152,13 +157,13 @@ int aliceVision_main(int argc, char** argv)
         {
             offsetX += panoramaWidth;
         }
-    
+
         int left = std::floor(double(offsetX) / double(tileSize));
         int top = std::floor(double(offsetY) / double(tileSize));
         int right = std::ceil(double(offsetX + width - 1) / double(tileSize));
         int bottom = std::ceil(double(offsetY + height - 1) / double(tileSize));
 
-        //Loop over all tiles of this input
+        // Loop over all tiles of this input
         for (int ty = top; ty <= bottom; ty++)
         {
             for (int tx = left; tx <= right; tx++)
@@ -167,11 +172,15 @@ int aliceVision_main(int argc, char** argv)
                 int bright = (tx + 1) * tileSize - 1;
                 int btop = ty * tileSize;
                 int bbottom = (ty + 1) * tileSize - 1;
-                
-                if (bleft < offsetX) continue;
-                if (bright >= offsetX + width) continue;
-                if (btop < offsetY) continue;
-                if (bbottom >= offsetY + height) continue;
+
+                if (bleft < offsetX)
+                    continue;
+                if (bright >= offsetX + width)
+                    continue;
+                if (btop < offsetY)
+                    continue;
+                if (bbottom >= offsetY + height)
+                    continue;
 
                 std::pair<int, int> pos;
                 pos.first = tx;
@@ -188,22 +197,21 @@ int aliceVision_main(int argc, char** argv)
     std::unique_ptr<oiio::ImageOutput> panorama = oiio::ImageOutput::create(outputPanoramaPath);
     oiio::ImageSpec spec_panorama(panoramaWidth, panoramaHeight, 4, typeColor);
     spec_panorama.tile_width = tileSize;
-	spec_panorama.tile_height = tileSize;
-	spec_panorama.attribute("compression", "zips");
+    spec_panorama.tile_height = tileSize;
+    spec_panorama.attribute("compression", "zips");
     spec_panorama.attribute("openexr:lineOrder", "randomY");
 
     metadata["openexr:lineOrder"] = "randomY";
-	spec_panorama.extra_attribs = metadata;
+    spec_panorama.extra_attribs = metadata;
 
-	panorama->open(outputPanoramaPath, spec_panorama);
-
+    panorama->open(outputPanoramaPath, spec_panorama);
 
     struct TileInfo
     {
         bool filed = false;
         size_t used = 0;
         std::shared_ptr<image::Image<image::RGBAfColor>> tileContent = nullptr;
-    };    
+    };
     image::Image<TileInfo> tiles(tileCountWidth, tileCountHeight, true, {false, 0, nullptr});
 
     for (auto sourceItem : sourcesList)
@@ -220,7 +228,7 @@ int aliceVision_main(int argc, char** argv)
         {
             offsetX += panoramaWidth;
         }
-    
+
         image::Image<image::RGBAfColor> source;
         image::readImage(imagePath, source, image::EImageColorSpace::NO_CONVERSION);
 
@@ -229,16 +237,16 @@ int aliceVision_main(int argc, char** argv)
         int right = std::ceil(double(offsetX + width - 1) / double(tileSize));
         int bottom = std::ceil(double(offsetY + height - 1) / double(tileSize));
 
-        //Loop over all tiles of this input
+        // Loop over all tiles of this input
         for (int ty = top; ty <= bottom; ty++)
         {
-            if (ty < 0 || ty >= tileCountHeight) 
+            if (ty < 0 || ty >= tileCountHeight)
             {
                 continue;
             }
 
             int y = ty * tileSize;
-    
+
             for (int iter_tx = left; iter_tx <= right; iter_tx++)
             {
                 int tx = iter_tx;
@@ -247,17 +255,17 @@ int aliceVision_main(int argc, char** argv)
                 if (tx >= tileCountWidth)
                 {
                     tx = tx - tileCountWidth;
-                    offset_loop = - panoramaWidth;
+                    offset_loop = -panoramaWidth;
                 }
-                
-                if (tx < 0 || tx >= tileCountWidth) 
+
+                if (tx < 0 || tx >= tileCountWidth)
                 {
                     continue;
                 }
 
                 int x = tx * tileSize;
 
-                //If this view is not registered as the main view, ignore
+                // If this view is not registered as the main view, ignore
                 std::pair<int, int> pos;
                 pos.first = tx;
                 pos.second = ty;
@@ -275,10 +283,10 @@ int aliceVision_main(int argc, char** argv)
                     continue;
                 }
 
- 
                 if (ti.tileContent == nullptr)
                 {
-                    ti.tileContent = std::make_shared<image::Image<image::RGBAfColor>>(tileSize, tileSize, true, image::RGBAfColor(0.0f, 0.0f, 0.0f, 0.0f));
+                    ti.tileContent =
+                      std::make_shared<image::Image<image::RGBAfColor>>(tileSize, tileSize, true, image::RGBAfColor(0.0f, 0.0f, 0.0f, 0.0f));
                 }
 
                 for (int py = 0; py < tileSize; py++)
@@ -290,7 +298,6 @@ int aliceVision_main(int argc, char** argv)
                     {
                         continue;
                     }
-                    
 
                     for (int px = 0; px < tileSize; px++)
                     {
@@ -313,8 +320,8 @@ int aliceVision_main(int argc, char** argv)
                             continue;
                         }
 
-                        //Check if the pixel is already written
-                        image::RGBAfColor & dpix = ti.tileContent->operator()(py, px);
+                        // Check if the pixel is already written
+                        image::RGBAfColor& dpix = ti.tileContent->operator()(py, px);
                         image::RGBAfColor pix = source(source_y, source_x);
                         if (pix.a() > 0.9)
                         {
@@ -329,9 +336,9 @@ int aliceVision_main(int argc, char** argv)
                     }
                 }
 
-                if (ti.used >= tileSize*tileSize)
+                if (ti.used >= tileSize * tileSize)
                 {
-                    panorama->write_tile (tx * tileSize, ty * tileSize, 0, oiio::TypeDesc::FLOAT, ti.tileContent->data());
+                    panorama->write_tile(tx * tileSize, ty * tileSize, 0, oiio::TypeDesc::FLOAT, ti.tileContent->data());
                     ti.tileContent = nullptr;
                     ti.filed = true;
                     continue;
@@ -342,12 +349,16 @@ int aliceVision_main(int argc, char** argv)
                 int btop = ty * tileSize;
                 int bbottom = (ty + 1) * tileSize - 1;
 
-                if (bleft < offsetX) continue;
-                if (bright >= offsetX + width) continue;
-                if (btop < offsetY) continue;
-                if (bbottom >= offsetY + height) continue;
+                if (bleft < offsetX)
+                    continue;
+                if (bright >= offsetX + width)
+                    continue;
+                if (btop < offsetY)
+                    continue;
+                if (bbottom >= offsetY + height)
+                    continue;
 
-                panorama->write_tile (tx * tileSize, ty * tileSize, 0, oiio::TypeDesc::FLOAT, ti.tileContent->data());
+                panorama->write_tile(tx * tileSize, ty * tileSize, 0, oiio::TypeDesc::FLOAT, ti.tileContent->data());
                 ti.tileContent = nullptr;
                 ti.filed = true;
             }
@@ -365,23 +376,21 @@ int aliceVision_main(int argc, char** argv)
             {
                 continue;
             }
-            
+
             if (ti.tileContent)
-            {   
-                panorama->write_tile (tx * tileSize, ty * tileSize, 0, oiio::TypeDesc::FLOAT, ti.tileContent->data());
+            {
+                panorama->write_tile(tx * tileSize, ty * tileSize, 0, oiio::TypeDesc::FLOAT, ti.tileContent->data());
             }
             else
-            { 
-                panorama->write_tile (tx * tileSize, ty * tileSize, 0, oiio::TypeDesc::FLOAT, vide.data());
+            {
+                panorama->write_tile(tx * tileSize, ty * tileSize, 0, oiio::TypeDesc::FLOAT, vide.data());
             }
 
             ti.filed = true;
         }
     }
 
-
     panorama->close();
-
 
     return EXIT_SUCCESS;
 }

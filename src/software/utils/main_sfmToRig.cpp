@@ -10,7 +10,6 @@
 #include <aliceVision/stl/hash.hpp>
 #include <aliceVision/system/main.hpp>
 
-
 #include <boost/program_options.hpp>
 
 #include <string>
@@ -25,17 +24,20 @@ using namespace aliceVision;
 
 namespace po = boost::program_options;
 
-
-int aliceVision_main(int argc, char **argv)
+int aliceVision_main(int argc, char** argv)
 {
     // command-line parameters
     std::string sfmDataFilename;
     std::string outSfMDataFilename;
 
+    // clang-format off
     po::options_description requiredParams("Required parameters");
     requiredParams.add_options()
-        ("input,i", po::value<std::string>(&sfmDataFilename)->required(), "SfMData file")
-        ("output,o", po::value<std::string>(&outSfMDataFilename)->required(), "Output SfMData scene.");
+        ("input,i", po::value<std::string>(&sfmDataFilename)->required(),
+         "SfMData file.")
+        ("output,o", po::value<std::string>(&outSfMDataFilename)->required(),
+         "Output SfMData scene.");
+    // clang-format on
 
     CmdLine cmdline("AliceVision sfmToRig");
     cmdline.add(requiredParams);
@@ -46,7 +48,7 @@ int aliceVision_main(int argc, char **argv)
 
     // Load input scene
     sfmData::SfMData sfmData;
-    if (!sfmDataIO::Load(sfmData, sfmDataFilename, sfmDataIO::ESfMData::ALL))
+    if (!sfmDataIO::load(sfmData, sfmDataFilename, sfmDataIO::ESfMData::ALL))
     {
         ALICEVISION_LOG_ERROR("The input SfMData file '" << sfmDataFilename << "' cannot be read");
         return EXIT_FAILURE;
@@ -69,9 +71,9 @@ int aliceVision_main(int argc, char **argv)
     size_t indexRig = 0;
     int index = 0;
     std::map<IndexT, int> mapPoseToSubPose;
-    for (const auto & pp : sfmData.getPoses())
+    for (const auto& pp : sfmData.getPoses())
     {
-        const auto & pose = pp.second;
+        const auto& pose = pp.second;
 
         sfmData::RigSubPose subPose(pose.getTransform(), sfmData::ERigSubPoseStatus::CONSTANT);
         rig.setSubPose(index, subPose);
@@ -87,7 +89,7 @@ int aliceVision_main(int argc, char **argv)
     sfmData.getRigs().emplace(indexRig, rig);
 
     // Update
-    for (const auto & pv : sfmData.getViews())
+    for (const auto& pv : sfmData.getViews())
     {
         std::shared_ptr<sfmData::View> view = pv.second;
         if (!sfmData.isPoseAndIntrinsicDefined(view.get()))
@@ -97,12 +99,12 @@ int aliceVision_main(int argc, char **argv)
 
         const IndexT poseId = view->getPoseId();
         const int subPoseId = mapPoseToSubPose[poseId];
-       
+
         // New commmon pose id is the same than the rig id for convenience
         view->setPoseId(indexRig);
         view->setRigAndSubPoseId(indexRig, subPoseId);
         view->setIndependantPose(false);
-        
+
         // Update intrinsicId
         size_t intrinsicId = view->getIntrinsicId();
         stl::hash_combine(intrinsicId, indexRig);
@@ -112,7 +114,7 @@ int aliceVision_main(int argc, char **argv)
     // Update intrinsics
     sfmData::Intrinsics intrinsics = sfmData.getIntrinsics();
     sfmData.getIntrinsics().clear();
-    for (const auto & pi : intrinsics)
+    for (const auto& pi : intrinsics)
     {
         size_t intrinsicId = pi.first;
         stl::hash_combine(intrinsicId, indexRig);
@@ -122,7 +124,7 @@ int aliceVision_main(int argc, char **argv)
     // Remove all poses
     sfmData.getPoses().clear();
 
-    if (!sfmDataIO::Save(sfmData, outSfMDataFilename, sfmDataIO::ESfMData::ALL))
+    if (!sfmDataIO::save(sfmData, outSfMDataFilename, sfmDataIO::ESfMData::ALL))
     {
         ALICEVISION_LOG_ERROR("An error occurred while trying to save '" << outSfMDataFilename << "'");
         return EXIT_FAILURE;

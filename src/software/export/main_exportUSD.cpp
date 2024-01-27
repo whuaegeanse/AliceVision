@@ -11,7 +11,6 @@
 #include <aliceVision/system/Timer.hpp>
 
 #include <boost/algorithm/string.hpp>
-#include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
 
 #include <pxr/base/tf/token.h>
@@ -28,33 +27,20 @@
 #include <pxr/usd/usdShade/materialBindingAPI.h>
 #include <pxr/usd/usdShade/shader.h>
 
+#include <filesystem>
+
 #define ALICEVISION_SOFTWARE_VERSION_MAJOR 1
 #define ALICEVISION_SOFTWARE_VERSION_MINOR 0
 
 using namespace aliceVision;
 
-namespace bpo = boost::program_options;
-namespace bfs = boost::filesystem;
+namespace po = boost::program_options;
+namespace fs = std::filesystem;
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-TF_DEFINE_PRIVATE_TOKENS(
-    AvUsdTokens,
-    (bias) \
-    (colorSpace) \
-    (diffuseColor) \
-    (fallback) \
-    (file) \
-    (normal) \
-    (raw) \
-    (Raw) \
-    (result) \
-    (rgb) \
-    (scale) \
-    (sourceColorSpace) \
-    (st) \
-    (varname)
-);
+TF_DEFINE_PRIVATE_TOKENS(AvUsdTokens,
+                         (bias)(colorSpace)(diffuseColor)(fallback)(file)(normal)(raw)(Raw)(result)(rgb)(scale)(sourceColorSpace)(st)(varname));
 
 enum class EUSDFileType
 {
@@ -75,9 +61,12 @@ EUSDFileType EUSDFileType_stringToEnum(const std::string& usdFileType) noexcept
 {
     const std::string type = boost::to_lower_copy(usdFileType);
 
-    if (type == "usda") return EUSDFileType::USDA;
-    if (type == "usdc") return EUSDFileType::USDC;
-    if (type == "usdz") return EUSDFileType::USDZ;
+    if (type == "usda")
+        return EUSDFileType::USDA;
+    if (type == "usdc")
+        return EUSDFileType::USDC;
+    if (type == "usdz")
+        return EUSDFileType::USDZ;
 
     return EUSDFileType::USDA;
 }
@@ -96,10 +85,7 @@ std::string EUSDFileType_enumToString(const EUSDFileType usdFileType) noexcept
     }
 }
 
-std::ostream& operator<<(std::ostream& os, EUSDFileType usdFileType)
-{
-    return os << EUSDFileType_enumToString(usdFileType);
-}
+std::ostream& operator<<(std::ostream& os, EUSDFileType usdFileType) { return os << EUSDFileType_enumToString(usdFileType); }
 
 std::istream& operator>>(std::istream& in, EUSDFileType& usdFileType)
 {
@@ -109,7 +95,7 @@ std::istream& operator>>(std::istream& in, EUSDFileType& usdFileType)
     return in;
 }
 
-int aliceVision_main(int argc, char **argv)
+int aliceVision_main(int argc, char** argv)
 {
     system::Timer timer;
 
@@ -118,12 +104,16 @@ int aliceVision_main(int argc, char **argv)
     std::string outputFolderPath;
     EUSDFileType fileType = EUSDFileType::USDA;
 
-    bpo::options_description requiredParams("Required parameters");
+    // clang-format off
+    po::options_description requiredParams("Required parameters");
     requiredParams.add_options()
-        ("input", bpo::value<std::string>(&inputMeshPath), "Input textured mesh to export.")
-        ("output", bpo::value<std::string>(&outputFolderPath), "Output folder for USD file and textures.")
-        ("fileType", bpo::value<EUSDFileType>(&fileType)->default_value(fileType),
+        ("input", po::value<std::string>(&inputMeshPath),
+         "Input textured mesh to export.")
+        ("output", po::value<std::string>(&outputFolderPath),
+         "Output folder for USD file and textures.")
+        ("fileType", po::value<EUSDFileType>(&fileType)->default_value(fileType),
          EUSDFileType_informations().c_str());
+    // clang-format on
 
     CmdLine cmdline("The program converts a textured mesh to USD.\nAliceVision exportUSD");
     cmdline.add(requiredParams);
@@ -144,7 +134,7 @@ int aliceVision_main(int argc, char **argv)
     }
 
     const std::string extension = fileType == EUSDFileType::USDC || fileType == EUSDFileType::USDZ ? "usdc" : "usda";
-    const bfs::path stagePath = bfs::canonical(outputFolderPath) / ("texturedMesh." + extension);
+    const fs::path stagePath = fs::canonical(outputFolderPath) / ("texturedMesh." + extension);
     UsdStageRefPtr stage = UsdStage::CreateNew(stagePath.string());
     if (!stage)
     {
@@ -186,10 +176,8 @@ int aliceVision_main(int argc, char **argv)
 
     const GfVec3d& bboxMin = bounds.GetRange().GetMin();
     const GfVec3d& bboxMax = bounds.GetRange().GetMax();
-    VtArray<GfVec3f> extentData {
-        {static_cast<float>(bboxMin[0]), static_cast<float>(bboxMin[1]), static_cast<float>(bboxMin[2])},
-        {static_cast<float>(bboxMax[0]), static_cast<float>(bboxMax[1]), static_cast<float>(bboxMax[2])}
-    };
+    VtArray<GfVec3f> extentData{{static_cast<float>(bboxMin[0]), static_cast<float>(bboxMin[1]), static_cast<float>(bboxMin[2])},
+                                {static_cast<float>(bboxMax[0]), static_cast<float>(bboxMax[1]), static_cast<float>(bboxMax[2])}};
     extent.Set(extentData);
 
     // write topology
@@ -218,9 +206,7 @@ int aliceVision_main(int argc, char **argv)
         for (int i = 0; i < inputMesh->normals.size(); ++i)
         {
             const Point3d& normal = inputMesh->normals[i];
-            normalsData[i] = {static_cast<float>(normal.x),
-                              static_cast<float>(-normal.y),
-                              static_cast<float>(-normal.z)};
+            normalsData[i] = {static_cast<float>(normal.x), static_cast<float>(-normal.y), static_cast<float>(-normal.z)};
         }
 
         VtIntArray normalIndices;
@@ -235,13 +221,10 @@ int aliceVision_main(int argc, char **argv)
         }
 
         UsdGeomPrimvarsAPI primvarsApi = UsdGeomPrimvarsAPI(mesh);
-        UsdGeomPrimvar uvs = primvarsApi.CreateIndexedPrimvar(TfToken("normals"),
-                                                              SdfValueTypeNames->Normal3fArray,
-                                                              normalsData,
-                                                              normalIndices,
-                                                              UsdGeomTokens->faceVarying);
+        UsdGeomPrimvar uvs = primvarsApi.CreateIndexedPrimvar(
+          TfToken("normals"), SdfValueTypeNames->Normal3fArray, normalsData, normalIndices, UsdGeomTokens->faceVarying);
     }
-    else // compute smooth vertex normals
+    else  // compute smooth vertex normals
     {
         StaticVector<Point3d> normals;
         inputMesh->computeNormalsForPts(normals);
@@ -252,9 +235,7 @@ int aliceVision_main(int argc, char **argv)
         for (int i = 0; i < normals.size(); ++i)
         {
             const Point3d& normal = normals[i];
-            normalsData[i] = {static_cast<float>(normal.x),
-                              static_cast<float>(-normal.y),
-                              static_cast<float>(-normal.z)};
+            normalsData[i] = {static_cast<float>(normal.x), static_cast<float>(-normal.y), static_cast<float>(-normal.z)};
         }
 
         UsdAttribute normalsAttr = mesh.CreateNormalsAttr();
@@ -285,11 +266,8 @@ int aliceVision_main(int argc, char **argv)
         }
 
         UsdGeomPrimvarsAPI primvarsApi = UsdGeomPrimvarsAPI(mesh);
-        UsdGeomPrimvar uvs = primvarsApi.CreateIndexedPrimvar(TfToken("st"),
-                                                              SdfValueTypeNames->TexCoord2fArray,
-                                                              uvsData,
-                                                              uvsIndices,
-                                                              UsdGeomTokens->faceVarying);
+        UsdGeomPrimvar uvs =
+          primvarsApi.CreateIndexedPrimvar(TfToken("st"), SdfValueTypeNames->TexCoord2fArray, uvsData, uvsIndices, UsdGeomTokens->faceVarying);
     }
 
     // create material and shaders
@@ -306,28 +284,24 @@ int aliceVision_main(int argc, char **argv)
     // add textures (only supporting diffuse and normal maps)
     if (texturing.material.hasTextures(mesh::Material::TextureType::DIFFUSE))
     {
-        SdfAssetPath diffuseTexturePath {texturing.material.textureName(mesh::Material::TextureType::DIFFUSE, -1)};
+        SdfAssetPath diffuseTexturePath{texturing.material.textureName(mesh::Material::TextureType::DIFFUSE, -1)};
         UsdShadeShader diffuseTexture = UsdShadeShader::Define(stage, SdfPath("/root/mesh/mat/diffuseTexture"));
         diffuseTexture.CreateIdAttr(VtValue(UsdImagingTokens->UsdUVTexture));
-        diffuseTexture.CreateInput(AvUsdTokens->st, SdfValueTypeNames->Float2)
-            .ConnectToSource(uvReader.ConnectableAPI(), AvUsdTokens->result);
+        diffuseTexture.CreateInput(AvUsdTokens->st, SdfValueTypeNames->Float2).ConnectToSource(uvReader.ConnectableAPI(), AvUsdTokens->result);
         diffuseTexture.CreateInput(AvUsdTokens->file, SdfValueTypeNames->Asset).Set(diffuseTexturePath);
-        preview.CreateInput(AvUsdTokens->diffuseColor, SdfValueTypeNames->Color3f)
-            .ConnectToSource(diffuseTexture.ConnectableAPI(), AvUsdTokens->rgb);
+        preview.CreateInput(AvUsdTokens->diffuseColor, SdfValueTypeNames->Color3f).ConnectToSource(diffuseTexture.ConnectableAPI(), AvUsdTokens->rgb);
     }
 
     if (texturing.material.hasTextures(mesh::Material::TextureType::NORMAL))
     {
-        SdfAssetPath normalTexturePath {texturing.material.textureName(mesh::Material::TextureType::NORMAL, -1)};
+        SdfAssetPath normalTexturePath{texturing.material.textureName(mesh::Material::TextureType::NORMAL, -1)};
         UsdShadeShader normalTexture = UsdShadeShader::Define(stage, SdfPath("/root/mesh/mat/normalTexture"));
         normalTexture.CreateIdAttr(VtValue(UsdImagingTokens->UsdUVTexture));
-        normalTexture.CreateInput(AvUsdTokens->st, SdfValueTypeNames->Float2)
-            .ConnectToSource(uvReader.ConnectableAPI(), AvUsdTokens->result);
+        normalTexture.CreateInput(AvUsdTokens->st, SdfValueTypeNames->Float2).ConnectToSource(uvReader.ConnectableAPI(), AvUsdTokens->result);
         UsdShadeInput file = normalTexture.CreateInput(AvUsdTokens->file, SdfValueTypeNames->Asset);
         file.Set(normalTexturePath);
         file.GetAttr().SetMetadata(AvUsdTokens->colorSpace, AvUsdTokens->Raw);
-        preview.CreateInput(AvUsdTokens->normal, SdfValueTypeNames->Normal3f)
-            .ConnectToSource(normalTexture.ConnectableAPI(), AvUsdTokens->rgb);
+        preview.CreateInput(AvUsdTokens->normal, SdfValueTypeNames->Normal3f).ConnectToSource(normalTexture.ConnectableAPI(), AvUsdTokens->rgb);
 
         normalTexture.CreateInput(AvUsdTokens->fallback, SdfValueTypeNames->Float4).Set(GfVec4f{0.5, 0.5, 0.5, 1.0});
         normalTexture.CreateInput(AvUsdTokens->scale, SdfValueTypeNames->Float4).Set(GfVec4f{2.0, 2.0, 2.0, 0.0});
@@ -341,16 +315,16 @@ int aliceVision_main(int argc, char **argv)
     stage->GetRootLayer()->Save();
 
     // Copy textures to output folder
-    const bfs::path sourceFolder = bfs::path(inputMeshPath).parent_path();
-    const bfs::path destinationFolder = bfs::canonical(outputFolderPath);
+    const fs::path sourceFolder = fs::path(inputMeshPath).parent_path();
+    const fs::path destinationFolder = fs::canonical(outputFolderPath);
 
     for (int i = 0; i < texturing.material.numAtlases(); ++i)
     {
         for (const auto& texture : texturing.material.getAllTextures())
         {
-            if (bfs::exists(sourceFolder / texture))
+            if (fs::exists(sourceFolder / texture))
             {
-                bfs::copy_file(sourceFolder / texture, destinationFolder / texture, bfs::copy_options::update_existing);
+                fs::copy_file(sourceFolder / texture, destinationFolder / texture, fs::copy_options::update_existing);
             }
         }
     }
@@ -358,7 +332,7 @@ int aliceVision_main(int argc, char **argv)
     // write out usdz if requested
     if (fileType == EUSDFileType::USDZ)
     {
-        const bfs::path usdzPath = bfs::canonical(outputFolderPath) / "texturedMesh.usdz";
+        const fs::path usdzPath = fs::canonical(outputFolderPath) / "texturedMesh.usdz";
         UsdZipFileWriter writer = UsdZipFileWriter::CreateNew(usdzPath.string());
 
         if (!writer)
@@ -372,7 +346,7 @@ int aliceVision_main(int argc, char **argv)
         {
             for (const auto& texture : texturing.material.getAllTextures())
             {
-                if (bfs::exists(destinationFolder / texture))
+                if (fs::exists(destinationFolder / texture))
                 {
                     writer.AddFile((destinationFolder / texture).string(), texture);
                 }

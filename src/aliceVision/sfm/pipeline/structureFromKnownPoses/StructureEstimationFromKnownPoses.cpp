@@ -239,9 +239,12 @@ void StructureEstimationFromKnownPoses::filter(const SfMData& sfmData, const Pai
                                 std::advance(iterJ, 1);
                                 std::advance(iterK, 2);
 
-                                _tripletMatches[std::make_pair(I, J)][subTrack.descType].emplace_back(iterI->second.featureId, iterJ->second.featureId);
-                                _tripletMatches[std::make_pair(J, K)][subTrack.descType].emplace_back(iterJ->second.featureId, iterK->second.featureId);
-                                _tripletMatches[std::make_pair(I, K)][subTrack.descType].emplace_back(iterI->second.featureId, iterK->second.featureId);
+                                _tripletMatches[std::make_pair(I, J)][subTrack.descType].emplace_back(iterI->second.featureId,
+                                                                                                      iterJ->second.featureId);
+                                _tripletMatches[std::make_pair(J, K)][subTrack.descType].emplace_back(iterJ->second.featureId,
+                                                                                                      iterK->second.featureId);
+                                _tripletMatches[std::make_pair(I, K)][subTrack.descType].emplace_back(iterI->second.featureId,
+                                                                                                      iterK->second.featureId);
                             }
                         }
                     }
@@ -275,7 +278,7 @@ void StructureEstimationFromKnownPoses::triangulate(SfMData& sfmData,
     {
         const track::Track& track = itTracks->second;
         structure[idx] = Landmark(track.descType);
-        Observations& observations = structure.at(idx).observations;
+        Observations& observations = structure.at(idx).getObservations();
         for (auto it = track.featPerView.begin(); it != track.featPerView.end(); ++it)
         {
             const size_t imaIndex = it->first;
@@ -288,7 +291,7 @@ void StructureEstimationFromKnownPoses::triangulate(SfMData& sfmData,
     }
 
     // Triangulate them using a robust triangulation scheme
-    StructureComputation_robust structure_estimator(true);
+    StructureComputationRobust structure_estimator(true);
     structure_estimator.triangulate(sfmData, randomNumberGenerator);
 }
 

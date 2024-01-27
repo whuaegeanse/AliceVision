@@ -20,13 +20,12 @@
 #include <aliceVision/lensCorrectionProfile/lcp.hpp>
 
 #include <boost/program_options.hpp>
-#include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/foreach.hpp>
 
 #if ALICEVISION_IS_DEFINED(ALICEVISION_HAVE_OPENCV)
-#include <opencv2/imgproc.hpp>
-#include <opencv2/photo.hpp>
+    #include <opencv2/imgproc.hpp>
+    #include <opencv2/photo.hpp>
 #endif
 
 #include <OpenImageIO/imageio.h>
@@ -34,13 +33,13 @@
 #include <OpenImageIO/imagebufalgo.h>
 #include <OpenImageIO/color.h>
 
+#include <filesystem>
 #include <string>
 #include <cmath>
 #include <vector>
 #include <map>
 #include <iostream>
 #include <algorithm>
-
 
 // These constants define the current software version.
 // They must be updated when the command line is changed.
@@ -49,7 +48,7 @@
 
 using namespace aliceVision;
 namespace po = boost::program_options;
-namespace fs = boost::filesystem;
+namespace fs = std::filesystem;
 
 struct LensCorrectionParams
 {
@@ -107,7 +106,7 @@ std::istream& operator>>(std::istream& in, SharpenParams& sParams)
     in >> token;
     std::vector<std::string> splitParams;
     boost::split(splitParams, token, boost::algorithm::is_any_of(":"));
-    if(splitParams.size() != 4)
+    if (splitParams.size() != 4)
         throw std::invalid_argument("Failed to parse SharpenParams from: " + token);
     sParams.enabled = boost::to_lower_copy(splitParams[0]) == "true";
     sParams.width = boost::lexical_cast<int>(splitParams[1]);
@@ -119,7 +118,7 @@ std::istream& operator>>(std::istream& in, SharpenParams& sParams)
 
 inline std::ostream& operator<<(std::ostream& os, const SharpenParams& sParams)
 {
-    os << sParams.enabled << ":" << sParams.width << ":" << sParams.contrast << ":"<< sParams.threshold;
+    os << sParams.enabled << ":" << sParams.width << ":" << sParams.contrast << ":" << sParams.threshold;
     return os;
 }
 
@@ -137,7 +136,7 @@ std::istream& operator>>(std::istream& in, BilateralFilterParams& bfParams)
     in >> token;
     std::vector<std::string> splitParams;
     boost::split(splitParams, token, boost::algorithm::is_any_of(":"));
-    if(splitParams.size() != 4)
+    if (splitParams.size() != 4)
         throw std::invalid_argument("Failed to parse BilateralFilterParams from: " + token);
     bfParams.enabled = boost::to_lower_copy(splitParams[0]) == "true";
     bfParams.distance = boost::lexical_cast<int>(splitParams[1]);
@@ -166,7 +165,7 @@ std::istream& operator>>(std::istream& in, ClaheFilterParams& cfParams)
     in >> token;
     std::vector<std::string> splitParams;
     boost::split(splitParams, token, boost::algorithm::is_any_of(":"));
-    if(splitParams.size() != 3)
+    if (splitParams.size() != 3)
         throw std::invalid_argument("Failed to parse ClaheFilterParams from: " + token);
     cfParams.enabled = boost::to_lower_copy(splitParams[0]) == "true";
     cfParams.clipLimit = boost::lexical_cast<float>(splitParams[1]);
@@ -181,15 +180,23 @@ inline std::ostream& operator<<(std::ostream& os, const ClaheFilterParams& cfPar
     return os;
 }
 
-enum class ENoiseMethod { uniform, gaussian, salt };
+enum class ENoiseMethod
+{
+    uniform,
+    gaussian,
+    salt
+};
 
 inline std::string ENoiseMethod_enumToString(ENoiseMethod noiseMethod)
 {
-    switch(noiseMethod)
+    switch (noiseMethod)
     {
-        case ENoiseMethod::uniform: return "uniform";
-        case ENoiseMethod::gaussian: return "gaussian";
-        case ENoiseMethod::salt: return "salt";
+        case ENoiseMethod::uniform:
+            return "uniform";
+        case ENoiseMethod::gaussian:
+            return "gaussian";
+        case ENoiseMethod::salt:
+            return "salt";
     }
     throw std::invalid_argument("Invalid ENoiseMethod Enum");
 }
@@ -197,9 +204,12 @@ inline std::string ENoiseMethod_enumToString(ENoiseMethod noiseMethod)
 inline ENoiseMethod ENoiseMethod_stringToEnum(std::string noiseMethod)
 {
     boost::to_lower(noiseMethod);
-    if(noiseMethod == "uniform") return ENoiseMethod::uniform;
-    if(noiseMethod == "gaussian") return ENoiseMethod::gaussian;
-    if(noiseMethod == "salt") return ENoiseMethod::salt;
+    if (noiseMethod == "uniform")
+        return ENoiseMethod::uniform;
+    if (noiseMethod == "gaussian")
+        return ENoiseMethod::gaussian;
+    if (noiseMethod == "salt")
+        return ENoiseMethod::salt;
 
     throw std::invalid_argument("Unrecognized noise method '" + noiseMethod + "'");
 }
@@ -219,7 +229,7 @@ std::istream& operator>>(std::istream& in, NoiseFilterParams& nfParams)
     in >> token;
     std::vector<std::string> splitParams;
     boost::split(splitParams, token, boost::algorithm::is_any_of(":"));
-    if(splitParams.size() != 5)
+    if (splitParams.size() != 5)
         throw std::invalid_argument("Failed to parse NoiseFilterParams from: " + token);
     nfParams.enabled = boost::to_lower_copy(splitParams[0]) == "true";
     nfParams.method = ENoiseMethod_stringToEnum(splitParams[1]);
@@ -231,20 +241,27 @@ std::istream& operator>>(std::istream& in, NoiseFilterParams& nfParams)
 
 inline std::ostream& operator<<(std::ostream& os, const NoiseFilterParams& nfParams)
 {
-    os << nfParams.enabled << ":" << ENoiseMethod_enumToString(nfParams.method) << ":" << nfParams.A << ":" << nfParams.B
-       << ":" << nfParams.mono;
+    os << nfParams.enabled << ":" << ENoiseMethod_enumToString(nfParams.method) << ":" << nfParams.A << ":" << nfParams.B << ":" << nfParams.mono;
     return os;
 }
 
-enum class EImageFormat { RGBA, RGB, Grayscale };
+enum class EImageFormat
+{
+    RGBA,
+    RGB,
+    Grayscale
+};
 
 inline std::string EImageFormat_enumToString(EImageFormat imageFormat)
 {
-    switch(imageFormat)
+    switch (imageFormat)
     {
-        case EImageFormat::RGBA: return "rgba";
-        case EImageFormat::RGB: return "rgb";
-        case EImageFormat::Grayscale: return "grayscale";
+        case EImageFormat::RGBA:
+            return "rgba";
+        case EImageFormat::RGB:
+            return "rgb";
+        case EImageFormat::Grayscale:
+            return "grayscale";
     }
     throw std::invalid_argument("Invalid EImageFormat Enum");
 }
@@ -252,17 +269,17 @@ inline std::string EImageFormat_enumToString(EImageFormat imageFormat)
 inline EImageFormat EImageFormat_stringToEnum(std::string imageFormat)
 {
     boost::to_lower(imageFormat);
-    if(imageFormat == "rgba") return EImageFormat::RGBA;
-    if(imageFormat == "rgb") return EImageFormat::RGB;
-    if(imageFormat == "grayscale") return EImageFormat::Grayscale;
+    if (imageFormat == "rgba")
+        return EImageFormat::RGBA;
+    if (imageFormat == "rgb")
+        return EImageFormat::RGB;
+    if (imageFormat == "grayscale")
+        return EImageFormat::Grayscale;
 
     throw std::invalid_argument("Unrecognized image format '" + imageFormat + "'");
 }
 
-inline std::ostream& operator<<(std::ostream& os, EImageFormat e)
-{
-    return os << EImageFormat_enumToString(e);
-}
+inline std::ostream& operator<<(std::ostream& os, EImageFormat e) { return os << EImageFormat_enumToString(e); }
 
 inline std::istream& operator>>(std::istream& in, EImageFormat& e)
 {
@@ -287,7 +304,7 @@ std::istream& operator>>(std::istream& in, NLMeansFilterParams& nlmParams)
     in >> token;
     std::vector<std::string> splitParams;
     boost::split(splitParams, token, boost::algorithm::is_any_of(":"));
-    if(splitParams.size() != 5)
+    if (splitParams.size() != 5)
         throw std::invalid_argument("Failed to parse NLMeansFilterParams from: " + token);
     nlmParams.enabled = boost::to_lower_copy(splitParams[0]) == "true";
     nlmParams.filterStrength = boost::lexical_cast<float>(splitParams[1]);
@@ -300,8 +317,34 @@ std::istream& operator>>(std::istream& in, NLMeansFilterParams& nlmParams)
 
 inline std::ostream& operator<<(std::ostream& os, const NLMeansFilterParams& nlmParams)
 {
-    os << nlmParams.enabled << ":" << nlmParams.filterStrength << ":" << nlmParams.filterStrengthColor << ":"
-       << nlmParams.templateWindowSize << ":" << nlmParams.searchWindowSize;
+    os << nlmParams.enabled << ":" << nlmParams.filterStrength << ":" << nlmParams.filterStrengthColor << ":" << nlmParams.templateWindowSize << ":"
+       << nlmParams.searchWindowSize;
+    return os;
+}
+
+struct pixelAspectRatioParams
+{
+    bool enabled;
+    bool rowDecimation;
+    float value;
+};
+
+std::istream& operator>>(std::istream& in, pixelAspectRatioParams& parParams)
+{
+    std::string token;
+    in >> token;
+    std::vector<std::string> splitParams;
+    boost::split(splitParams, token, boost::algorithm::is_any_of(":"));
+    if (splitParams.size() != 2)
+        throw std::invalid_argument("Failed to parse pixelAspectRatioParams from: " + token);
+    parParams.enabled = boost::to_lower_copy(splitParams[0]) == "true";
+    parParams.rowDecimation = boost::to_lower_copy(splitParams[1]) == "true";
+    return in;
+}
+
+inline std::ostream& operator<<(std::ostream& os, const pixelAspectRatioParams& parParams)
+{
+    os << parParams.enabled << ":" << parParams.rowDecimation;
     return os;
 }
 
@@ -332,52 +375,53 @@ struct ProcessingParams
     double correlatedColorTemperature = -1.0;
     bool reorient = false;
 
-    LensCorrectionParams lensCorrection =
-    {
-        false, // enable
-        false, // geometry
-        false, // vignetting
-        false  // chromatic aberration
+    LensCorrectionParams lensCorrection = {
+      false,  // enable
+      false,  // geometry
+      false,  // vignetting
+      false   // chromatic aberration
     };
 
-    SharpenParams sharpen = 
-    {
-        false, // enable
-        3,     // width
-        1.0f,  // contrast
-        0.0f   // threshold
+    SharpenParams sharpen = {
+      false,  // enable
+      3,      // width
+      1.0f,   // contrast
+      0.0f    // threshold
     };
 
-    BilateralFilterParams bilateralFilter = 
-    {
-        false, // enable
-        0,     // distance
-        0.0f,  // sigmaColor
-        0.0f   // sigmaSpace
+    BilateralFilterParams bilateralFilter = {
+      false,  // enable
+      0,      // distance
+      0.0f,   // sigmaColor
+      0.0f    // sigmaSpace
     };
 
-    ClaheFilterParams claheFilter = 
-    {
-        false, // enable
-        4.0f,  // clipLimit
-        8      // tileGridSize
+    ClaheFilterParams claheFilter = {
+      false,  // enable
+      4.0f,   // clipLimit
+      8       // tileGridSize
     };
 
     NoiseFilterParams noise = {
-        false, // enable
-        ENoiseMethod::uniform,  // method
-        0.0f, // A
-        1.0f, // B
-        true // mono
+      false,                  // enable
+      ENoiseMethod::uniform,  // method
+      0.0f,                   // A
+      1.0f,                   // B
+      true                    // mono
     };
 
-    NLMeansFilterParams nlmFilter = 
-    {
-        false, // enable
-        5.0f,  // filterStrength
-        10.0f, // filterStrengthColor
-        7,     // templateWindowSize
-        21     // searchWindowSize
+    NLMeansFilterParams nlmFilter = {
+      false,  // enable
+      5.0f,   // filterStrength
+      10.0f,  // filterStrengthColor
+      7,      // templateWindowSize
+      21      // searchWindowSize
+    };
+
+    pixelAspectRatioParams par = {
+      false,  // enable
+      false,  // rowDecimation
+      1.0f    // value
     };
 };
 
@@ -393,17 +437,18 @@ void undistortVignetting(aliceVision::image::Image<aliceVision::image::RGBAfColo
         const float p1 = -vparam[4];
         const float p2 = vparam[4] * vparam[4] - vparam[5];
         const float p3 = -(vparam[4] * vparam[4] * vparam[4] - 2 * vparam[4] * vparam[5] + vparam[6]);
-        const float p4 = vparam[4] * vparam[4] * vparam[4] * vparam[4] + vparam[5] * vparam[5] + 2 * vparam[4] * vparam[6] - 3 * vparam[4] * vparam[4] * vparam[5];
+        const float p4 =
+          vparam[4] * vparam[4] * vparam[4] * vparam[4] + vparam[5] * vparam[5] + 2 * vparam[4] * vparam[6] - 3 * vparam[4] * vparam[4] * vparam[5];
 
-        #pragma omp parallel for
-        for (int j = 0; j < img.Height(); ++j)
-            for (int i = 0; i < img.Width(); ++i)
+#pragma omp parallel for
+        for (int j = 0; j < img.height(); ++j)
+            for (int i = 0; i < img.width(); ++i)
             {
                 const aliceVision::Vec2 p(i, j);
 
                 aliceVision::Vec2 np;
-                np(0) = ((p(0) / img.Width()) - imageXCenter) / focX;
-                np(1) = ((p(1) / img.Height()) - imageYCenter) / focY;
+                np(0) = ((p(0) / img.width()) - imageXCenter) / focX;
+                np(1) = ((p(1) / img.height()) - imageYCenter) / focY;
 
                 const float rsqr = np(0) * np(0) + np(1) * np(1);
                 const float gain = 1.f + p1 * rsqr + p2 * rsqr * rsqr + p3 * rsqr * rsqr * rsqr + p4 * rsqr * rsqr * rsqr * rsqr;
@@ -418,20 +463,20 @@ void undistortRectilinearGeometryLCP(const aliceVision::image::Image<aliceVision
                                      aliceVision::image::Image<aliceVision::image::RGBAfColor>& img_ud,
                                      const image::RGBAfColor fillcolor)
 {
-    if(!model.isEmpty && model.FocalLengthX != 0.0 && model.FocalLengthY != 0.0)
+    if (!model.isEmpty && model.FocalLengthX != 0.0 && model.FocalLengthY != 0.0)
     {
-        img_ud.resize(img.Width(), img.Height(), true, fillcolor);
+        img_ud.resize(img.width(), img.height(), true, fillcolor);
         const image::Sampler2d<image::SamplerLinear> sampler;
 
-        const float maxWH = std::max(img.Width(), img.Height());
-        const float ppX = model.ImageXCenter * img.Width();
-        const float ppY = model.ImageYCenter * img.Height();
+        const float maxWH = std::max(img.width(), img.height());
+        const float ppX = model.ImageXCenter * img.width();
+        const float ppY = model.ImageYCenter * img.height();
         const float scaleX = model.FocalLengthX * maxWH;
         const float scaleY = model.FocalLengthY * maxWH;
 
-        #pragma omp parallel for
-        for(int v = 0; v < img.Height(); ++v)
-            for(int u = 0; u < img.Width(); ++u)
+#pragma omp parallel for
+        for (int v = 0; v < img.height(); ++v)
+            for (int u = 0; u < img.width(); ++u)
             {
                 // image to camera
                 const float x = (u - ppX) / scaleX;
@@ -445,7 +490,7 @@ void undistortRectilinearGeometryLCP(const aliceVision::image::Image<aliceVision
                 const Vec2 distoPix(xd * scaleX + ppX, yd * scaleY + ppY);
 
                 // pick pixel if it is in the image domain
-                if(img.Contains(distoPix(1), distoPix(0)))
+                if (img.contains(distoPix(1), distoPix(0)))
                 {
                     img_ud(v, u) = sampler(img, distoPix(1), distoPix(0));
                 }
@@ -454,33 +499,35 @@ void undistortRectilinearGeometryLCP(const aliceVision::image::Image<aliceVision
 }
 
 void undistortChromaticAberrations(const aliceVision::image::Image<aliceVision::image::RGBAfColor>& img,
-                                   RectilinearModel& greenModel, RectilinearModel& blueGreenModel,
+                                   RectilinearModel& greenModel,
+                                   RectilinearModel& blueGreenModel,
                                    RectilinearModel& redGreenModel,
                                    aliceVision::image::Image<aliceVision::image::RGBAfColor>& img_ud,
-                                   const image::RGBAfColor fillcolor, bool undistortGeometry = false)
+                                   const image::RGBAfColor fillcolor,
+                                   bool undistortGeometry = false)
 {
-    if(!greenModel.isEmpty && greenModel.FocalLengthX != 0.0 && greenModel.FocalLengthY != 0.0)
+    if (!greenModel.isEmpty && greenModel.FocalLengthX != 0.0 && greenModel.FocalLengthY != 0.0)
     {
-        img_ud.resize(img.Width(), img.Height(), true, fillcolor);
+        img_ud.resize(img.width(), img.height(), true, fillcolor);
         const image::Sampler2d<image::SamplerLinear> sampler;
 
-        const float maxWH = std::max(img.Width(), img.Height());
-        const float ppX = greenModel.ImageXCenter * img.Width();
-        const float ppY = greenModel.ImageYCenter * img.Height();
+        const float maxWH = std::max(img.width(), img.height());
+        const float ppX = greenModel.ImageXCenter * img.width();
+        const float ppY = greenModel.ImageYCenter * img.height();
         const float scaleX = greenModel.FocalLengthX * maxWH;
         const float scaleY = greenModel.FocalLengthY * maxWH;
 
-        #pragma omp parallel for
-        for(int v = 0; v < img.Height(); ++v)
-            for(int u = 0; u < img.Width(); ++u)
+#pragma omp parallel for
+        for (int v = 0; v < img.height(); ++v)
+            for (int u = 0; u < img.width(); ++u)
             {
                 // image to camera
                 const float x = (u - ppX) / scaleX;
                 const float y = (v - ppY) / scaleY;
 
                 // disto
-                float xdRed,ydRed,xdGreen,ydGreen,xdBlue,ydBlue;
-                if(undistortGeometry)
+                float xdRed, ydRed, xdGreen, ydGreen, xdBlue, ydBlue;
+                if (undistortGeometry)
                 {
                     greenModel.distort(x, y, xdGreen, ydGreen);
                 }
@@ -498,15 +545,15 @@ void undistortChromaticAberrations(const aliceVision::image::Image<aliceVision::
                 const Vec2 distoPixBlue(xdBlue * scaleX + ppX, ydBlue * scaleY + ppY);
 
                 // pick pixel if it is in the image domain
-                if(img.Contains(distoPixRed(1), distoPixRed(0)))
+                if (img.contains(distoPixRed(1), distoPixRed(0)))
                 {
                     img_ud(v, u)[0] = sampler(img, distoPixRed(1), distoPixRed(0))[0];
                 }
-                if(img.Contains(distoPixGreen(1), distoPixGreen(0)))
+                if (img.contains(distoPixGreen(1), distoPixGreen(0)))
                 {
                     img_ud(v, u)[1] = sampler(img, distoPixGreen(1), distoPixGreen(0))[1];
                 }
-                if(img.Contains(distoPixBlue(1), distoPixBlue(0)))
+                if (img.contains(distoPixBlue(1), distoPixBlue(0)))
                 {
                     img_ud(v, u)[2] = sampler(img, distoPixBlue(1), distoPixBlue(0))[2];
                 }
@@ -514,8 +561,10 @@ void undistortChromaticAberrations(const aliceVision::image::Image<aliceVision::
     }
 }
 
-void processImage(image::Image<image::RGBAfColor>& image, ProcessingParams& pParams,
-                  std::map<std::string, std::string>& imageMetadata, std::shared_ptr<camera::IntrinsicBase> cam)
+void processImage(image::Image<image::RGBAfColor>& image,
+                  ProcessingParams& pParams,
+                  std::map<std::string, std::string>& imageMetadata,
+                  std::shared_ptr<camera::IntrinsicBase> cam)
 {
     const unsigned int nchannels = 4;
 
@@ -523,7 +572,7 @@ void processImage(image::Image<image::RGBAfColor>& image, ProcessingParams& pPar
     // Note: fill holes needs to fix non-finite values first
     if (pParams.fixNonFinite || pParams.fillHoles)
     {
-        oiio::ImageBuf inBuf(oiio::ImageSpec(image.Width(), image.Height(), nchannels, oiio::TypeDesc::FLOAT), image.data());
+        oiio::ImageBuf inBuf(oiio::ImageSpec(image.width(), image.height(), nchannels, oiio::TypeDesc::FLOAT), image.data());
         int pixelsFixed = 0;
         // Works inplace
         oiio::ImageBufAlgo::fixNonFinite(inBuf, inBuf, oiio::ImageBufAlgo::NonFiniteFixMode::NONFINITE_BOX3, &pixelsFixed);
@@ -545,22 +594,22 @@ void processImage(image::Image<image::RGBAfColor>& image, ProcessingParams& pPar
         {
             const image::RGBAfColor FBLACK_A(.0f, .0f, .0f, 1.0f);
             image::Image<image::RGBAfColor> image_ud;
-            undistortChromaticAberrations(image, pParams.lensCorrection.caGModel, pParams.lensCorrection.caBGModel,
-                                            pParams.lensCorrection.caRGModel, image_ud, FBLACK_A, false);
+            undistortChromaticAberrations(
+              image, pParams.lensCorrection.caGModel, pParams.lensCorrection.caBGModel, pParams.lensCorrection.caRGModel, image_ud, FBLACK_A, false);
             image = image_ud;
         }
-        else if(pParams.lensCorrection.chromaticAberration && pParams.lensCorrection.caGModel.isEmpty)
+        else if (pParams.lensCorrection.chromaticAberration && pParams.lensCorrection.caGModel.isEmpty)
         {
             ALICEVISION_LOG_WARNING("No distortion model available for lens chromatic aberration correction.");
         }
-        
+
         if (pParams.lensCorrection.geometry && cam != NULL && cam->hasDistortion())
         {
             const image::RGBAfColor FBLACK_A(.0f, .0f, .0f, 1.0f);
             image::Image<image::RGBAfColor> image_ud;
             const image::Sampler2d<image::SamplerLinear> sampler;
 
-            image_ud.resize(image.Width(), image.Height(), true, FBLACK_A);
+            image_ud.resize(image.width(), image.height(), true, FBLACK_A);
 
             camera::UndistortImage(image, cam.get(), image_ud, FBLACK_A);
 
@@ -577,19 +626,25 @@ void processImage(image::Image<image::RGBAfColor>& image, ProcessingParams& pPar
     }
 
     const float sfw =
-        (pParams.maxWidth != 0 && pParams.maxWidth < image.Width()) ?
-            static_cast<float>(pParams.maxWidth) / static_cast<float>(image.Width()) : 1.0;
-    const float sfh =
-        (pParams.maxHeight != 0 && pParams.maxHeight < image.Height()) ?
-            static_cast<float>(pParams.maxHeight) / static_cast<float>(image.Height()) : 1.0;
+      (pParams.maxWidth != 0 && pParams.maxWidth < image.width()) ? static_cast<float>(pParams.maxWidth) / static_cast<float>(image.width()) : 1.0;
+    const float sfh = (pParams.maxHeight != 0 && pParams.maxHeight < image.height())
+                        ? static_cast<float>(pParams.maxHeight) / static_cast<float>(image.height())
+                        : 1.0;
     const float scaleFactor = std::min(pParams.scaleFactor, std::min(sfw, sfh));
 
-    if (scaleFactor != 1.0f)
+    if (scaleFactor != 1.0f || pParams.par.enabled)
     {
-        const unsigned int w = image.Width();
-        const unsigned int h = image.Height();
-        const unsigned int nw = static_cast<unsigned int>(floor(static_cast<float>(image.Width()) * scaleFactor));
-        const unsigned int nh = static_cast<unsigned int>(floor(static_cast<float>(image.Height()) * scaleFactor));
+        const bool parRowDecimation = pParams.par.enabled && pParams.par.rowDecimation;
+        const float widthRatio = scaleFactor * ((parRowDecimation || !pParams.par.enabled) ? 1.0 : pParams.par.value);
+        const float heightRatio = scaleFactor * (parRowDecimation ? (1.0 / pParams.par.value) : 1.0);
+
+        ALICEVISION_LOG_TRACE("widthRatio " << widthRatio);
+        ALICEVISION_LOG_TRACE("heightRatio " << heightRatio);
+
+        const unsigned int w = image.width();
+        const unsigned int h = image.height();
+        const unsigned int nw = static_cast<unsigned int>(floor(static_cast<float>(image.width()) * widthRatio));
+        const unsigned int nh = static_cast<unsigned int>(floor(static_cast<float>(image.height()) * heightRatio));
 
         image::Image<image::RGBAfColor> rescaled(nw, nh);
 
@@ -603,10 +658,10 @@ void processImage(image::Image<image::RGBAfColor>& image, ProcessingParams& pPar
 
         image.swap(rescaled);
     }
-    
+
     if ((pParams.reorient) && (imageMetadata.find("Orientation") != imageMetadata.end()))
     {
-        oiio::ImageBuf inBuf(oiio::ImageSpec(image.Width(), image.Height(), nchannels, oiio::TypeDesc::FLOAT), image.data());
+        oiio::ImageBuf inBuf(oiio::ImageSpec(image.width(), image.height(), nchannels, oiio::TypeDesc::FLOAT), image.data());
         inBuf.set_orientation(std::stoi(imageMetadata["Orientation"]));
         oiio::ImageBuf outBuf = oiio::ImageBufAlgo::reorient(inBuf);
 
@@ -627,46 +682,47 @@ void processImage(image::Image<image::RGBAfColor>& image, ProcessingParams& pPar
 
     if (pParams.contrast != 1.0f)
     {
-        image::Image<image::RGBAfColor> filtered(image.Width(), image.Height());
-        const oiio::ImageBuf inBuf(oiio::ImageSpec(image.Width(), image.Height(), nchannels, oiio::TypeDesc::FLOAT), image.data());
-        oiio::ImageBuf outBuf(oiio::ImageSpec(image.Width(), image.Height(), nchannels, oiio::TypeDesc::FLOAT), filtered.data());
+        image::Image<image::RGBAfColor> filtered(image.width(), image.height());
+        const oiio::ImageBuf inBuf(oiio::ImageSpec(image.width(), image.height(), nchannels, oiio::TypeDesc::FLOAT), image.data());
+        oiio::ImageBuf outBuf(oiio::ImageSpec(image.width(), image.height(), nchannels, oiio::TypeDesc::FLOAT), filtered.data());
         oiio::ImageBufAlgo::contrast_remap(outBuf, inBuf, 0.0f, 1.0f, 0.0f, 1.0f, pParams.contrast);
 
         image.swap(filtered);
     }
     if (pParams.medianFilter >= 3)
     {
-        image::Image<image::RGBAfColor> filtered(image.Width(), image.Height());
-        const oiio::ImageBuf inBuf(oiio::ImageSpec(image.Width(), image.Height(), nchannels, oiio::TypeDesc::FLOAT), image.data());
-        oiio::ImageBuf outBuf(oiio::ImageSpec(image.Width(), image.Height(), nchannels, oiio::TypeDesc::FLOAT), filtered.data());
+        image::Image<image::RGBAfColor> filtered(image.width(), image.height());
+        const oiio::ImageBuf inBuf(oiio::ImageSpec(image.width(), image.height(), nchannels, oiio::TypeDesc::FLOAT), image.data());
+        oiio::ImageBuf outBuf(oiio::ImageSpec(image.width(), image.height(), nchannels, oiio::TypeDesc::FLOAT), filtered.data());
         oiio::ImageBufAlgo::median_filter(outBuf, inBuf, pParams.medianFilter);
 
         image.swap(filtered);
     }
     if (pParams.sharpen.enabled)
     {
-        image::Image<image::RGBAfColor> filtered(image.Width(), image.Height());
-        const oiio::ImageBuf inBuf(oiio::ImageSpec(image.Width(), image.Height(), nchannels, oiio::TypeDesc::FLOAT), image.data());
-        oiio::ImageBuf outBuf(oiio::ImageSpec(image.Width(), image.Height(), nchannels, oiio::TypeDesc::FLOAT), filtered.data());
+        image::Image<image::RGBAfColor> filtered(image.width(), image.height());
+        const oiio::ImageBuf inBuf(oiio::ImageSpec(image.width(), image.height(), nchannels, oiio::TypeDesc::FLOAT), image.data());
+        oiio::ImageBuf outBuf(oiio::ImageSpec(image.width(), image.height(), nchannels, oiio::TypeDesc::FLOAT), filtered.data());
         oiio::ImageBufAlgo::unsharp_mask(outBuf, inBuf, "gaussian", pParams.sharpen.width, pParams.sharpen.contrast, pParams.sharpen.threshold);
 
         image.swap(filtered);
     }
-    
+
     if (pParams.bilateralFilter.enabled)
     {
 #if ALICEVISION_IS_DEFINED(ALICEVISION_HAVE_OPENCV)
-            // Create temporary OpenCV Mat (keep only 3 Channels) to handled Eigen data of our image
-            cv::Mat openCVMatIn = image::imageRGBAToCvMatBGR(image, CV_32FC3);
-            cv::Mat openCVMatOut(image.Width(), image.Height(), CV_32FC3);
+        // Create temporary OpenCV Mat (keep only 3 Channels) to handled Eigen data of our image
+        cv::Mat openCVMatIn = image::imageRGBAToCvMatBGR(image, CV_32FC3);
+        cv::Mat openCVMatOut(image.width(), image.height(), CV_32FC3);
 
-            cv::bilateralFilter(openCVMatIn, openCVMatOut, pParams.bilateralFilter.distance, pParams.bilateralFilter.sigmaColor, pParams.bilateralFilter.sigmaSpace);
+        cv::bilateralFilter(
+          openCVMatIn, openCVMatOut, pParams.bilateralFilter.distance, pParams.bilateralFilter.sigmaColor, pParams.bilateralFilter.sigmaSpace);
 
-            // Copy filtered data from openCV Mat(3 channels) to our image(keep the alpha channel unfiltered)
-            image::cvMatBGRToImageRGBA(openCVMatOut, image);
-            
+        // Copy filtered data from openCV Mat(3 channels) to our image(keep the alpha channel unfiltered)
+        image::cvMatBGRToImageRGBA(openCVMatOut, image);
+
 #else
-            throw std::invalid_argument("Unsupported mode! If you intended to use a bilateral filter, please add OpenCV support.");
+        throw std::invalid_argument("Unsupported mode! If you intended to use a bilateral filter, please add OpenCV support.");
 #endif
     }
 
@@ -681,45 +737,46 @@ void processImage(image::Image<image::RGBAfColor>& image, ProcessingParams& pPar
         cv::Mat labImg;
         cv::cvtColor(BGRMat, labImg, cv::COLOR_LBGR2Lab);
 
-        // Extract the L channel 
+        // Extract the L channel
         cv::Mat L;
         cv::extractChannel(labImg, L, 0);
 
         // normalise L channel from [0, 100] to [0, 1]
         std::for_each(L.begin<float>(), L.end<float>(), [](float& pixel) { pixel /= 100.0; });
 
-        // Convert float image to 16bit 
+        // Convert float image to 16bit
         L.convertTo(L, CV_16U, 65535.0);
 
         // apply Clahe algorithm to the L channel
         {
-            const cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(pParams.claheFilter.clipLimit, cv::Size(pParams.claheFilter.tileGridSize, pParams.claheFilter.tileGridSize));
+            const cv::Ptr<cv::CLAHE> clahe =
+              cv::createCLAHE(pParams.claheFilter.clipLimit, cv::Size(pParams.claheFilter.tileGridSize, pParams.claheFilter.tileGridSize));
             clahe->apply(L, L);
         }
 
-        // Convert 16bit image to float 
+        // Convert 16bit image to float
         L.convertTo(L, CV_32F, 1.0 / 65535.0);
 
         // normalise back L channel from [0, 1] to [0, 100]
         std::for_each(L.begin<float>(), L.end<float>(), [](float& pixel) { pixel *= 100.0; });
-        
+
         // Merge back Lab colors channels
         cv::insertChannel(L, labImg, 0);
 
         // Convert Lab format to BGR format
         cv::cvtColor(labImg, BGRMat, cv::COLOR_Lab2LBGR);
 
-        // Copy filtered data from openCV Mat to our alicevision image(keep the alpha channel unfiltered) 
+        // Copy filtered data from openCV Mat to our alicevision image(keep the alpha channel unfiltered)
         image::cvMatBGRToImageRGBA(BGRMat, image);
 #else
-        throw std::invalid_argument( "Unsupported mode! If you intended to use a Clahe filter, please add OpenCV support.");
+        throw std::invalid_argument("Unsupported mode! If you intended to use a Clahe filter, please add OpenCV support.");
 #endif
     }
     if (pParams.fillHoles)
     {
-        image::Image<image::RGBAfColor> filtered(image.Width(), image.Height());
-        oiio::ImageBuf inBuf(oiio::ImageSpec(image.Width(), image.Height(), nchannels, oiio::TypeDesc::FLOAT), image.data());
-        oiio::ImageBuf outBuf(oiio::ImageSpec(image.Width(), image.Height(), nchannels, oiio::TypeDesc::FLOAT), filtered.data());
+        image::Image<image::RGBAfColor> filtered(image.width(), image.height());
+        oiio::ImageBuf inBuf(oiio::ImageSpec(image.width(), image.height(), nchannels, oiio::TypeDesc::FLOAT), image.data());
+        oiio::ImageBuf outBuf(oiio::ImageSpec(image.width(), image.height(), nchannels, oiio::TypeDesc::FLOAT), filtered.data());
 
         // Premult necessary to ensure that the fill holes works as expected
         oiio::ImageBufAlgo::premult(inBuf, inBuf);
@@ -729,8 +786,8 @@ void processImage(image::Image<image::RGBAfColor>& image, ProcessingParams& pPar
     }
 
     if (pParams.noise.enabled)
-    {   
-        oiio::ImageBuf inBuf(oiio::ImageSpec(image.Width(), image.Height(), nchannels, oiio::TypeDesc::FLOAT), image.data());
+    {
+        oiio::ImageBuf inBuf(oiio::ImageSpec(image.width(), image.height(), nchannels, oiio::TypeDesc::FLOAT), image.data());
         oiio::ImageBufAlgo::noise(inBuf, ENoiseMethod_enumToString(pParams.noise.method), pParams.noise.A, pParams.noise.B, pParams.noise.mono);
     }
 
@@ -739,18 +796,20 @@ void processImage(image::Image<image::RGBAfColor>& image, ProcessingParams& pPar
 #if ALICEVISION_IS_DEFINED(ALICEVISION_HAVE_OPENCV)
         // Create temporary OpenCV Mat (keep only 3 channels) to handle Eigen data of our image
         cv::Mat openCVMatIn = image::imageRGBAToCvMatBGR(image, CV_8UC3);
-        cv::Mat openCVMatOut(image.Width(), image.Height(), CV_8UC3);
+        cv::Mat openCVMatOut(image.width(), image.height(), CV_8UC3);
 
-        cv::fastNlMeansDenoisingColored(openCVMatIn, openCVMatOut, pParams.nlmFilter.filterStrength,
-                                        pParams.nlmFilter.filterStrengthColor, pParams.nlmFilter.templateWindowSize,
+        cv::fastNlMeansDenoisingColored(openCVMatIn,
+                                        openCVMatOut,
+                                        pParams.nlmFilter.filterStrength,
+                                        pParams.nlmFilter.filterStrengthColor,
+                                        pParams.nlmFilter.templateWindowSize,
                                         pParams.nlmFilter.searchWindowSize);
 
         // Copy filtered data from OpenCV Mat(3 channels) to our image (keep the alpha channel unfiltered)
         image::cvMatBGRToImageRGBA(openCVMatOut, image);
 
 #else
-        throw std::invalid_argument(
-            "Unsupported mode! If you intended to use a non-local means filter, please add OpenCV support.");
+        throw std::invalid_argument("Unsupported mode! If you intended to use a non-local means filter, please add OpenCV support.");
 #endif
     }
 
@@ -771,8 +830,7 @@ void processImage(image::Image<image::RGBAfColor>& image, ProcessingParams& pPar
 
             ALICEVISION_LOG_INFO("Matrix Number : " << colorMatrixNb << " ; " << fwdMatrixNb);
 
-            dcpMetadataOK = !((colorMatrixNb == 0) ||
-                              ((colorMatrixNb > 0) && !map_has_non_empty_value(imageMetadata, "AliceVision:DCP:ColorMat1")) ||
+            dcpMetadataOK = !((colorMatrixNb == 0) || ((colorMatrixNb > 0) && !map_has_non_empty_value(imageMetadata, "AliceVision:DCP:ColorMat1")) ||
                               ((colorMatrixNb > 1) && !map_has_non_empty_value(imageMetadata, "AliceVision:DCP:ColorMat2")) ||
                               ((fwdMatrixNb > 0) && !map_has_non_empty_value(imageMetadata, "AliceVision:DCP:ForwardMat1")) ||
                               ((fwdMatrixNb > 1) && !map_has_non_empty_value(imageMetadata, "AliceVision:DCP:ForwardMat2")));
@@ -812,7 +870,8 @@ void processImage(image::Image<image::RGBAfColor>& image, ProcessingParams& pPar
             dcpProf.setMatricesFromStrings("forward", v_str);
         }
 
-        std::string cam_mul = map_has_non_empty_value(imageMetadata, "raw:cam_mul") ? imageMetadata.at("raw:cam_mul") : imageMetadata.at("AliceVision:raw:cam_mul");
+        std::string cam_mul =
+          map_has_non_empty_value(imageMetadata, "raw:cam_mul") ? imageMetadata.at("raw:cam_mul") : imageMetadata.at("AliceVision:raw:cam_mul");
         std::vector<float> v_mult;
         size_t last = 0;
         size_t next = 1;
@@ -850,26 +909,31 @@ void processImage(image::Image<image::RGBAfColor>& image, ProcessingParams& pPar
     }
 }
 
-void saveImage(image::Image<image::RGBAfColor>& image, const std::string& inputPath, const std::string& outputPath, std::map<std::string, std::string> inputMetadata,
-               const std::vector<std::string>& metadataFolders, const EImageFormat outputFormat, const image::ImageWriteOptions options)
+void saveImage(image::Image<image::RGBAfColor>& image,
+               const std::string& inputPath,
+               const std::string& outputPath,
+               std::map<std::string, std::string> inputMetadata,
+               const std::vector<std::string>& metadataFolders,
+               const EImageFormat outputFormat,
+               const image::ImageWriteOptions options)
 {
     // Read metadata path
     std::string metadataFilePath;
-    
+
     const std::string filename = fs::path(inputPath).filename().string();
     const std::string outExtension = boost::to_lower_copy(fs::path(outputPath).extension().string());
     const bool isEXR = (outExtension == ".exr");
     oiio::ParamValueList metadata;
-    
-    if (!inputMetadata.empty()) // If metadata are provided as input
+
+    if (!inputMetadata.empty())  // If metadata are provided as input
     {
         // metadata name in "raw" domain must be updated otherwise values are discarded by oiio when writing exr format
         // we want to propagate them so we replace the domain "raw" with "AliceVision:raw"
-        for (const auto & meta : inputMetadata)
+        for (const auto& meta : inputMetadata)
         {
             if (meta.first.compare(0, 3, "raw") == 0)
             {
-                metadata.add_or_replace(oiio::ParamValue("AliceVision:"+meta.first, meta.second));
+                metadata.add_or_replace(oiio::ParamValue("AliceVision:" + meta.first, meta.second));
             }
             else
             {
@@ -877,26 +941,22 @@ void saveImage(image::Image<image::RGBAfColor>& image, const std::string& inputP
             }
         }
     }
-    else if (!metadataFolders.empty()) // If metadataFolders is specified
+    else if (!metadataFolders.empty())  // If metadataFolders is specified
     {
         // The file must match the file name and extension to be used as a metadata replacement.
-        const std::vector<std::string> metadataFilePaths = utils::getFilesPathsFromFolders(
-            metadataFolders, [&filename](const boost::filesystem::path& path)
-            {
-                return path.filename().string() == filename;
-            }
-        );
+        const std::vector<std::string> metadataFilePaths =
+          utils::getFilesPathsFromFolders(metadataFolders, [&filename](const fs::path& path) { return path.filename().string() == filename; });
 
-        if(metadataFilePaths.size() > 1)
+        if (metadataFilePaths.size() > 1)
         {
             ALICEVISION_LOG_ERROR("Ambiguous case: Multiple path corresponding to this file was found for metadata replacement.");
             throw std::invalid_argument("Ambiguous case: Multiple path corresponding to this file was found for metadata replacement");
         }
 
-        if(metadataFilePaths.empty())
+        if (metadataFilePaths.empty())
         {
-            ALICEVISION_LOG_WARNING("Metadata folders was specified but there is no matching for this image: "<< filename
-                                    << ". The default metadata will be used instead for this image.");
+            ALICEVISION_LOG_WARNING("Metadata folders was specified but there is no matching for this image: "
+                                    << filename << ". The default metadata will be used instead for this image.");
             metadataFilePath = inputPath;
         }
         else
@@ -914,27 +974,27 @@ void saveImage(image::Image<image::RGBAfColor>& image, const std::string& inputP
 
     // Save image
     ALICEVISION_LOG_TRACE("Export image: '" << outputPath << "'.");
-    
-    if(outputFormat == EImageFormat::Grayscale)
+
+    if (outputFormat == EImageFormat::Grayscale)
     {
         image::Image<float> outputImage;
         image::ConvertPixelType(image, &outputImage);
         image::writeImage(outputPath, outputImage, options, metadata);
     }
-    else if(outputFormat == EImageFormat::RGB)
+    else if (outputFormat == EImageFormat::RGB)
     {
         image::Image<image::RGBfColor> outputImage;
         image::ConvertPixelType(image, &outputImage);
         image::writeImage(outputPath, outputImage, options, metadata);
     }
-    else 
+    else
     {
         // Already in RGBAf
         image::writeImage(outputPath, image, options, metadata);
     }
 }
 
-int aliceVision_main(int argc, char * argv[])
+int aliceVision_main(int argc, char* argv[])
 {
     std::string inputExpression;
     std::vector<std::string> inputFolders;
@@ -964,15 +1024,16 @@ int aliceVision_main(int argc, char * argv[])
 
     ProcessingParams pParams;
 
+    // clang-format off
     po::options_description requiredParams("Required parameters");
     requiredParams.add_options()
         ("input,i", po::value<std::string>(&inputExpression)->default_value(inputExpression),
-         "SfMData file input, image filenames or regex(es) on the image file path (supported regex: '#' matches a single digit, '@' one or more digits, '?' one character and '*' zero or more).")
+         "SfMData file input, image filenames or regex(es) on the image file path (supported regex: '#' matches a "
+         "single digit, '@' one or more digits, '?' one character and '*' zero or more).")
         ("inputFolders", po::value<std::vector<std::string>>(&inputFolders)->multitoken(),
-        "Use images from specific folder(s) instead of those specify in the SfMData file.")
+         "Use images from specific folder(s) instead of those specify in the SfMData file.")
         ("output,o", po::value<std::string>(&outputPath)->required(),
-         "Output folder or output image if a single image is given as input.")
-        ;
+         "Output folder or output image if a single image is given as input.");
 
     po::options_description optionalParams("Optional parameters");
     optionalParams.add_options()
@@ -1004,14 +1065,14 @@ int aliceVision_main(int argc, char * argv[])
          "Exposure Adjustment in fstops limited to the range from -2 to +3 fstops.")
 
         ("rawAutoBright", po::value<bool>(&pParams.rawAutoBright)->default_value(pParams.rawAutoBright),
-         "Enable automatic exposure adjustment for raw images.")
+         "Enable automatic exposure adjustment for RAW images.")
 
         ("lensCorrection", po::value<LensCorrectionParams>(&pParams.lensCorrection)->default_value(pParams.lensCorrection),
-            "Lens Correction parameters:\n"
-            " * Enabled: Use automatic lens correction.\n"
-            " * Geometry: For geometry if a model is available in sfm data.\n"
-            " * Vignetting: For vignetting if model parameters is available in metadata.\n "
-            " * Chromatic Aberration: For chromatic aberration (fringing) if model parameters is available in metadata.")
+         "Lens Correction parameters:\n"
+         " * Enabled: Use automatic lens correction.\n"
+         " * Geometry: For geometry if a model is available in SfM data.\n"
+         " * Vignetting: For vignetting if model parameters is available in metadata.\n "
+         " * Chromatic Aberration: For chromatic aberration (fringing) if model parameters is available in metadata.")
 
         ("contrast", po::value<float>(&pParams.contrast)->default_value(pParams.contrast),
          "Contrast Factor (1.0: no change).")
@@ -1020,45 +1081,56 @@ int aliceVision_main(int argc, char * argv[])
          "Median Filter (0: no filter).")
 
         ("sharpenFilter", po::value<SharpenParams>(&pParams.sharpen)->default_value(pParams.sharpen),
-            "Sharpen Filter parameters:\n"
-            " * Enabled: Use Sharpen.\n"
-            " * Width: Sharpen kernel width.\n"
-            " * Contrast: Sharpen contrast value.\n "
-            " * Threshold: Threshold for minimal variation for contrast to avoid sharpening of small noise (0.0: no noise threshold).")
+         "Sharpen Filter parameters:\n"
+         " * Enabled: Use Sharpen.\n"
+         " * Width: Sharpen kernel width.\n"
+         " * Contrast: Sharpen contrast value.\n "
+         " * Threshold: Threshold for minimal variation for contrast to avoid sharpening of small noise (0.0: no noise threshold).")
 
         ("fillHoles", po::value<bool>(&pParams.fillHoles)->default_value(pParams.fillHoles),
          "Fill Holes.")
 
         ("bilateralFilter", po::value<BilateralFilterParams>(&pParams.bilateralFilter)->default_value(pParams.bilateralFilter),
-            "Bilateral Filter parameters:\n"
-            " * Enabled: Use bilateral Filter.\n"
-            " * Distance: Diameter of each pixel neighborhood that is used during filtering (if <=0 is computed proportionaly from sigmaSpace).\n"
-            " * SigmaSpace: Filter sigma in the coordinate space.\n "
-            " * SigmaColor: Filter sigma in the color space.")
+         "Bilateral Filter parameters:\n"
+         " * Enabled: Use bilateral filter.\n"
+         " * Distance: Diameter of each pixel neighborhood that is used during filtering (if <= 0, it is computed "
+         "proportionally from sigmaSpace).\n"
+         " * SigmaSpace: Filter sigma in the coordinate space.\n "
+         " * SigmaColor: Filter sigma in the color space.")
 
         ("claheFilter", po::value<ClaheFilterParams>(&pParams.claheFilter)->default_value(pParams.claheFilter),
-            "Sharpen Filter parameters:\n"
-            " * Enabled: Use Contrast Limited Adaptive Histogram Equalization (CLAHE).\n"
-            " * ClipLimit: Sets Threshold For Contrast Limiting.\n"
-            " * TileGridSize: Sets Size Of Grid For Histogram Equalization. Input Image Will Be Divided Into Equally Sized Rectangular Tiles.")
+         "Sharpen Filter parameters:\n"
+         " * Enabled: Use Contrast Limited Adaptive Histogram Equalization (CLAHE).\n"
+         " * ClipLimit: Sets threshold for contrast limiting.\n"
+         " * TileGridSize: Sets size of grid for histogram equalization. Input image will be divided into equally "
+         "sized rectangular tiles.")
 
         ("noiseFilter", po::value<NoiseFilterParams>(&pParams.noise)->default_value(pParams.noise),
-            "Noise Filter parameters:\n"
-            " * Enabled: Add Noise.\n"
-            " * method: There are several noise types to choose from:\n"
-            "    - uniform: adds noise values uninformly distributed on range [A,B).\n"
-            "    - gaussian: adds Gaussian (normal distribution) noise values with mean value A and standard deviation B.\n"
-            "    - salt: changes to value A a portion of pixels given by B.\n"
-            " * A, B: parameters that have a different interpretation depending on the method chosen.\n"
-            " * mono: If is true, a single noise value will be applied to all channels otherwise a separate noise value will be computed for each channel.")
+         "Noise Filter parameters:\n"
+         " * Enabled: Add noise.\n"
+         " * method: There are several noise types to choose from:\n"
+         "    - uniform: adds noise values uninformly distributed on range [A,B).\n"
+         "    - gaussian: adds Gaussian (normal distribution) noise values with mean value A and standard deviation B.\n"
+         "    - salt: changes to value A a portion of pixels given by B.\n"
+         " * A, B: parameters that have a different interpretation depending on the method chosen.\n"
+         " * mono: If is true, a single noise value will be applied to all channels otherwise a separate noise value "
+         "will be computed for each channel.")
 
         ("nlmFilter", po::value<NLMeansFilterParams>(&pParams.nlmFilter)->default_value(pParams.nlmFilter),
-            "Non local means Filter parameters:\n"
-            " * Enabled: Use non local means Filter.\n"
-            " * H: Parameter regulating filter strength. Bigger H value perfectly removes noise but also removes image details, smaller H value preserves details but also preserves some noise.\n"
-            " * HColor: Parameter regulating filter strength for color images only. Normally same as Filtering Parameter H. Not necessary for grayscale images\n "
-            " * templateWindowSize: Size in pixels of the template patch that is used to compute weights. Should be odd. \n"
-            " * searchWindowSize:Size in pixels of the window that is used to compute weighted average for given pixel. Should be odd. Affect performance linearly: greater searchWindowsSize - greater denoising time.")
+         "Non-local means filter parameters:\n"
+         " * Enabled: Use non-local means filter.\n"
+         " * H: Parameter regulating filter strength. Bigger H value perfectly removes noise but also removes image "
+         "details, smaller H value preserves details but also preserves some noise.\n"
+         " * HColor: Parameter regulating filter strength for color images only. Normally same as Filtering "
+         "Parameter H. Not necessary for grayscale images.\n "
+         " * templateWindowSize: Size in pixels of the template patch that is used to compute weights. Should be odd.\n"
+         " * searchWindowSize: Size in pixels of the window that is used to compute weighted average for a given pixel. "
+         "Should be odd. Affects performance linearly: greater searchWindowsSize - greater denoising time.")
+
+        ("parFilter", po::value<pixelAspectRatioParams>(&pParams.par)->default_value(pParams.par),
+         "Pixel Aspect Ratio parameters:\n"
+         " * Enabled: Apply pixel aspect ratio.\n"
+         " * RowDecimation: Decimate rows (reduce image height) instead of upsampling columns (increase image width).")
 
         ("inputColorSpace", po::value<image::EImageColorSpace>(&inputColorSpace)->default_value(inputColorSpace),
          ("Input image color space: " + image::EImageColorSpace_informations()).c_str())
@@ -1067,29 +1139,33 @@ int aliceVision_main(int argc, char * argv[])
          ("Working color space: " + image::EImageColorSpace_informations()).c_str())
 
         ("outputFormat", po::value<EImageFormat>(&outputFormat)->default_value(outputFormat),
-         "Output image format (rgba, rgb, grayscale)")
+         "Output image format (rgba, rgb, grayscale).")
 
         ("outputColorSpace", po::value<image::EImageColorSpace>(&outputColorSpace)->default_value(outputColorSpace),
-            ("Output color space: " + image::EImageColorSpace_informations()).c_str())
+         ("Output color space: " + image::EImageColorSpace_informations()).c_str())
 
         ("rawColorInterpretation", po::value<image::ERawColorInterpretation>(&rawColorInterpretation)->default_value(rawColorInterpretation),
-            ("RAW color interpretation: " + image::ERawColorInterpretation_informations() + "\ndefault : DcpLinearProcessing").c_str())
+         ("RAW color interpretation: " + image::ERawColorInterpretation_informations() + "\n"
+         "Default: DcpLinearProcessing").c_str())
 
         ("applyDcpMetadata", po::value<bool>(&pParams.applyDcpMetadata)->default_value(pParams.applyDcpMetadata),
-         "Apply after all processings a linear dcp profile generated from the image DCP metadata if any")
+         "Apply after all processings a linear DCP profile generated from the image DCP metadata if any.")
 
         ("colorProfileDatabase,c", po::value<std::string>(&colorProfileDatabaseDirPath)->default_value(""),
          "DNG Color Profiles (DCP) database path.")
 
         ("errorOnMissingColorProfile", po::value<bool>(&errorOnMissingColorProfile)->default_value(errorOnMissingColorProfile),
-         "Rise an error if a DCP color profiles database is specified but no DCP file matches with the camera model (maker+name) extracted from metadata (Only for raw images)")
+         "Rise an error if a DCP color profiles database is specified but no DCP file matches with the camera model "
+         "(maker + name) extracted from metadata (only for RAW images).")
 
         ("useDCPColorMatrixOnly", po::value<bool>(&useDCPColorMatrixOnly)->default_value(useDCPColorMatrixOnly),
-         "Use only Color matrices of DCP profile, ignoring Forward matrices if any.  Default: False.\n"
-         "In case white balancing has been done before demosaicing, the reverse operation is done before applying the color matrix.")
+         "Use only color matrices of DCP profile, ignoring forward matrices if any. Default: False.\n"
+         "In case white balancing has been done before demosaicing, the reverse operation is done before applying "
+         "the color matrix.")
 
         ("doWBAfterDemosaicing", po::value<bool>(&doWBAfterDemosaicing)->default_value(doWBAfterDemosaicing),
-         "Do not use libRaw white balancing. White balancing is applied just before DCP profile if useDCPColorMatrixOnly is set to False. Default: False.")
+         "Do not use libRaw white balancing. White balancing is applied just before DCP profile if "
+         "useDCPColorMatrixOnly is set to False. Default: False.")
 
         ("demosaicingAlgo", po::value<std::string>(&demosaicingAlgo)->default_value(demosaicingAlgo),
          "Demosaicing algorithm (see libRaw documentation).\n"
@@ -1103,7 +1179,7 @@ int aliceVision_main(int argc, char * argv[])
          "Lens Correction Profile filepath or database directory path.")
             
         ("lensCorrectionProfileSearchIgnoreCameraModel", po::value<bool>(&lensCorrectionProfileSearchIgnoreCameraModel)->default_value(lensCorrectionProfileSearchIgnoreCameraModel),
-         "Automatic LCP Search considers only the camera maker and the lens name")
+         "Automatic LCP Search considers only the camera maker and the lens name.")
 
         ("correlatedColorTemperature", po::value<double>(&correlatedColorTemperature)->default_value(correlatedColorTemperature),
          "Correlated Color Temperature in Kelvin of scene illuminant.\n"
@@ -1134,8 +1210,8 @@ int aliceVision_main(int argc, char * argv[])
          "JPEG quality after compression (between 0 and 100).")
 
         ("extension", po::value<std::string>(&extension)->default_value(extension),
-         "Output image extension (like exr, or empty to keep the source file format.")
-        ;
+         "Output image extension (like exr, or empty to keep the source file format.");
+    // clang-format on
 
     CmdLine cmdline("AliceVision imageProcessing");
     cmdline.add(requiredParams);
@@ -1146,17 +1222,16 @@ int aliceVision_main(int argc, char * argv[])
     }
 
     // check user choose at least one input option
-    if(inputExpression.empty() && inputFolders.empty())
+    if (inputExpression.empty() && inputFolders.empty())
     {
         ALICEVISION_LOG_ERROR("Program need at least --input or --inputFolders option." << std::endl << "No input images here.");
         return EXIT_FAILURE;
     }
 
 #if !ALICEVISION_IS_DEFINED(ALICEVISION_HAVE_OPENCV)
-    if(pParams.bilateralFilter.enabled || pParams.claheFilter.enabled || pParams.nlmFilter.enabled)
+    if (pParams.bilateralFilter.enabled || pParams.claheFilter.enabled || pParams.nlmFilter.enabled)
     {
-        ALICEVISION_LOG_ERROR(
-            "Invalid option: BilateralFilter, claheFilter and nlmFilter can't be used without openCV !");
+        ALICEVISION_LOG_ERROR("Invalid option: BilateralFilter, claheFilter and nlmFilter can't be used without openCV !");
         return EXIT_FAILURE;
     }
 #endif
@@ -1170,10 +1245,10 @@ int aliceVision_main(int argc, char * argv[])
     // Check if sfmInputDataFilename exist and is recognized as sfm data file
     const std::string inputExt = boost::to_lower_copy(fs::path(inputExpression).extension().string());
     static const std::array<std::string, 2> sfmSupportedExtensions = {".sfm", ".abc"};
-    if(!inputExpression.empty() && std::find(sfmSupportedExtensions.begin(), sfmSupportedExtensions.end(), inputExt) != sfmSupportedExtensions.end())
+    if (!inputExpression.empty() && std::find(sfmSupportedExtensions.begin(), sfmSupportedExtensions.end(), inputExt) != sfmSupportedExtensions.end())
     {
         sfmData::SfMData sfmData;
-        if (!sfmDataIO::Load(sfmData, inputExpression, sfmDataIO::ALL))
+        if (!sfmDataIO::load(sfmData, inputExpression, sfmDataIO::ALL))
         {
             ALICEVISION_LOG_ERROR("The input SfMData file '" << inputExpression << "' cannot be read.");
             return EXIT_FAILURE;
@@ -1184,30 +1259,31 @@ int aliceVision_main(int argc, char * argv[])
 
         const bool checkInputFolders = !inputFolders.empty();
         // Iterate over all views
-        for(const auto& viewIt : sfmData.getViews())
+        for (const auto& viewIt : sfmData.getViews())
         {
             const sfmData::View& view = *(viewIt.second);
             // Only valid views if needed
-            if(pParams.reconstructedViewsOnly && !sfmData.isPoseAndIntrinsicDefined(&view))
+            if (pParams.reconstructedViewsOnly && !sfmData.isPoseAndIntrinsicDefined(&view))
             {
                 continue;
             }
             // if inputFolders are used
-            if(checkInputFolders)
+            if (checkInputFolders)
             {
                 const std::vector<std::string> foundViewPaths = sfmDataIO::viewPathsFromFolders(view, inputFolders);
 
                 // Checks if a file associated with a given view is found in the inputfolders
-                if(foundViewPaths.empty())
+                if (foundViewPaths.empty())
                 {
                     ALICEVISION_LOG_ERROR("Some views from SfmData cannot be found in folders passed in the parameters.\n"
-                        << "Use only SfmData input, use reconstructedViewsOnly or specify the correct inputFolders.");
+                                          << "Use only SfmData input, use reconstructedViewsOnly or specify the correct inputFolders.");
                     return EXIT_FAILURE;
                 }
-                else if(foundViewPaths.size() > 1)
+                else if (foundViewPaths.size() > 1)
                 {
-                    ALICEVISION_LOG_ERROR("Ambiguous case: Multiple paths found in input folders for the corresponding view '" << view.getViewId() << "'.\n"
-                        << "Make sure that only one match can be found in input folders.");
+                    ALICEVISION_LOG_ERROR("Ambiguous case: Multiple paths found in input folders for the corresponding view '"
+                                          << view.getViewId() << "'.\n"
+                                          << "Make sure that only one match can be found in input folders.");
                     return EXIT_FAILURE;
                 }
 
@@ -1225,7 +1301,7 @@ int aliceVision_main(int argc, char * argv[])
         const int size = ViewPaths.size();
         int i = 0;
 
-        for(auto& viewIt : ViewPaths)
+        for (auto& viewIt : ViewPaths)
         {
             const IndexT viewId = viewIt.first;
             const std::string viewPath = viewIt.second;
@@ -1237,7 +1313,8 @@ int aliceVision_main(int argc, char * argv[])
             const std::string fileName = fsPath.stem().string();
             const std::string fileExt = fsPath.extension().string();
             const std::string outputExt = extension.empty() ? (isRAW ? ".exr" : fileExt) : (std::string(".") + extension);
-            const std::string outputfilePath = (fs::path(outputPath) / ((pParams.keepImageFilename ? fileName : std::to_string(viewId)) + outputExt)).generic_string();
+            const std::string outputfilePath =
+              (fs::path(outputPath) / ((pParams.keepImageFilename ? fileName : std::to_string(viewId)) + outputExt)).generic_string();
 
             ALICEVISION_LOG_INFO(++i << "/" << size << " - Process view '" << viewId << "'.");
 
@@ -1298,27 +1375,26 @@ int aliceVision_main(int argc, char * argv[])
             if (pParams.lensCorrection.enabled && pParams.lensCorrection.chromaticAberration)
             {
                 std::vector<float> caGParams, caBGParams, caRGParams;
-                view.getImage().getChromaticAberrationParams(caGParams,caBGParams,caRGParams);
+                view.getImage().getChromaticAberrationParams(caGParams, caBGParams, caRGParams);
 
                 pParams.lensCorrection.caGModel.init3(caGParams);
                 pParams.lensCorrection.caBGModel.init3(caBGParams);
                 pParams.lensCorrection.caRGModel.init3(caRGParams);
 
-                if(pParams.lensCorrection.caGModel.FocalLengthX == 0.0)
+                if (pParams.lensCorrection.caGModel.FocalLengthX == 0.0)
                 {
                     float sensorWidth = view.getImage().getSensorWidth();
                     pParams.lensCorrection.caGModel.FocalLengthX = view.getImage().getWidth() * view.getImage().getMetadataFocalLength() /
                                                                    sensorWidth / std::max(view.getImage().getWidth(), view.getImage().getHeight());
                 }
-                if(pParams.lensCorrection.caGModel.FocalLengthY == 0.0)
+                if (pParams.lensCorrection.caGModel.FocalLengthY == 0.0)
                 {
                     float sensorHeight = view.getImage().getSensorHeight();
                     pParams.lensCorrection.caGModel.FocalLengthY = view.getImage().getHeight() * view.getImage().getMetadataFocalLength() /
                                                                    sensorHeight / std::max(view.getImage().getWidth(), view.getImage().getHeight());
                 }
 
-                if((pParams.lensCorrection.caGModel.FocalLengthX <= 0.0) ||
-                   (pParams.lensCorrection.caGModel.FocalLengthY <= 0.0))
+                if ((pParams.lensCorrection.caGModel.FocalLengthX <= 0.0) || (pParams.lensCorrection.caGModel.FocalLengthY <= 0.0))
                 {
                     pParams.lensCorrection.caGModel.reset();
                     pParams.lensCorrection.caBGModel.reset();
@@ -1340,7 +1416,7 @@ int aliceVision_main(int argc, char * argv[])
 
                 ALICEVISION_LOG_INFO("View: " << viewId << ", Ev: " << ev << ", Ev compensation: " << compensationFactor);
 
-                for (int i = 0; i < image.Width() * image.Height(); ++i)
+                for (int i = 0; i < image.width() * image.height(); ++i)
                 {
                     image(i)[0] *= compensationFactor;
                     image(i)[1] *= compensationFactor;
@@ -1352,6 +1428,11 @@ int aliceVision_main(int argc, char * argv[])
             std::shared_ptr<camera::IntrinsicBase> cam = iterIntrinsic->second;
 
             std::map<std::string, std::string> viewMetadata = view.getImage().getMetadata();
+
+            if (pParams.par.enabled)
+            {
+                pParams.par.value = cam->getParams()[1] / cam->getParams()[0];
+            }
 
             // Image processing
             processImage(image, pParams, viewMetadata, cam);
@@ -1381,18 +1462,18 @@ int aliceVision_main(int argc, char * argv[])
 
             // Update view for this modification
             view.getImage().setImagePath(outputfilePath);
-            view.getImage().setWidth(image.Width());
-            view.getImage().setHeight(image.Height());
+            view.getImage().setWidth(image.width());
+            view.getImage().setHeight(image.height());
             view.getImage().addMetadata("AliceVision:ColorSpace", image::EImageColorSpace_enumToString(outputColorSpace));
             if (viewMetadata.find("Orientation") != viewMetadata.end())
                 view.getImage().addMetadata("Orientation", viewMetadata.at("Orientation"));
 
-            if (image.Width() != cam->w()) // The image has been rotated by automatic reorientation 
+            if (pParams.reorient && image.width() != cam->w() && image.width() == cam->h())  // The image has been rotated by automatic reorientation
             {
                 camera::IntrinsicBase* cam2 = cam->clone();
 
-                cam2->setWidth(image.Width());
-                cam2->setHeight(image.Height());
+                cam2->setWidth(image.width());
+                cam2->setHeight(image.height());
                 double sensorWidth = cam->sensorWidth();
                 cam2->setSensorWidth(cam->sensorHeight());
                 cam2->setSensorHeight(sensorWidth);
@@ -1403,17 +1484,21 @@ int aliceVision_main(int argc, char * argv[])
             }
         }
 
-        if (pParams.scaleFactor != 1.0f)
+        if ((pParams.scaleFactor != 1.0f) || (pParams.par.enabled && pParams.par.value != 1.0))
         {
-            for (auto & i : sfmData.getIntrinsics())
+            const bool parRowDecimation = pParams.par.enabled && pParams.par.rowDecimation;
+
+            const float scaleFactorW = pParams.scaleFactor * ((!pParams.par.enabled || parRowDecimation) ? 1.0 : pParams.par.value);
+            const float scaleFactorH = pParams.scaleFactor * (parRowDecimation ? (1.0 / pParams.par.value) : 1.0);
+            for (auto& i : sfmData.getIntrinsics())
             {
-                i.second->rescale(pParams.scaleFactor);
+                i.second->rescale(scaleFactorW, scaleFactorH);
             }
         }
 
         // Save sfmData with modified path to images
         const std::string sfmfilePath = (fs::path(outputPath) / fs::path(inputExpression).filename()).generic_string();
-        if(!sfmDataIO::Save(sfmData, sfmfilePath, sfmDataIO::ESfMData(sfmDataIO::ALL)))
+        if (!sfmDataIO::save(sfmData, sfmfilePath, sfmDataIO::ESfMData(sfmDataIO::ALL)))
         {
             ALICEVISION_LOG_ERROR("The output SfMData file '" << sfmfilePath << "' cannot be written.");
             return EXIT_FAILURE;
@@ -1425,22 +1510,21 @@ int aliceVision_main(int argc, char * argv[])
         std::vector<std::string> filesStrPaths;
 
         // If sfmInputDataFilename is empty use imageFolders instead
-        if(inputExpression.empty())
+        if (inputExpression.empty())
         {
             // Get supported files
-            filesStrPaths = utils::getFilesPathsFromFolders(inputFolders, [](const boost::filesystem::path& path) {
-                return image::isSupported(path.extension().string());
-            });
+            filesStrPaths =
+              utils::getFilesPathsFromFolders(inputFolders, [](const fs::path& path) { return image::isSupported(path.extension().string()); });
         }
         else
         {
             // If you try to use both a regex-like filter expression and folders as input
-            if(!inputFolders.empty())
+            if (!inputFolders.empty())
             {
                 ALICEVISION_LOG_WARNING("InputFolders and filter expression cannot be used at the same time, InputFolders are ignored here.");
             }
 
-            if(fs::is_regular_file(inputPath))
+            if (fs::is_regular_file(inputPath))
             {
                 filesStrPaths.push_back(inputPath.string());
             }
@@ -1450,17 +1534,15 @@ int aliceVision_main(int argc, char * argv[])
 
                 const std::regex regex = utils::filterToRegex(inputExpression);
                 // Get supported files in inputPath directory which matches our regex filter
-                filesStrPaths = utils::getFilesPathsFromFolder(inputPath.parent_path().generic_string(), 
-                    [&regex](const boost::filesystem::path& path) {
-                        return image::isSupported(path.extension().string()) && std::regex_match(path.generic_string(), regex);
-                    }
-                );
+                filesStrPaths = utils::getFilesPathsFromFolder(inputPath.parent_path().generic_string(), [&regex](const fs::path& path) {
+                    return image::isSupported(path.extension().string()) && std::regex_match(path.generic_string(), regex);
+                });
             }
         }
 
         const int size = filesStrPaths.size();
 
-        if(!size)
+        if (!size)
         {
             ALICEVISION_LOG_ERROR("Any images was found.");
             ALICEVISION_LOG_ERROR("Input folders or input expression '" << inputExpression << "' may be incorrect ?");
@@ -1483,8 +1565,7 @@ int aliceVision_main(int argc, char * argv[])
                 const auto root = image::getAliceVisionRoot();
                 if (root.empty())
                 {
-                    ALICEVISION_LOG_WARNING(
-                        "ALICEVISION_ROOT is not defined, default sensor database cannot be accessed.");
+                    ALICEVISION_LOG_WARNING("ALICEVISION_ROOT is not defined, default sensor database cannot be accessed.");
                 }
                 else
                 {
@@ -1493,8 +1574,7 @@ int aliceVision_main(int argc, char * argv[])
             }
             if (!sensorDatabasePath.empty() && !sensorDB::parseDatabase(sensorDatabasePath, sensorDatabase))
             {
-                ALICEVISION_LOG_ERROR("Invalid input sensor database '" << sensorDatabasePath
-                                                                        << "', please specify a valid file.");
+                ALICEVISION_LOG_ERROR("Invalid input sensor database '" << sensorDatabasePath << "', please specify a valid file.");
                 return EXIT_FAILURE;
             }
         }
@@ -1524,7 +1604,7 @@ int aliceVision_main(int argc, char * argv[])
                 {
                     outputFilePath = (fs::path(outputPath).parent_path() / (filename + outputExt)).generic_string();
                     ALICEVISION_LOG_WARNING("Extension " << userExt << " is not supported! Output image saved in " << outputFilePath);
-                }    
+                }
             }
             else
             {
@@ -1532,7 +1612,7 @@ int aliceVision_main(int argc, char * argv[])
             }
 
             image::DCPProfile dcpProf;
-            sfmData::View view; // used to extract and complete metadata
+            sfmData::View view;  // used to extract and complete metadata
             view.getImage().setImagePath(inputFilePath);
             int width, height;
             const auto metadata = image::readImageMetadata(inputFilePath, width, height);
@@ -1568,7 +1648,7 @@ int aliceVision_main(int argc, char * argv[])
                 view.getImage().addDCPMetadata(dcpProf);
             }
 
-            if(isRAW && pParams.lensCorrection.enabled &&
+            if (isRAW && pParams.lensCorrection.enabled &&
                 (pParams.lensCorrection.geometry || pParams.lensCorrection.vignetting || pParams.lensCorrection.chromaticAberration))
             {
                 // try to find an appropriate Lens Correction Profile
@@ -1585,7 +1665,7 @@ int aliceVision_main(int argc, char * argv[])
 
                     if (!make.empty() && !lensModel.empty())
                     {
-                        #pragma omp critical(lcp)
+#pragma omp critical(lcp)
                         lcpData = lcpStore.findLCP(make, model, lensModel, lensID, 1);
                     }
                 }
@@ -1609,12 +1689,10 @@ int aliceVision_main(int argc, char * argv[])
 
                     if (lensParam.hasVignetteParams() && !lensParam.vignParams.isEmpty && pParams.lensCorrection.vignetting)
                     {
-                        float FocX = lensParam.vignParams.FocalLengthX != 0.0
-                                         ? lensParam.vignParams.FocalLengthX
-                                         : width * focalLengthmm / sensorWidth / std::max(width, height);
-                        float FocY = lensParam.vignParams.FocalLengthY != 0.0
-                                         ? lensParam.vignParams.FocalLengthY
-                                         : height * focalLengthmm / sensorHeight / std::max(width, height);
+                        float FocX = lensParam.vignParams.FocalLengthX != 0.0 ? lensParam.vignParams.FocalLengthX
+                                                                              : width * focalLengthmm / sensorWidth / std::max(width, height);
+                        float FocY = lensParam.vignParams.FocalLengthY != 0.0 ? lensParam.vignParams.FocalLengthY
+                                                                              : height * focalLengthmm / sensorHeight / std::max(width, height);
 
                         pParams.lensCorrection.vParams.clear();
 
@@ -1638,24 +1716,20 @@ int aliceVision_main(int argc, char * argv[])
                     {
                         if (lensParam.ChromaticGreenParams.FocalLengthX == 0.0)
                         {
-                            lensParam.ChromaticGreenParams.FocalLengthX =
-                                width * focalLengthmm / sensorWidth / std::max(width, height);
+                            lensParam.ChromaticGreenParams.FocalLengthX = width * focalLengthmm / sensorWidth / std::max(width, height);
                         }
                         if (lensParam.ChromaticGreenParams.FocalLengthY == 0.0)
                         {
-                            lensParam.ChromaticGreenParams.FocalLengthY =
-                                height * focalLengthmm / sensorHeight / std::max(width, height);
+                            lensParam.ChromaticGreenParams.FocalLengthY = height * focalLengthmm / sensorHeight / std::max(width, height);
                         }
 
-                        if(lensParam.ChromaticGreenParams.FocalLengthX == 0.0 ||
-                           lensParam.ChromaticGreenParams.FocalLengthY == 0.0)
+                        if (lensParam.ChromaticGreenParams.FocalLengthX == 0.0 || lensParam.ChromaticGreenParams.FocalLengthY == 0.0)
                         {
                             pParams.lensCorrection.caGModel.reset();
                             pParams.lensCorrection.caBGModel.reset();
                             pParams.lensCorrection.caRGModel.reset();
 
-                            ALICEVISION_LOG_WARNING(
-                                "Chromatic Aberration correction is requested but cannot be applied due to missing info.");
+                            ALICEVISION_LOG_WARNING("Chromatic Aberration correction is requested but cannot be applied due to missing info.");
                         }
                         else
                         {
@@ -1675,9 +1749,17 @@ int aliceVision_main(int argc, char * argv[])
                         const double defaultFocalRatio = 1.0;
                         const double defaultOffsetX = 0.0;
                         const double defaultOffsetY = 0.0;
-                        intrinsicBase = sfmDataIO::getViewIntrinsic(
-                            view, focalLengthmm, sensorWidth, defaultFocalLength, defaultFieldOfView, defaultFocalRatio,
-                            defaultOffsetX, defaultOffsetY, &lensParam, defaultCameraModel, allowedCameraModels);
+                        intrinsicBase = sfmDataIO::getViewIntrinsic(view,
+                                                                    focalLengthmm,
+                                                                    sensorWidth,
+                                                                    defaultFocalLength,
+                                                                    defaultFieldOfView,
+                                                                    defaultFocalRatio,
+                                                                    defaultOffsetX,
+                                                                    defaultOffsetY,
+                                                                    &lensParam,
+                                                                    defaultCameraModel,
+                                                                    allowedCameraModels);
 
                         pParams.lensCorrection.geometryModel = lensParam.perspParams;
                     }
@@ -1691,15 +1773,23 @@ int aliceVision_main(int argc, char * argv[])
 
             std::map<std::string, std::string> md = view.getImage().getMetadata();
 
+            pParams.par.value = 1.0;
+            if (pParams.par.enabled)
+            {
+                double pixelAspectRatio = 1.0;
+                view.getImage().getDoubleMetadata({"PixelAspectRatio"}, pixelAspectRatio);
+                pParams.par.value = pixelAspectRatio;
+                md["PixelAspectRatio"] = "1.0";
+            }
+
             // set readOptions
             image::ImageReadOptions readOptions;
 
             if (isRAW)
             {
                 readOptions.colorProfileFileName = dcpProf.info.filename;
-                if (dcpProf.info.filename.empty() &&
-                    ((rawColorInterpretation == image::ERawColorInterpretation::DcpLinearProcessing) ||
-                        (rawColorInterpretation == image::ERawColorInterpretation::DcpMetadata)))
+                if (dcpProf.info.filename.empty() && ((rawColorInterpretation == image::ERawColorInterpretation::DcpLinearProcessing) ||
+                                                      (rawColorInterpretation == image::ERawColorInterpretation::DcpMetadata)))
                 {
                     // Fallback case of missing profile but no error requested
                     readOptions.rawColorInterpretation = image::ERawColorInterpretation::LibRawWhiteBalancing;

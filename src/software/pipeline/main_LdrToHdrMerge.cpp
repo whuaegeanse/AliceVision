@@ -23,7 +23,8 @@
 
 // Command line parameters
 #include <boost/program_options.hpp>
-#include <boost/filesystem.hpp>
+
+#include <filesystem>
 #include <sstream>
 #include <iomanip>
 
@@ -35,7 +36,7 @@
 using namespace aliceVision;
 
 namespace po = boost::program_options;
-namespace fs = boost::filesystem;
+namespace fs = std::filesystem;
 
 std::string getHdrImagePath(const std::string& outputPath, std::size_t g, const std::string& rootname = "")
 {
@@ -53,10 +54,7 @@ std::string getHdrImagePath(const std::string& outputPath, std::size_t g, const 
     return hdrImagePath;
 }
 
-std::string getHdrMaskPath(const std::string& outputPath,
-                           std::size_t g,
-                           const std::string& maskname,
-                           const std::string& rootname = "")
+std::string getHdrMaskPath(const std::string& outputPath, std::size_t g, const std::string& maskname, const std::string& rootname = "")
 {
     // Output image file path
     std::stringstream sstream;
@@ -81,7 +79,7 @@ int aliceVision_main(int argc, char** argv)
     bool byPass = false;
     bool keepSourceImageName = false;
     int channelQuantizationPower = 10;
-    int offsetRefBracketIndex = 1000; // By default, use the automatic selection
+    int offsetRefBracketIndex = 1000;  // By default, use the automatic selection
     double meanTargetedLumaForMerging = 0.4;
     double minSignificantValue = 0.05;
     double maxSignificantValue = 0.995;
@@ -98,6 +96,7 @@ int aliceVision_main(int argc, char** argv)
     int rangeSize = 1;
 
     // Command line parameters
+    // clang-format off
     po::options_description requiredParams("Required parameters");
     requiredParams.add_options()
         ("input,i", po::value<std::string>(&sfmInputDataFilename)->required(),
@@ -145,10 +144,11 @@ int aliceVision_main(int argc, char** argv)
          "Range image index start.")
         ("rangeSize", po::value<int>(&rangeSize)->default_value(rangeSize),
          "Range size.");
+    // clang-format on
 
     CmdLine cmdline("This program merges LDR images into HDR images.\n"
                     "AliceVision LdrToHdrMerge");
-                  
+
     cmdline.add(requiredParams);
     cmdline.add(optionalParams);
     if (!cmdline.execute(argc, argv))
@@ -161,12 +161,12 @@ int aliceVision_main(int argc, char** argv)
     omp_set_num_threads(hwc.getMaxThreads());
 
     // Analyze path
-    boost::filesystem::path path(sfmOutputDataFilepath);
+    fs::path path(sfmOutputDataFilepath);
     std::string outputPath = path.parent_path().string();
 
     // Read SfMData
     sfmData::SfMData sfmData;
-    if (!sfmDataIO::Load(sfmData, sfmInputDataFilename, sfmDataIO::ESfMData::ALL))
+    if (!sfmDataIO::load(sfmData, sfmInputDataFilename, sfmDataIO::ESfMData::ALL))
     {
         ALICEVISION_LOG_ERROR("The input SfMData file '" << sfmInputDataFilename << "' cannot be read.");
         return EXIT_FAILURE;
@@ -209,9 +209,8 @@ int aliceVision_main(int argc, char** argv)
             {
                 ALICEVISION_LOG_INFO("No multi-bracketing.");
             }
-            ALICEVISION_LOG_INFO("Number of brackets automatically detected: "
-                                 << usedNbBrackets << ". It will generate " << groupedViews.size()
-                                 << " HDR images.");
+            ALICEVISION_LOG_INFO("Number of brackets automatically detected: " << usedNbBrackets << ". It will generate " << groupedViews.size()
+                                                                               << " HDR images.");
         }
         else
         {
@@ -222,11 +221,11 @@ int aliceVision_main(int argc, char** argv)
 
     // Group all groups sharing the same intrinsic
     std::map<IndexT, std::vector<std::vector<std::shared_ptr<sfmData::View>>>> groupedViewsPerIntrinsics;
-    for (const auto & group : groupedViews)
+    for (const auto& group : groupedViews)
     {
         IndexT intrinsicId = UndefinedIndexT;
 
-        for (const auto & v : group)
+        for (const auto& v : group)
         {
             IndexT lid = v->getIntrinsicId();
             if (intrinsicId == UndefinedIndexT)
@@ -261,8 +260,8 @@ int aliceVision_main(int argc, char** argv)
 
     // Fusion always produces linear image. sRGB is the only non linear color space that must be changed to linear (sRGB
     // linear).
-    image::EImageColorSpace mergedColorSpace = (workingColorSpace == image::EImageColorSpace::SRGB) ?
-                                               image::EImageColorSpace::LINEAR : workingColorSpace;
+    image::EImageColorSpace mergedColorSpace =
+      (workingColorSpace == image::EImageColorSpace::SRGB) ? image::EImageColorSpace::LINEAR : workingColorSpace;
 
     // Estimate target views for each group
     std::map<IndexT, std::vector<std::shared_ptr<sfmData::View>>> targetViewsPerIntrinsics;
@@ -279,13 +278,16 @@ int aliceVision_main(int argc, char** argv)
             const int targetIndex = middleIndex + offsetRefBracketIndex;
             const bool isOffsetRefBracketIndexValid = (targetIndex >= 0) && (targetIndex < usedNbBrackets);
 
-            const fs::path lumaStatFilepath(fs::path(inputResponsePath).parent_path() / (std::string("luminanceStatistics") + "_" + std::to_string(intrinsicId) + ".txt"));
+            const fs::path lumaStatFilepath(fs::path(inputResponsePath).parent_path() /
+                                            (std::string("luminanceStatistics") + "_" + std::to_string(intrinsicId) + ".txt"));
 
             if (!fs::is_regular_file(lumaStatFilepath) && !isOffsetRefBracketIndexValid)
             {
-                ALICEVISION_LOG_ERROR("Unable to open the file '" << lumaStatFilepath.string() << "' with luminance "
-                                      "statistics. This file is needed to select the optimal exposure for the creation "
-                                      "of HDR images.");
+                ALICEVISION_LOG_ERROR("Unable to open the file '"
+                                      << lumaStatFilepath.string()
+                                      << "' with luminance "
+                                         "statistics. This file is needed to select the optimal exposure for the creation "
+                                         "of HDR images.");
                 return EXIT_FAILURE;
             }
 
@@ -294,16 +296,14 @@ int aliceVision_main(int argc, char** argv)
             {
                 meanTargetedLumaForMerging = std::pow((meanTargetedLumaForMerging + 0.055) / 1.055, 2.2);
             }
-            targetIndexPerIntrinsics[intrinsicId] = hdr::selectTargetViews(targetViews,
-                                                                           groups,
-                                                                           offsetRefBracketIndex,
-                                                                           lumaStatFilepath.string(),
-                                                                           meanTargetedLumaForMerging);
+            targetIndexPerIntrinsics[intrinsicId] =
+              hdr::selectTargetViews(targetViews, groups, offsetRefBracketIndex, lumaStatFilepath.string(), meanTargetedLumaForMerging);
 
             if ((targetViews.empty() || targetViews.size() != groups.size()) && !isOffsetRefBracketIndexValid)
             {
-                ALICEVISION_LOG_ERROR("File '" << lumaStatFilepath.string() << "' is not valid. This file is required "
-                                      "to select the optimal exposure for the creation of HDR images.");
+                ALICEVISION_LOG_ERROR("File '" << lumaStatFilepath.string()
+                                               << "' is not valid. This file is required "
+                                                  "to select the optimal exposure for the creation of HDR images.");
                 return EXIT_FAILURE;
             }
 
@@ -341,19 +341,19 @@ int aliceVision_main(int argc, char** argv)
         // If we are on the first chunk, or we are computing all the dataset
         // Export a new sfmData with HDR images as new Views and LDR images as ancestors
         // ancestorIds are similar to viewIds because viewIds are computed only from image infos
-        for (const auto & groupedViews : groupedViewsPerIntrinsics)
+        for (const auto& groupedViews : groupedViewsPerIntrinsics)
         {
             IndexT intrinsicId = groupedViews.first;
-            
-            const auto & groups = groupedViews.second;
-            const auto & targetViews = targetViewsPerIntrinsics[intrinsicId];
+
+            const auto& groups = groupedViews.second;
+            const auto& targetViews = targetViewsPerIntrinsics[intrinsicId];
 
             for (int g = 0; g < groups.size(); g++, pos++)
             {
                 std::shared_ptr<sfmData::View> hdrView;
 
-                const auto & group = groups[g];
-                
+                const auto& group = groups[g];
+
                 if (group.size() == 1)
                 {
                     hdrView.reset(group.at(0)->clone());
@@ -369,7 +369,7 @@ int aliceVision_main(int argc, char** argv)
                 }
                 if (!byPass)
                 {
-                    boost::filesystem::path p(targetViews[g]->getImage().getImagePath());
+                    fs::path p(targetViews[g]->getImage().getImagePath());
                     const std::string hdrImagePath = getHdrImagePath(outputPath, pos, keepSourceImageName ? p.stem().string() : "");
                     hdrView->getImage().setImagePath(hdrImagePath);
                 }
@@ -384,13 +384,13 @@ int aliceVision_main(int argc, char** argv)
         }
 
         // Export output SfMData
-        if (!sfmDataIO::Save(outputSfm, sfmOutputDataFilepath, sfmDataIO::ESfMData::ALL))
+        if (!sfmDataIO::save(outputSfm, sfmOutputDataFilepath, sfmDataIO::ESfMData::ALL))
         {
             ALICEVISION_LOG_ERROR("Cannot save output SfMData file at '" << sfmOutputDataFilepath << "'.");
             return EXIT_FAILURE;
         }
     }
-    
+
     if (byPass)
     {
         ALICEVISION_LOG_INFO("Bypass enabled, nothing to compute.");
@@ -400,12 +400,12 @@ int aliceVision_main(int argc, char** argv)
     int rangeEnd = rangeStart + rangeSize;
 
     int pos = 0;
-    for (const auto & pGroupedViews : groupedViewsPerIntrinsics)
+    for (const auto& pGroupedViews : groupedViewsPerIntrinsics)
     {
         IndexT intrinsicId = pGroupedViews.first;
 
-        const auto & groupedViews = pGroupedViews.second;
-        const auto & targetViews = targetViewsPerIntrinsics.at(intrinsicId);
+        const auto& groupedViews = pGroupedViews.second;
+        const auto& targetViews = targetViewsPerIntrinsics.at(intrinsicId);
 
         hdr::rgbCurve fusionWeight(channelQuantization);
         fusionWeight.setFunction(fusionWeightFunction);
@@ -425,14 +425,14 @@ int aliceVision_main(int argc, char** argv)
                 continue;
             }
 
-            const std::vector<std::shared_ptr<sfmData::View>> & group = groupedViews[g];
+            const std::vector<std::shared_ptr<sfmData::View>>& group = groupedViews[g];
 
             std::vector<image::Image<image::RGBfColor>> images(group.size());
             std::shared_ptr<sfmData::View> targetView = targetViews[g];
             std::vector<sfmData::ExposureSetting> exposuresSetting(group.size());
 
             // Load all images of the group
-            for(std::size_t i = 0; i < group.size(); ++i)
+            for (std::size_t i = 0; i < group.size(); ++i)
             {
                 const std::string filepath = group[i]->getImage().getImagePath();
                 ALICEVISION_LOG_INFO("Load " << filepath);
@@ -452,7 +452,7 @@ int aliceVision_main(int argc, char** argv)
                 {
                     options.doWBAfterDemosaicing = true;
                 }
-                
+
                 image::readImage(filepath, images[i], options);
 
                 exposuresSetting[i] = group[i]->getImage().getCameraExposureSetting();
@@ -480,13 +480,17 @@ int aliceVision_main(int argc, char** argv)
                 mergingParams.minSignificantValue = minSignificantValue;
                 mergingParams.maxSignificantValue = maxSignificantValue;
                 mergingParams.computeLightMasks = computeLightMasks;
-               
-                merge.process(images, exposures, fusionWeight, response, HDRimage, lowLightMask, highLightMask,
-                              noMidLightMask, mergingParams);
+
+                merge.process(images, exposures, fusionWeight, response, HDRimage, lowLightMask, highLightMask, noMidLightMask, mergingParams);
                 if (highlightCorrectionFactor > 0.0f)
                 {
-                    merge.postProcessHighlight(images, exposures, fusionWeight, response, HDRimage,
-                                               targetCameraSetting.getExposure(), highlightCorrectionFactor,
+                    merge.postProcessHighlight(images,
+                                               exposures,
+                                               fusionWeight,
+                                               response,
+                                               HDRimage,
+                                               targetCameraSetting.getExposure(),
+                                               highlightCorrectionFactor,
                                                highlightTargetLux);
                 }
             }
@@ -496,7 +500,7 @@ int aliceVision_main(int argc, char** argv)
                 HDRimage = images[0];
             }
 
-            boost::filesystem::path p(targetView->getImage().getImagePath());
+            fs::path p(targetView->getImage().getImagePath());
             const std::string hdrImagePath = getHdrImagePath(outputPath, pos, keepSourceImageName ? p.stem().string() : "");
 
             // Write an image with parameters from the target view
@@ -526,12 +530,9 @@ int aliceVision_main(int argc, char** argv)
 
             if (computeLightMasks)
             {
-                const std::string hdrMaskLowLightPath =
-                    getHdrMaskPath(outputPath, pos, "lowLight", keepSourceImageName ? p.stem().string() : "");
-                const std::string hdrMaskHighLightPath =
-                    getHdrMaskPath(outputPath, pos, "highLight", keepSourceImageName ? p.stem().string() : "");
-                const std::string hdrMaskNoMidLightPath =
-                    getHdrMaskPath(outputPath, pos, "noMidLight", keepSourceImageName ? p.stem().string() : "");
+                const std::string hdrMaskLowLightPath = getHdrMaskPath(outputPath, pos, "lowLight", keepSourceImageName ? p.stem().string() : "");
+                const std::string hdrMaskHighLightPath = getHdrMaskPath(outputPath, pos, "highLight", keepSourceImageName ? p.stem().string() : "");
+                const std::string hdrMaskNoMidLightPath = getHdrMaskPath(outputPath, pos, "noMidLight", keepSourceImageName ? p.stem().string() : "");
 
                 image::ImageWriteOptions maskWriteOptions;
                 maskWriteOptions.exrCompressionMethod(image::EImageExrCompression::None);

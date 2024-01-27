@@ -31,9 +31,6 @@
 #include <opencv2/core/utility.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
-// Boost
-#include <boost/filesystem.hpp>
-
 // Boost JSON
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
@@ -43,7 +40,6 @@
 #include <aliceVision/sfmDataIO/sfmDataIO.hpp>
 
 // namespaces
-namespace fs = boost::filesystem;
 namespace bpt = boost::property_tree;
 
 namespace aliceVision {
@@ -111,7 +107,7 @@ Prediction predict(Ort::Session& session, const fs::path imagePath, const float 
 
     // Eigen -> OpenCV
     cv::Mat imageOpencv;
-    cv::eigen2cv(imageAlice.GetMat(), imageOpencv);
+    cv::eigen2cv(imageAlice.getMat(), imageOpencv);
     cv::Size imageOpencvShape = imageOpencv.size();
 
     // uint8 -> float32
@@ -125,7 +121,7 @@ Prediction predict(Ort::Session& session, const fs::path imagePath, const float 
     Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
 
     // Initialize input tensor
-    std::vector<int64_t> inputShape = {1, 3, imageAlice.Height(), imageAlice.Width()};
+    std::vector<int64_t> inputShape = {1, 3, imageAlice.height(), imageAlice.width()};
     const size_t inputSize = std::accumulate(begin(inputShape), end(inputShape), 1, std::multiplies<size_t>());
     std::vector<float> inputTensor(inputSize);
     inputTensor.assign(imageOpencv.begin<float>(), imageOpencv.end<float>());
