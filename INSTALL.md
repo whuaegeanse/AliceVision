@@ -30,7 +30,7 @@ AliceVision depends on external libraries:
 * [Eigen >= 3.3.4](https://gitlab.com/libeigen/eigen)
 * [Expat >= 2.4.8](https://libexpat.github.io/)
 * Flann >= 1.8.4, use [our fork](https://github.com/alicevision/flann) with a CMake build system
-* [Geogram >= 1.7.5](https://github.com/BrunoLevy/geogram)
+* [Geogram >= 1.7.5 (recommended >= 1.8.8)](https://github.com/BrunoLevy/geogram)
 * [OpenEXR >= 2.5](https://github.com/AcademySoftwareFoundation/openexr)
 * [OpenImageIO >= 2.1.0 (recommended >= 2.4.13)](https://github.com/OpenImageIO/oiio)
 * Open Solver Interface (Osi) >= 0.106.10 use [our fork](https://github.com/alicevision/Osi)) with a CMake build system
@@ -50,6 +50,8 @@ Other optional libraries can enable specific features (check "CMake Options" for
 * PopSift (feature extraction on GPU)
 * UncertaintyTE (Uncertainty computation)
 * Lemon >= 1.3
+* libe57format (support reading .e57 files)
+
 
 AliceVision also depends on some embedded libraries:
 
@@ -93,13 +95,14 @@ vcpkg install ^
           flann ^
           onnxruntime-gpu ^
           opencv[eigen,ffmpeg,webp,contrib,nonfree,cuda] ^
-          openimageio[libraw,ffmpeg,freetype,opencv,gif,openjpeg,webp] ^
+          openimageio[opencolorio,pybind11,libraw,ffmpeg,freetype,opencv,gif,openjpeg,webp] ^
           ceres[suitesparse,cxsparse] ^
           cuda ^
           tbb ^
           assimp ^
           pcl ^
           clp ^
+          libe57format ^
           --triplet x64-windows
 ```
 

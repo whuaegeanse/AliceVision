@@ -268,6 +268,7 @@ Asus;Asus ZenPad S 8.0 Z580CA;3.6;devicespecifications
 Asus;Asus ZenPad S 8.0 Z580CA 16GB;3.6;devicespecifications
 Asus;ASUS_I001DC;12.7;devicespecifications
 ASUS;ASUS_I006D;7.53;devicespecifications
+Asus;ASUS_I01WD;6.4;usercontribution
 Asus;ASUS_Z00ED;4.69;devicespecifications
 Axgio;Axgio N3;4.69;devicespecifications
 BenQ;BenQ AC100;6.16;digicamdb
@@ -1455,6 +1456,7 @@ DJI;FC3411;13.13;usercontribution
 DJI;FC350;6.17;usercontribution
 DJI;FC550;17.3;usercontribution
 DJI;FC550RAW;17.3;usercontribution
+DJI;FC3582;9.7;usercontribution
 DJI;FC6310;13.2;usercontribution
 DJI;FC6310R;13.2;usercontribution
 DJI;FC6310S;13.2;usercontribution
@@ -1589,9 +1591,11 @@ Eton;Eton Extreme 95;4.69;devicespecifications
 Fairphone;Fairphone 2;4.61;devicespecifications
 Fairphone;Fairphone 3;5.75;fairphone
 Fairphone;Fairphone 4;6.4;fairphone
+Fairphone;Fairphone 5;8.76;fairphone
 Fairphone;FP2;4.61;devicespecifications
 Fairphone;FP3;5.75;fairphone
 Fairphone;FP4;6.4;fairphone
+Fairphone;FP5;8.76;fairphone
 Firefly;Firefly Aurii Envy;4.69;devicespecifications
 Firefly;Firefly Aurii Secret;4.71;devicespecifications
 FLIR;BFS-U3-04S2C-CS;4.97;edmundoptics
@@ -2198,6 +2202,7 @@ Google;Pixel 4a;5.56;usercontribution
 Google;Pixel 5;5.56;usercontribution
 Google;Pixel 6;9.79;usercontribution
 Google;Pixel 6 Pro;9.79;usercontribution
+Google;Pixel 6a;5.64;usercontribution
 Google;Pixel 7;9.79;usercontribution
 Google;Pixel 7 Pro;9.79;usercontribution
 GoPro;GoPro Fusion;6.17;dpreview
@@ -5670,6 +5675,13 @@ Samsung;Samsung EX1;7.44;digicamdb,dpreview,dxomark
 Samsung;Samsung EX2F;7.44;digicamdb,dpreview,dxomark
 Samsung;Samsung Galaxy A5;4.69;devicespecifications
 Samsung;Samsung Galaxy A5 Duos;4.69;devicespecifications
+Samsung;Samsung Galaxy A53 5G;7.42;devicespecifications
+Samsung;Samsung Galaxy A53 SM-A536U;7.42;devicespecifications
+Samsung;Samsung Galaxy A53 SM-A536U1;7.42;devicespecifications
+Samsung;Samsung Galaxy A53 SM-A5360;7.42;devicespecifications
+Samsung;Samsung Galaxy A53 SM-A536E;7.42;devicespecifications
+Samsung;Samsung Galaxy A53 SM-A536E/DS;7.42;devicespecifications
+Samsung;Samsung Galaxy A53 SM-A536B;7.42;devicespecifications
 Samsung;Samsung Galaxy A70;5.14;devicespecifications
 Samsung;Samsung Galaxy A8;5.3;devicespecifications
 Samsung;Samsung Galaxy A8 SM-A530W;5.3;devicespecifications
@@ -5717,6 +5729,7 @@ Samsung;Samsung Galaxy Note8 SM-N950V;5.75;usercontribution
 Samsung;Samsung Galaxy Note9 SM-N960U;5.644;devicespecifications
 Samsung;Samsung Galaxy NX;23.5;digicamdb,dpreview
 Samsung;Samsung Galaxy Round;4.54;devicespecifications
+Samsung;Samsung Galaxy S10;5.75;usercontribution
 Samsung;Samsung Galaxy S10 Lite;6.4;kimovil
 Samsung;Samsung Galaxy S10 Plus;5.75;digicamdb
 Samsung;Samsung Galaxy S2;4.54;devicespecifications
