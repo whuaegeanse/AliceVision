@@ -128,6 +128,7 @@ if(ALICEVISION_BUILD_SFM)
               aliceVision_sfm
               aliceVision_sfmData
               aliceVision_track
+              aliceVision_dataio
               Boost::program_options
               Boost::json
     )
@@ -479,7 +480,7 @@ if(ALICEVISION_BUILD_MVS)
               Boost::program_options
     )
 
-    #lidar meshing
+    # Lidar meshing
     alicevision_add_software(aliceVision_lidarMeshing
         SOURCE main_lidarMeshing.cpp
         FOLDER ${FOLDER_SOFTWARE_PIPELINE}
@@ -494,6 +495,40 @@ if(ALICEVISION_BUILD_MVS)
               Boost::program_options
               Boost::json
     )
+
+     # Lidar merging
+     alicevision_add_software(aliceVision_lidarMerging
+     SOURCE main_lidarMerging.cpp
+     FOLDER ${FOLDER_SOFTWARE_PIPELINE}
+     LINKS aliceVision_system
+           aliceVision_cmdline
+           aliceVision_mvsData
+           aliceVision_mvsUtils
+           aliceVision_mesh
+           aliceVision_fuseCut
+           aliceVision_sfmData
+           aliceVision_sfmDataIO
+           Boost::program_options
+           Boost::json
+    )
+
+    # Lidar decimation
+    alicevision_add_software(aliceVision_lidarDecimating
+    SOURCE main_lidarDecimating.cpp
+    FOLDER ${FOLDER_SOFTWARE_PIPELINE}
+    LINKS aliceVision_system
+          aliceVision_cmdline
+          aliceVision_mvsData
+          aliceVision_mvsUtils
+          aliceVision_mesh
+          aliceVision_fuseCut
+          aliceVision_sfmData
+          aliceVision_sfmDataIO
+          Boost::program_options
+          Boost::json
+          OpenMeshCore
+          OpenMeshTools
+   )
 
     if(ALICEVISION_HAVE_MESHSDFILTER)
 
@@ -516,7 +551,8 @@ if(ALICEVISION_BUILD_MVS)
             LINKS aliceVision_system
                   aliceVision_cmdline
                   aliceVision_mvsUtils
-                  OpenMesh
+                  OpenMeshCore
+                  OpenMeshTools
                   Boost::program_options
         )
     endif()

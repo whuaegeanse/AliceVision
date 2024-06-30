@@ -79,10 +79,11 @@ option(ALICEVISION_USE_MESHSDFILTER "Use MeshSDFilter library (enable MeshDenois
 option(ALICEVISION_REQUIRE_CERES_WITH_SUITESPARSE "Require Ceres with SuiteSparse (ensure best performances)" ON)
 
 option(ALICEVISION_USE_RPATH "Add RPATH on software with relative paths to libraries" ON)
-
+option(ALICEVISION_REMOVE_ABSOLUTE "Remove absolute paths in dependencies" OFF)
 option(ALICEVISION_BUILD_TESTS "Build AliceVision tests" OFF)
 
 option(BUILD_SHARED_LIBS "Build shared libraries" ON)
+
 
 # Default build is in Release mode
 if(NOT CMAKE_BUILD_TYPE AND NOT MSVC)
@@ -177,7 +178,7 @@ endmacro(add_target_properties)
 # ==============================================================================
 # Check that submodule have been initialized and updated
 # ==============================================================================
-if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/MeshSDFilter/external)
+if(ALICEVISION_USE_MESHSDFILTER AND NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/MeshSDFilter/CMakeLists.txt)
   message(FATAL_ERROR
     "\n submodule(s) are missing, please update your repository:\n"
     "  > git submodule update -i\n")
@@ -197,9 +198,15 @@ if(SSE2_FOUND OR TARGET_ARCHITECTURE STREQUAL "native")
   endif()
   set(ALICEVISION_HAVE_SSE 1)
 endif()
-if(UNIX AND NOT ALICEVISION_BUILD_COVERAGE)
-  set(CMAKE_C_FLAGS_RELEASE "-O3")
-  set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+
+if(UNIX)
+  if (ALICEVISION_BUILD_COVERAGE)
+    set(CMAKE_C_FLAGS_RELEASE "-O1")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O1")
+  else ()
+    set(CMAKE_C_FLAGS_RELEASE "-O3")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+  endif()
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX)
@@ -234,11 +241,11 @@ endif()
 # Enable code coverage generation (only with GCC)
 # ==============================================================================
 if(ALICEVISION_BUILD_COVERAGE AND CMAKE_COMPILER_IS_GNUCXX)
-  message("ALICEVISION_BUILD_COVERAGE enabled")
-  set(CMAKE_BUILD_TYPE "Debug")
-  add_definitions(--coverage -fprofile-arcs -ftest-coverage)
-  set(CMAKE_EXE_LINKER_FLAGS
-    "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
+    message("ALICEVISION_BUILD_COVERAGE enabled")
+    include(CodeCoverage)
+    setup_target_for_coverage_gcovr_xml(
+    NAME coverage                 
+    EXECUTABLE ctest -j 4)
 endif()
 
 # ==============================================================================
@@ -297,7 +304,7 @@ if(WIN32)
 
   #To be removed later, a bug to make things work with current vcpkg
   #https://github.com/microsoft/vcpkg/issues/22495
-  add_definitions(-DBOOST_USE_WINAPI_VERSION=BOOST_WINAPI_VERSION_WIN7)
+  add_definitions(-DBOOST_USE_WINAPI_VERSION=BOOST_WINAPI_VERSION_WIN10)
 endif()
 
 if(BUILD_SHARED_LIBS)
@@ -654,6 +661,8 @@ endif()
 set(ALICEVISION_HAVE_MESHSDFILTER 0)
 
 if(ALICEVISION_BUILD_MVS)
+  find_package(OpenMesh REQUIRED)
+
   if(ALICEVISION_USE_MESHSDFILTER STREQUAL "ON")
     set(ALICEVISION_HAVE_MESHSDFILTER 1)
     add_subdirectory(dependencies/MeshSDFilter)

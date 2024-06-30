@@ -1467,6 +1467,7 @@ DJI;FC7203;6.16;usercontribution
 DJI;FC7303;6.16;usercontribution
 DJI;MAVIC2-ENTERPRISE-ADVANCED;4.8;
 DJI;Mavic3;17.3;dji
+DJI;Mini 2 SE;6.16;dji
 DJI;M3T;6.4;dji
 DJI;Phantom 4;6.3;dxomark
 DJI;Phantom 4 Pro;13.2;dxomark
@@ -4509,6 +4510,8 @@ OLYMPUS OPTICAL CO.,LTD;X-2;7.176;usercontribution
 OLYMPUS_IMAGING_CORP.;C370Z;5.27;usercontribution
 OLYMPUS_IMAGING_CORP.;D535Z;5.27;usercontribution
 OLYMPUS_IMAGING_CORP.;X450;5.27;usercontribution
+OMNIVISION;OV2640;3.59;uctronics
+OMNIVISION;OV9734;1.819;gophotonics
 Onda;Onda V975i;3.67;devicespecifications
 Onda;Onda V989;3.68;devicespecifications
 OnePlus;AC2003;6.4;usercontribution
@@ -5924,7 +5927,7 @@ Samsung;Samsung SM-G9880;10.82;devicespecifications
 Samsung;Samsung SM-G988B;10.82;devicespecifications
 Samsung;Samsung SM-G988N;10.82;devicespecifications
 Samsung;Samsung SM-G991B;7.26;usercontribution
-Samsung;Samsung SM-G998B;6.70;usercontribution
+Samsung;Samsung SM-G998B;9.6;usercontribution
 Samsung;Samsung SM-M315F;7.42;devicespecifications
 Samsung;Samsung SM-N985F;9.6;devicespecifications
 Samsung;Samsung SM-N986B;9.6;devicespecifications

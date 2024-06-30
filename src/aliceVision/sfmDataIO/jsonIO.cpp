@@ -168,7 +168,7 @@ void saveIntrinsic(const std::string& name, IndexT intrinsicId, const std::share
         const double focalLengthMM = intrinsicScaleOffset->sensorWidth() * intrinsicScaleOffset->getScale().x() / double(intrinsic->w());
         const double focalRatio = intrinsicScaleOffset->getScale().x() / intrinsicScaleOffset->getScale().y();
         const double pixelAspectRatio = 1.0 / focalRatio;
-
+        
         intrinsicTree.put("initialFocalLength", initialFocalLengthMM);
         intrinsicTree.put("focalLength", focalLengthMM);
         intrinsicTree.put("pixelRatio", pixelAspectRatio);
@@ -177,15 +177,19 @@ void saveIntrinsic(const std::string& name, IndexT intrinsicId, const std::share
         saveMatrix("principalPoint", intrinsicScaleOffset->getOffset(), intrinsicTree);
     }
 
+    camera::EDISTORTION distortionType = camera::EDISTORTION::DISTORTION_NONE;
+    camera::EUNDISTORTION undistortionType = camera::EUNDISTORTION::UNDISTORTION_NONE;
+
     std::shared_ptr<camera::IntrinsicScaleOffsetDisto> intrinsicScaleOffsetDisto =
       std::dynamic_pointer_cast<camera::IntrinsicScaleOffsetDisto>(intrinsic);
     if (intrinsicScaleOffsetDisto)
     {
         bpt::ptree distParamsTree;
-
         std::shared_ptr<camera::Distortion> distortionObject = intrinsicScaleOffsetDisto->getDistortion();
         if (distortionObject)
         {
+            distortionType = distortionObject->getType();
+
             for (double param : distortionObject->getParameters())
             {
                 bpt::ptree paramTree;
@@ -197,13 +201,16 @@ void saveIntrinsic(const std::string& name, IndexT intrinsicId, const std::share
                           camera::EInitMode_enumToString(intrinsicScaleOffsetDisto->getDistortionInitializationMode()));
 
         intrinsicTree.add_child("distortionParams", distParamsTree);
+        
 
         bpt::ptree undistParamsTree;
 
         std::shared_ptr<camera::Undistortion> undistortionObject = intrinsicScaleOffsetDisto->getUndistortion();
         if (undistortionObject)
         {
+            undistortionType = undistortionObject->getType();
             saveMatrix("undistortionOffset", undistortionObject->getOffset(), intrinsicTree);
+            intrinsicTree.put("undistortionDiagonal", undistortionObject->getDiagonal());
 
             for (double param : undistortionObject->getParameters())
             {
@@ -228,6 +235,11 @@ void saveIntrinsic(const std::string& name, IndexT intrinsicId, const std::share
         intrinsicTree.put("fisheyeCircleRadius", intrinsicEquidistant->getCircleRadius());
     }
 
+    //We made sure we have something to write here
+    intrinsicTree.put("distortionType", camera::EDISTORTION_enumToString(distortionType));
+    intrinsicTree.put("undistortionType", camera::EUNDISTORTION_enumToString(undistortionType));
+
+    
     intrinsicTree.put("locked", intrinsic->isLocked());
 
     parentTree.push_back(std::make_pair(name, intrinsicTree));
@@ -236,13 +248,28 @@ void saveIntrinsic(const std::string& name, IndexT intrinsicId, const std::share
 void loadIntrinsic(const Version& version, IndexT& intrinsicId, std::shared_ptr<camera::IntrinsicBase>& intrinsic, bpt::ptree& intrinsicTree)
 {
     intrinsicId = intrinsicTree.get<IndexT>("intrinsicId");
+
+    camera::EINTRINSIC intrinsicType;
+    camera::EDISTORTION distortionType;
+    camera::EUNDISTORTION undistortionType;
+    if (version < Version(1, 2, 8))
+    {
+        compatibilityStringToEnums(intrinsicTree.get<std::string>("type"), intrinsicType, distortionType, undistortionType);
+    }
+    else 
+    {
+        intrinsicType = camera::EINTRINSIC_stringToEnum(intrinsicTree.get<std::string>("type"));
+        distortionType = camera::EDISTORTION_stringToEnum(intrinsicTree.get<std::string>("distortionType"));
+        undistortionType = camera::EUNDISTORTION_stringToEnum(intrinsicTree.get<std::string>("undistortionType"));
+    }
+
     const unsigned int width = intrinsicTree.get<unsigned int>("width");
     const unsigned int height = intrinsicTree.get<unsigned int>("height");
     const double sensorWidth = intrinsicTree.get<double>("sensorWidth", 36.0);
     const double sensorHeight = intrinsicTree.get<double>("sensorHeight", 24.0);
-    const camera::EINTRINSIC intrinsicType = camera::EINTRINSIC_stringToEnum(intrinsicTree.get<std::string>("type"));
     const camera::EInitMode initializationMode = camera::EInitMode_stringToEnum(
       intrinsicTree.get<std::string>("initializationMode", camera::EInitMode_enumToString(camera::EInitMode::CALIBRATED)));
+
 
     // principal point
     Vec2 principalPoint;
@@ -292,7 +319,7 @@ void loadIntrinsic(const Version& version, IndexT& intrinsicId, std::shared_ptr<
     }
 
     // pinhole parameters
-    intrinsic = camera::createIntrinsic(intrinsicType, width, height, pxFocalLength(0), pxFocalLength(1), principalPoint(0), principalPoint(1));
+    intrinsic = camera::createIntrinsic(intrinsicType, distortionType, undistortionType, width, height, pxFocalLength(0), pxFocalLength(1), principalPoint(0), principalPoint(1));
 
     intrinsic->setSerialNumber(intrinsicTree.get<std::string>("serialNumber"));
     intrinsic->setInitializationMode(initializationMode);
@@ -358,10 +385,12 @@ void loadIntrinsic(const Version& version, IndexT& intrinsicId, std::shared_ptr<
                 Vec2 offset;
                 loadMatrix("undistortionOffset", offset, intrinsicTree);
                 undistortionObject->setOffset(offset);
-            }
 
-            // If undistortion exists, distortion does not
-            intrinsicWithDistoEnabled->setDistortionObject(nullptr);
+                if (version >= Version(1, 2, 7))
+                {
+                    undistortionObject->setDiagonal(intrinsicTree.get<double>("undistortionDiagonal"));
+                }
+            }
         }
 
         std::shared_ptr<camera::Distortion> distortionObject = intrinsicWithDistoEnabled->getDistortion();
@@ -666,6 +695,13 @@ bool loadJSON(sfmData::SfMData& sfmData,
         Vec3i v;
         loadMatrix("version", v, fileTree);
         version = v;
+        
+        const Vec3i currentVersion = {ALICEVISION_SFMDATAIO_VERSION_MAJOR, ALICEVISION_SFMDATAIO_VERSION_MINOR, ALICEVISION_SFMDATAIO_VERSION_REVISION};
+        if (Version(currentVersion) < version)
+        {
+            ALICEVISION_LOG_ERROR("File has a version more recent than this library");
+            return false;
+        }
     }
 
     // folders

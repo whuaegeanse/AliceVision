@@ -29,16 +29,40 @@ namespace po = boost::program_options;
 using namespace aliceVision;
 using namespace aliceVision::camera;
 
-std::string toNuke(std::shared_ptr<Undistortion> undistortion, EINTRINSIC intrinsicType)
+std::string toNuke(std::shared_ptr<Undistortion> undistortion)
 {
     const std::vector<double>& params = undistortion->getParameters();
     const auto& size = undistortion->getSize();
 
     std::stringstream ss;
 
-    switch (intrinsicType)
+    const Vec2 offset = undistortion->getScaledOffset();
+
+    switch (undistortion->getType())
     {
-        case EINTRINSIC::PINHOLE_CAMERA_3DEANAMORPHIC4:
+        case EUNDISTORTION::UNDISTORTION_RADIALK3:
+            ss << "LensDistortion2 {" << "\n"
+               << "\n"
+               << " distortionModelPreset Custom" << "\n"
+               << " distortionModelPreset \"3DEqualizer/3DE4 Anamorphic - Standard, Degree 4\""
+               << " distortionNumerator0 " << params[0] << "\n"
+               << "\n"
+               << " distortionNumerator1 " << params[1] << "\n"
+               << " lens Anamorphic"
+               << " distortionNumerator2 " << params[2] << "\n"
+               << " centre {" << offset[0] << " " << -offset[1] << "}" << "\n"
+               << " output Undistort" << "\n"
+               << " distortionScalingType Format" << "\n"
+               << " distortionScalingFormat \"" << size(0) << " " << size(1) << " 0 0 " << size(0) << " " << size(1) << " 1 AV_undist_fmt \""
+               << "\n"
+               << "\n"
+               << " distortionOrder {3 0}" << "\n"
+               << " normalisationType Diagonal" << "\n"
+               << " distortInFisheyeSpace false" << "\n"
+               << "}"
+               << "\n";
+            break;
+        case EUNDISTORTION::UNDISTORTION_3DEANAMORPHIC4:
             ss << "LensDistortion2 {"
                << "\n"
                << " distortionModelPreset \"3DEqualizer/3DE4 Anamorphic - Standard, Degree 4\""
@@ -74,7 +98,7 @@ std::string toNuke(std::shared_ptr<Undistortion> undistortion, EINTRINSIC intrin
             break;
         default:
             ALICEVISION_THROW_ERROR(
-              "Unsupported intrinsic type for conversion to Nuke LensDistortion node: " << EINTRINSIC_enumToString(intrinsicType));
+              "Unsupported intrinsic type for conversion to Nuke LensDistortion node: " << EUNDISTORTION_enumToString(undistortion->getType()));
     }
 
     return ss.str();
@@ -106,7 +130,7 @@ void toSTMap(image::Image<image::RGBAfColor>& stmap,
         {
             const Vec2 pix((j + xOffset), (i + yOffset));
 
-            const Vec2 disto_pix = distort ? intrinsic->get_ud_pixel(pix) : intrinsic->get_d_pixel(pix);
+            const Vec2 disto_pix = distort ? intrinsic->getUndistortedPixel(pix) : intrinsic->getDistortedPixel(pix);
 
             stmap(i, j).b() = disto_pix[0] / (static_cast<float>(intrinsic->w()) - 1.0f);
             stmap(i, j).a() = (static_cast<float>(intrinsic->h()) - 1.0f - disto_pix[1]) / (static_cast<float>(intrinsic->h()) - 1.0f);
@@ -175,7 +199,7 @@ int aliceVision_main(int argc, char* argv[])
         {
             ALICEVISION_LOG_INFO("Computing Nuke LensDistortion node");
 
-            const std::string nukeNodeStr = toNuke(undistortion, intrinsicDisto->getType());
+            const std::string nukeNodeStr = toNuke(undistortion);
 
             ALICEVISION_LOG_INFO("Writing Nuke LensDistortion node in " << intrinsicId << ".nk");
             std::stringstream ss;
@@ -199,14 +223,14 @@ int aliceVision_main(int argc, char* argv[])
                 ALICEVISION_LOG_INFO("Export distortion STMap: stmap_" << intrinsicId << "_distort.exr");
                 std::stringstream ss;
                 ss << outputFilePath << "/stmap_" << intrinsicId << "_distort.exr";
-                image::writeImage(ss.str(), stmap_distort, image::ImageWriteOptions());
+                image::writeImage(ss.str(), stmap_distort, image::ImageWriteOptions().storageDataType(image::EStorageDataType::Float));
             }
 
             {
                 ALICEVISION_LOG_INFO("Export undistortion STMap: stmap_" << intrinsicId << "_undistort.exr");
                 std::stringstream ss;
                 ss << outputFilePath << "/stmap_" << intrinsicId << "_undistort.exr";
-                image::writeImage(ss.str(), stmap_undistort, image::ImageWriteOptions());
+                image::writeImage(ss.str(), stmap_undistort, image::ImageWriteOptions().storageDataType(image::EStorageDataType::Float));
             }
         }
 

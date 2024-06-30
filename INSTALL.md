@@ -33,6 +33,7 @@ AliceVision depends on external libraries:
 * [Geogram >= 1.7.5 (recommended >= 1.8.8)](https://github.com/BrunoLevy/geogram)
 * [OpenEXR >= 2.5](https://github.com/AcademySoftwareFoundation/openexr)
 * [OpenImageIO >= 2.1.0 (recommended >= 2.4.13)](https://github.com/OpenImageIO/oiio)
+* [OpenMesh >= 9.0](https://www.graphics.rwth-aachen.de/software/openmesh/)
 * Open Solver Interface (Osi) >= 0.106.10 use [our fork](https://github.com/alicevision/Osi)) with a CMake build system
 * [zlib](https://www.zlib.net)
 
@@ -56,7 +57,6 @@ Other optional libraries can enable specific features (check "CMake Options" for
 AliceVision also depends on some embedded libraries:
 
 * MeshSDFilter (internal)
-* OpenMesh (internal)
 
 
 
@@ -85,6 +85,7 @@ set VCPKG_ROOT=%cd%
 vcpkg install ^
           boost-algorithm boost-accumulators boost-atomic boost-container boost-date-time boost-exception boost-geometry boost-graph boost-json boost-log ^
           boost-program-options boost-property-tree boost-ptr-container boost-regex boost-serialization boost-system boost-test boost-thread boost-timer ^
+          boost-format ^
           lz4 ^
           liblemon ^
           openexr ^
@@ -96,6 +97,7 @@ vcpkg install ^
           onnxruntime-gpu ^
           opencv[eigen,ffmpeg,webp,contrib,nonfree,cuda] ^
           openimageio[opencolorio,pybind11,libraw,ffmpeg,freetype,opencv,gif,openjpeg,webp] ^
+          openmesh ^
           ceres[suitesparse,cxsparse] ^
           cuda ^
           tbb ^
