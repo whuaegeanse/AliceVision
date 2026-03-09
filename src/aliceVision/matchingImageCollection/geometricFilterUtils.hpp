@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include <aliceVision/matching/IndMatch.hpp>
+#include <aliceVision/matching/MatchesCollections.hpp>
 #include <aliceVision/feature/FeaturesPerView.hpp>
 #include <aliceVision/camera/IntrinsicBase.hpp>
 #include <aliceVision/sfmData/SfMData.hpp>
@@ -129,18 +129,18 @@ void fillMatricesWithUndistortFeaturesMatches(const matching::MatchesPerDescType
 template<typename MatT>
 void fillMatricesWithUndistortFeaturesMatches(const Pair& pairIndex,
                                               const matching::MatchesPerDescType& putativeMatchesPerType,
-                                              const sfmData::SfMData* sfmData,
+                                              const sfmData::SfMData& sfmData,
                                               const feature::RegionsPerView& regionsPerView,
                                               const std::vector<feature::EImageDescriberType>& descTypes,
                                               MatT& x_I,
                                               MatT& x_J)
 {
-    const sfmData::View* view_I = sfmData->getViews().at(pairIndex.first).get();
-    const sfmData::View* view_J = sfmData->getViews().at(pairIndex.second).get();
+    const sfmData::View& view_I = sfmData.getView(pairIndex.first);
+    const sfmData::View& view_J = sfmData.getView(pairIndex.second);
 
     // Retrieve corresponding pair camera intrinsic if any
-    const camera::IntrinsicBase* cam_I = sfmData->getIntrinsicPtr(view_I->getIntrinsicId());
-    const camera::IntrinsicBase* cam_J = sfmData->getIntrinsicPtr(view_J->getIntrinsicId());
+    const camera::IntrinsicBase* cam_I = sfmData.getIntrinsicPtr(view_I.getIntrinsicId());
+    const camera::IntrinsicBase* cam_J = sfmData.getIntrinsicPtr(view_J.getIntrinsicId());
 
     fillMatricesWithUndistortFeaturesMatches(putativeMatchesPerType,
                                              cam_I,
@@ -173,7 +173,7 @@ void copyInlierMatches(const std::vector<size_t>& inliers,
 void centerMatrix(const Eigen::Matrix2Xf& points2d, Mat3& t);
 
 /**
- * @brief Compute the standardizing tranformation for the input features.
+ * @brief Compute the standardizing transformation for the input features.
  * Based on: https://github.com/fsrajer/yasfm/blob/3a09bc0ee69b7021910d646386cd92deab504a2c/YASFM/relative_pose.h#L1075
  * @param[in] featuresI The input matching features from the first image.
  * @param[in] featuresJ The input matching features from the secong image.

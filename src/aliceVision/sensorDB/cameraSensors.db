@@ -201,6 +201,7 @@ Apple;iPhone XR;5.60;dpreview
 Apple;iPhone XS;5.60;dpreview
 Apple;iPhone XS Max;5.60;dpreview
 Arashi Vision;Insta360 ONE X;6.16;usercontribution
+Arashi Vision;Insta360 X3;6.4;usercontribution
 Archos;Archos 101e Neon;1.6;devicespecifications
 Archos;Archos 50 Cobalt;2.9;devicespecifications
 Archos;Archos 50d Oxygen;4.69;devicespecifications
@@ -700,6 +701,7 @@ Canon;Canon EOS R6;35.9;devicespecifications,digicamdb
 Canon;Canon EOS R6 II;36.0;dpreview
 Canon;Canon EOS R6 Mark II;36.0;imaging-resource
 Canon;Canon EOS R7;22.3;imaging-resource
+Canon;Canon EOS R100;22.3;digicamdb
 Canon;Canon EOS Ra;36.0;dpreview
 Canon;Canon EOS Rebel SL1;22.3;digicamdb,dpreview,imaging-resource
 Canon;Canon EOS Rebel SL2;22.3;digicamdb,dpreview,imaging-resource
@@ -1468,6 +1470,7 @@ DJI;FC7303;6.16;usercontribution
 DJI;MAVIC2-ENTERPRISE-ADVANCED;4.8;
 DJI;Mavic3;17.3;dji
 DJI;Mini 2 SE;6.16;dji
+DJI;Mini3Pro;9.79;usercontribution
 DJI;M3T;6.4;dji
 DJI;Phantom 4;6.3;dxomark
 DJI;Phantom 4 Pro;13.2;dxomark
@@ -2206,6 +2209,9 @@ Google;Pixel 6 Pro;9.79;usercontribution
 Google;Pixel 6a;5.64;usercontribution
 Google;Pixel 7;9.79;usercontribution
 Google;Pixel 7 Pro;9.79;usercontribution
+Google;Pixel 8;9.8;dpreview
+Google;Pixel 8 Pro;9.8;dpreview
+Google;Pixel 9a;6.4;dpreview
 GoPro;GoPro Fusion;6.17;dpreview
 GoPro;GoPro Hero 2018;6.17;dpreview
 GoPro;GoPro Hero3-Silver Edition;5.37;usercontribution
@@ -3854,6 +3860,7 @@ Nikon;Nikon Z50;23.5;digicamdb
 Nikon;Nikon Z6;35.9;digicamdb,dpreview,imaging-resource
 Nikon;Nikon Z6 II;35.9;digicamdb
 Nikon;Nikon Z6II;35.9;dxomark
+Nikon;Nikon Z 6_2;35.9;dpreview,digicamdb,imaging-resource
 Nikon;Nikon Z7;35.9;digicamdb,dpreview,imaging-resource
 Nikon;Nikon Z7 II;35.9;digicamdb
 Nikon;Nikon Z7II;35.9;dxomark
@@ -4515,33 +4522,34 @@ OMNIVISION;OV9734;1.819;gophotonics
 Onda;Onda V975i;3.67;devicespecifications
 Onda;Onda V989;3.68;devicespecifications
 OnePlus;AC2003;6.4;usercontribution
-Oneplus;Oneplus 2;5.55;devicespecifications
-Oneplus;Oneplus 3;5.22;devicespecifications
-Oneplus;Oneplus 3T;5.22;devicespecifications
-Oneplus;Oneplus 5;5.22;devicespecifications
-Oneplus;Oneplus 5T;5.22;devicespecifications
-OnePlus;Oneplus 6;5.5;devicespecifications
-OnePlus;Oneplus 6T;5.5;devicespecifications
+OnePlus;OnePlus 2;5.55;devicespecifications
+OnePlus;OnePlus 3;5.22;devicespecifications
+OnePlus;OnePlus 3T;5.22;devicespecifications
+OnePlus;OnePlus 5;5.22;devicespecifications
+OnePlus;OnePlus 5T;5.22;devicespecifications
+OnePlus;OnePlus 6;5.5;devicespecifications
+OnePlus;OnePlus 6T;5.5;devicespecifications
 OnePlus;OnePlus 7;6.4;kimovil
 OnePlus;OnePlus 7 Pro;6.4;kimovil
 OnePlus;OnePlus 7T;6.4;kimovil
 OnePlus;OnePlus 7T Pro;6.4;kimovil
 OnePlus;OnePlus 8;6.4;kimovil
+OnePlus;OnePlus 8 Pro;8.96;devicespecificaitons
 OnePlus;OnePlus 8T;6.4;kimovil
 OnePlus;OnePlus 9R;6.4;kimovil
-OnePlus;Oneplus A5000;5.22;devicespecifications
-OnePlus;Oneplus A5010;5.22;devicespecifications
-OnePlus;Oneplus A6000;5.5;devicespecifications
-OnePlus;Oneplus A6003;5.5;devicespecifications
-OnePlus;Oneplus A6010;5.5;devicespecifications
-OnePlus;Oneplus A6013;5.5;devicespecifications
+OnePlus;OnePlus A5000;5.22;devicespecifications
+OnePlus;OnePlus A5010;5.22;devicespecifications
+OnePlus;OnePlus A6000;5.5;devicespecifications
+OnePlus;OnePlus A6003;5.5;devicespecifications
+OnePlus;OnePlus A6010;5.5;devicespecifications
+OnePlus;OnePlus A6013;5.5;devicespecifications
 OnePlus;OnePlus HD1913;6.4;usercontribution
 OnePlus;OnePlus LE2120;8.96;devicespecifications
 OnePlus;OnePlus LE2123;8.96;devicespecifications
 OnePlus;OnePlus LE2125;8.96;devicespecifications
 OnePlus;OnePlus Nord;6.4;kimovil
-Oneplus;Oneplus One;4.69;devicespecifications
-Oneplus;Oneplus X;4.69;devicespecifications
+OnePlus;OnePlus One;4.69;devicespecifications
+OnePlus;OnePlus X;4.69;devicespecifications
 Onkyo;Onkyo Granbeat;5.22;devicespecifications
 Oppo;Oppo 3000;4.54;devicespecifications
 Oppo;Oppo 3005;4.54;devicespecifications
@@ -5333,9 +5341,20 @@ Qmobile;Qmobile Noir S6;4.69;devicespecifications
 Ramos;Ramos M7;4.82;devicespecifications
 Ramos;Ramos MOS1 Max;4.69;devicespecifications
 Ramos;Ramos R9;4.69;devicespecifications
+RaspberryPi;RP_arducam-64mp;7.3216;devicespecifications
 RaspberryPi;RP_imx219;3.6736;devicespecifications
+RaspberryPi;RP_imx296;4.896;devicespecifications
+RaspberryPi;RP_imx298;5.21472;devicespecifications
+RaspberryPi;RP_imx335;5.184;devicespecifications
+RaspberryPi;RP_imx378;6.2868;devicespecifications
+RaspberryPi;RP_imx415;5.568;devicespecifications
 RaspberryPi;RP_imx477;6.287;devicespecifications
+RaspberryPi;RP_imx519;5.68032;devicespecifications
+RaspberryPi;RP_imx708;6.4512;devicespecifications
 RaspberryPi;RP_OV5647;3.6288;devicespecifications
+RaspberryPi;RP_OV64A40;9.225216;devicespecifications
+RaspberryPi;RP_OV7251;1.92;devicespecifications
+RaspberryPi;RP_OV9281;3.84;devicespecifications
 Realme;Realme 2 Pro;5.22;devicespecifications
 Realme;Realme 5 Pro;6.4;kimovil
 Realme;Realme 7 Pro;7.4;usercontribution
@@ -5733,6 +5752,7 @@ Samsung;Samsung Galaxy Note9 SM-N960U;5.644;devicespecifications
 Samsung;Samsung Galaxy NX;23.5;digicamdb,dpreview
 Samsung;Samsung Galaxy Round;4.54;devicespecifications
 Samsung;Samsung Galaxy S10;5.75;usercontribution
+Samsung;Samsung Galaxy S10e;5.65;devicespecifications
 Samsung;Samsung Galaxy S10 Lite;6.4;kimovil
 Samsung;Samsung Galaxy S10 Plus;5.75;digicamdb
 Samsung;Samsung Galaxy S2;4.54;devicespecifications
@@ -6193,6 +6213,7 @@ Sony;ILCE-6100;23.5;dpreview,usercontribution
 Sony;ILCE-6300;23.5;usercontribution
 Sony;ILCE-6400;23.5;usercontribution
 Sony;ILCE-6500;23.5;usercontribution
+Sony;ILCE-6700;23.3;devicespecifications
 Sony;ILCE-7;35.8;usercontribution
 Sony;ILCE-7M2;35.8;usercontribution
 Sony;ILCE-7M3;35.6;usercontribution
@@ -6838,7 +6859,7 @@ Sony;Sony DSC-HX60V;6.16;usercontribution
 Sony;Sony DSC-HX7V;6.16;usercontribution
 Sony;Sony DSC-QX30U;6.16;usercontribution
 Sony;Sony DSC-RX0;13.2;dpreview,dxomark
-Sony;Sony DSC-RX0 II;13.2;dpreview
+Sony;Sony DSC-RX0M2;13.2;dpreview
 Sony;Sony DSC-RX10;13.2;usercontribution
 Sony;Sony DSC-RX100M5;13.2;usercontribution
 Sony;Sony DSC-T110;6.16;usercontribution

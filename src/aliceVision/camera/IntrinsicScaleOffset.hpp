@@ -26,6 +26,8 @@ class IntrinsicScaleOffset : public IntrinsicBase
 
     ~IntrinsicScaleOffset() override = default;
 
+    static std::shared_ptr<IntrinsicScaleOffset> cast(std::shared_ptr<IntrinsicBase> sptr);
+
     void copyFrom(const IntrinsicScaleOffset& other) { *this = other; }
 
     bool operator==(const IntrinsicBase& otherBase) const override;
@@ -105,11 +107,63 @@ class IntrinsicScaleOffset : public IntrinsicBase
 
     inline bool isRatioLocked() const { return _ratioLocked; }
 
+    /**
+     * @brief Lock the offset
+     * @param lock True if the offset is locked, false otherwise
+     */
+    inline void setOffsetLocked(bool lock) { _offsetLocked = lock; }
+
+    inline bool isOffsetLocked() const { return _offsetLocked; }
+
+    /**
+     * @brief Lock the scale
+     * @param lock True if the scale is locked, false otherwise
+     */
+    inline void setScaleLocked(bool lock) { _scaleLocked = lock; }
+
+    inline bool isScaleLocked() const { return _scaleLocked; }
+
+    /**
+     * @brief get focal length in mm
+     * @return focal length in mm
+     */
+    double getFocalLength() const;
+
+    /**
+     * @brief get initial focal length in mm
+     * @return initial focal length in mm
+     */
+    double getInitialFocalLength() const;
+
+    /**
+     * @brief estimate the pixel aspect ratio
+     * @return the pixel aspect ratio
+     */
+    double getPixelAspectRatio() const;
+
+    /**
+     * @Brief set scale given focal length and pixelaspectratio
+     * @param focalLengthMM focal length in mm
+     * @param pixelAspectRatio pixel aspect ratio (image with = pixelAspectRatio * realwidth)
+     * @param usePixelRatioForX use pixel ratio
+     */
+    void setFocalLength(double focalLengthMM, double pixelAspectRatio, bool useCompatibility = false);
+
+    /**
+     * @Brief set initial scale given initial focal length and pixelaspectratio
+     * @param initialFocalLengthMM initial focal length in mm
+     * @param pixelAspectRatio pixel aspect ratio (image with = pixelAspectRatio * realwidth)
+     * @param useCompability make sure compatibility mode is used
+     */
+    void setInitialFocalLength(double initialFocalLengthMM, double pixelAspectRatio, bool useCompatibility = false);
+
   protected:
     Vec2 _scale{1.0, 1.0};
     Vec2 _offset{0.0, 0.0};
     Vec2 _initialScale{-1.0, -1.0};
     bool _ratioLocked{true};
+    bool _offsetLocked{false};
+    bool _scaleLocked{false};
 };
 
 }  // namespace camera

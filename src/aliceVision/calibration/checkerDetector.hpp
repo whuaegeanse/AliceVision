@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include <aliceVision/image/all.hpp>
+#include <aliceVision/image/Image.hpp>
 #include <aliceVision/types.hpp>
 
 #include <vector>
@@ -108,12 +108,14 @@ class CheckerDetector
      *     8.2. filter boards to only keep a sequence of nested boards
      *     8.3. connect and group these nested boards
      *
-     * @param source[in] Input image containing checkerboards.
-     * @param useNestedGrid[in] Indicate if the image contains nested calibration grids.
-     * @param debug[in] Indicate if debug images should be drawn.
-     * @return False if a problem occured during detection, otherwise true.
+     * @param[in] source Input image containing checkerboards.
+     * @param[in] maxLevels maximum number of levels used in multiscale point detection
+     * @param[in] minConsensus minimum number of shared corners to merge checkerboards
+     * @param[in] useNestedGrid Indicate if the image contains nested calibration grids.
+     * @param[in] debug Indicate if debug images should be drawn.
+     * @return False if a problem occurred during detection, otherwise true.
      */
-    bool process(const image::Image<image::RGBColor>& source, bool useNestedGrids = false, bool debug = false);
+    bool process(const image::Image<image::RGBColor>& source, size_t maxLevels = 3, size_t minConsensus = 5, bool useNestedGrids = false, bool debug = false);
 
     /// Return a copy of detected checkerboards.
     std::vector<CheckerBoard> getBoards() const { return _boards; }
@@ -154,7 +156,7 @@ class CheckerDetector
      * @param[out] corners Container for extracted corners.
      * @param[in] input Input grayscale image.
      * @param[in] scale Scale applied to the image before the extraction.
-     * @return False if a problem occured during extraction, otherwise true.
+     * @return False if a problem occurred during extraction, otherwise true.
      */
     bool processLevel(std::vector<Vec2>& corners, const image::Image<float>& input, double scale) const;
 
@@ -247,11 +249,8 @@ class CheckerDetector
      *
      * @param[out] boards Container for the built checkerboards.
      * @param[in] refinedCorners Corners with directions information.
-     * @param[in] input Input grayscale image.
      */
-    void buildCheckerboards(std::vector<CheckerBoard>& boards,
-                            const std::vector<CheckerBoardCorner>& refinedCorners,
-                            const image::Image<float>& input) const;
+    void buildCheckerboards(std::vector<CheckerBoard>& boards, const std::vector<CheckerBoardCorner>& refinedCorners) const;
 
     /**
      * @brief Find corner closest to a given position in an area constrained to a small cone around a given direction.
@@ -305,7 +304,7 @@ class CheckerDetector
      * @param[in,out] board Checkerboard to extend.
      * @param[in] refinedCorners All detected corners.
      * @param[in] nested Extend the board inwards or outwards.
-     * @return False if a problem occured or if the energy of the extended board is higher than before, otherwise true.
+     * @return False if a problem occurred or if the energy of the extended board is higher than before, otherwise true.
      */
     bool growIterationUp(CheckerBoard& board, const std::vector<CheckerBoardCorner>& refinedCorners, bool nested) const;
 
@@ -329,7 +328,7 @@ class CheckerDetector
      *     2.3. if the new board energy is lower than the first board energy, replace the latter
      * 3. remove overlapping boards
      *
-     * @return False if a problem occured during merging, otherwise true.
+     * @return False if a problem occurred during merging, otherwise true.
      */
     bool mergeCheckerboards();
 
@@ -387,7 +386,7 @@ class CheckerDetector
      * A checkboard is considered invalid if one of its rows or columns contains two edges
      * that have an absolute angle between them that is above a certain threshold (currently PI/4).
      *
-     * @return False if a problem occured during filtering, otherwise true.
+     * @return False if a problem occurred during filtering, otherwise true.
      */
     bool removeInvalidCheckerboards();
 
@@ -426,18 +425,20 @@ class CheckerDetector
 
     /**
      * @brief Merge overlapping nested boards.
+     * @param[in] minConsensus minimum number of shared corners to merge checkerboards
      */
-    void groupNestedCheckerboards();
+    void groupNestedCheckerboards(size_t minConsensus);
 
     /**
      * @brief Merge given board with reference board (first in the nesting sequence).
      *
+     * @param[in] minConsensus minimum number of shared corners to merge checkerboards
      * @param[in] ref_center Center point of reference board.
      * @param[in] other Index of board to merge.
      * @param[in] scale Checkboard scale within nesting sequence (power of 2).
      * @return False if merging failed, otherwise true.
      */
-    bool groupNestedCheckerboardsPair(Vec2i& ref_center, const IndexT& other, int scale);
+    bool groupNestedCheckerboardsPair(size_t minConsensus, Vec2i& ref_center, const IndexT& other, int scale);
 
   private:
     /// Detected checkerboards.

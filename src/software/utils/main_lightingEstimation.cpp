@@ -42,7 +42,7 @@ enum class EAlbedoEstimation
 };
 
 /**
- * @brief get informations about each describer type
+ * @brief get information about each describer type
  * @return String
  */
 std::string EAlbedoEstimation_informations()
@@ -331,7 +331,7 @@ int main(int argc, char** argv)
     }
 
     // initialization
-    mvsUtils::MultiViewParams mp(sfmData, imagesFolder, "", depthMapsFilterFolder, false);
+    mvsUtils::MultiViewParams mp(sfmData, imagesFolder, "", depthMapsFilterFolder, mvsUtils::EFileType::none);
 
     lightingEstimation::LighthingEstimator estimator;
 

@@ -18,6 +18,8 @@
 #include <aliceVision/utils/filesIO.hpp>
 #include <aliceVision/stl/mapUtils.hpp>
 #include <aliceVision/lensCorrectionProfile/lcp.hpp>
+#include <aliceVision/camera/cameraUndistortImage.hpp>
+#include <aliceVision/camera/IntrinsicScaleOffset.hpp>
 
 #include <boost/program_options.hpp>
 #include <boost/algorithm/string.hpp>
@@ -44,7 +46,7 @@
 // These constants define the current software version.
 // They must be updated when the command line is changed.
 #define ALICEVISION_SOFTWARE_VERSION_MAJOR 3
-#define ALICEVISION_SOFTWARE_VERSION_MINOR 3
+#define ALICEVISION_SOFTWARE_VERSION_MINOR 4
 
 using namespace aliceVision;
 namespace po = boost::program_options;
@@ -1028,7 +1030,8 @@ int aliceVision_main(int argc, char* argv[])
     requiredParams.add_options()
         ("input,i", po::value<std::string>(&inputExpression)->default_value(inputExpression),
          "SfMData file input, image filenames or regex(es) on the image file path (supported regex: '#' matches a "
-         "single digit, '@' one or more digits, '?' one character and '*' zero or more).")
+         "single digit, '@' one or more digits, '?' one character and '*' zero or more)."
+         "Argument must be between quotes if regex are used.")
         ("inputFolders", po::value<std::vector<std::string>>(&inputFolders)->multitoken(),
          "Use images from specific folder(s) instead of those specify in the SfMData file.")
         ("output,o", po::value<std::string>(&outputPath)->required(),
@@ -1043,7 +1046,7 @@ int aliceVision_main(int argc, char* argv[])
          "Use original image names instead of view names when saving.")
 
         ("reconstructedViewsOnly", po::value<bool>(&pParams.reconstructedViewsOnly)->default_value(pParams.reconstructedViewsOnly),
-         "Process only recontructed views or all views.")
+         "Process only reconstructed views or all views.")
 
         ("fixNonFinite", po::value<bool>(&pParams.fixNonFinite)->default_value(pParams.fixNonFinite),
          "Fill non-finite pixels.")
@@ -1263,7 +1266,7 @@ int aliceVision_main(int argc, char* argv[])
         {
             const sfmData::View& view = *(viewIt.second);
             // Only valid views if needed
-            if (pParams.reconstructedViewsOnly && !sfmData.isPoseAndIntrinsicDefined(&view))
+            if (pParams.reconstructedViewsOnly && !sfmData.isPoseAndIntrinsicDefined(view))
             {
                 continue;
             }
@@ -1316,7 +1319,7 @@ int aliceVision_main(int argc, char* argv[])
             const std::string outputfilePath =
               (fs::path(outputPath) / ((pParams.keepImageFilename ? fileName : std::to_string(viewId)) + outputExt)).generic_string();
 
-            ALICEVISION_LOG_INFO(++i << "/" << size << " - Process view '" << viewId << "'.");
+            ALICEVISION_LOG_INFO(++i << "/" << size << " - Process view '" << viewId << (isRAW ? "' (RAW)." : "'."));
 
             auto metadata = view.getImage().getMetadata();
 
@@ -1431,7 +1434,11 @@ int aliceVision_main(int argc, char* argv[])
 
             if (pParams.par.enabled)
             {
-                pParams.par.value = cam->getParams()[1] / cam->getParams()[0];
+                auto iso = camera::IntrinsicScaleOffset::cast(cam);
+                if (iso)
+                {
+                    pParams.par.value = iso->getScale().y() / iso->getScale().x();
+                }
             }
 
             // Image processing
@@ -1509,34 +1516,29 @@ int aliceVision_main(int argc, char* argv[])
         const fs::path inputPath(inputExpression);
         std::vector<std::string> filesStrPaths;
 
-        // If sfmInputDataFilename is empty use imageFolders instead
         if (inputExpression.empty())
         {
             // Get supported files
             filesStrPaths =
               utils::getFilesPathsFromFolders(inputFolders, [](const fs::path& path) { return image::isSupported(path.extension().string()); });
         }
+        else if (fs::is_regular_file(inputPath))
+        {
+            filesStrPaths.push_back(inputPath.string());
+        }
         else
         {
-            // If you try to use both a regex-like filter expression and folders as input
-            if (!inputFolders.empty())
+            if (inputFolders.empty())
             {
-                ALICEVISION_LOG_WARNING("InputFolders and filter expression cannot be used at the same time, InputFolders are ignored here.");
+                inputFolders.push_back(inputPath.parent_path().generic_string());
             }
-
-            if (fs::is_regular_file(inputPath))
+            const std::regex regex = utils::filterToRegex(inputExpression);
+            for (const auto& inputFolder : inputFolders)
             {
-                filesStrPaths.push_back(inputPath.string());
-            }
-            else
-            {
-                ALICEVISION_LOG_INFO("Working directory Path '" + inputPath.parent_path().generic_string() + "'.");
-
-                const std::regex regex = utils::filterToRegex(inputExpression);
-                // Get supported files in inputPath directory which matches our regex filter
-                filesStrPaths = utils::getFilesPathsFromFolder(inputPath.parent_path().generic_string(), [&regex](const fs::path& path) {
+                std::vector<std::string> currFilesStrPaths = utils::getFilesPathsFromFolder(inputFolder, [&regex](const fs::path& path) {
                     return image::isSupported(path.extension().string()) && std::regex_match(path.generic_string(), regex);
                 });
+                filesStrPaths.insert(filesStrPaths.end(), currFilesStrPaths.begin(), currFilesStrPaths.end());
             }
         }
 
@@ -1589,7 +1591,7 @@ int aliceVision_main(int argc, char* argv[])
             const std::string fileExt = path.extension().string();
             const std::string outputExt = extension.empty() ? (isRAW ? ".exr" : fileExt) : (std::string(".") + extension);
 
-            ALICEVISION_LOG_INFO(++i << "/" << size << " - Process image '" << filename << fileExt << "'.");
+            ALICEVISION_LOG_INFO(++i << "/" << size << " - Process image '" << filename << fileExt << (isRAW ? "' (RAW)." : "'."));
 
             const std::string userExt = fs::path(outputPath).extension().string();
             std::string outputFilePath;
@@ -1605,10 +1607,28 @@ int aliceVision_main(int argc, char* argv[])
                     outputFilePath = (fs::path(outputPath).parent_path() / (filename + outputExt)).generic_string();
                     ALICEVISION_LOG_WARNING("Extension " << userExt << " is not supported! Output image saved in " << outputFilePath);
                 }
+                // Create output directory if it does not exist
+                if (!fs::exists(fs::path(outputPath).parent_path()))
+                {
+                    if (!fs::create_directory(fs::path(outputPath).parent_path()))
+                    {
+                        ALICEVISION_LOG_ERROR("Unexisting directory " << fs::path(outputPath).parent_path().generic_string() << " cannot be created");
+                        return EXIT_FAILURE;
+                    }
+                }
             }
             else
             {
                 outputFilePath = (fs::path(outputPath) / (filename + outputExt)).generic_string();
+                // Create output directory if it does not exist
+                if (!fs::exists(fs::path(outputPath)))
+                {
+                    if (!fs::create_directory(fs::path(outputPath)))
+                    {
+                        ALICEVISION_LOG_ERROR("Unexisting directory " << outputPath << " cannot be created");
+                        return EXIT_FAILURE;
+                    }
+                }
             }
 
             image::DCPProfile dcpProf;
@@ -1750,6 +1770,7 @@ int aliceVision_main(int argc, char* argv[])
                         const double defaultOffsetX = 0.0;
                         const double defaultOffsetY = 0.0;
                         intrinsicBase = sfmDataIO::getViewIntrinsic(view,
+                                                                    intrinsicInitMode,
                                                                     focalLengthmm,
                                                                     sensorWidth,
                                                                     defaultFocalLength,

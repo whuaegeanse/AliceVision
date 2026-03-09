@@ -7,8 +7,7 @@
 #include <string>
 
 #include <OpenImageIO/imagebuf.h>
-
-#include <aliceVision/image/all.hpp>
+#include <aliceVision/image/Image.hpp>
 
 namespace aliceVision {
 namespace image {
@@ -324,7 +323,7 @@ class DCPDatabase final
     void clear();
 
     /**
-     * @brief Check if the databse is empty.
+     * @brief Check if the database is empty.
      * return True if empty.
      */
     inline bool empty() { return dcpFilenamesList.empty(); }

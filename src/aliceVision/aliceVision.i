@@ -9,6 +9,7 @@
 %include <aliceVision/global.i>
 %include <aliceVision/version.hpp>
 
+%import <aliceVision/numeric/numeric.i>
 %import <aliceVision/camera/Camera.i>
 %import <aliceVision/geometry/Geometry.i>
 %import <aliceVision/hdr/Hdr.i>
@@ -16,8 +17,17 @@
 %import <aliceVision/sfmDataIO/SfMDataIO.i>
 %import <aliceVision/sfmData/SfMData.i>
 %import <aliceVision/stl/Stl.i>
+%import <aliceVision/track/track.i>
 
 %{
 #include <aliceVision/version.hpp>
+
+//For unknown reason, we need to declare cameras here too
+#include <aliceVision/camera/IntrinsicBase.hpp>
+#include <aliceVision/camera/Pinhole.hpp>
+#include <aliceVision/camera/Equidistant.hpp>
+#include <aliceVision/camera/Equirectangular.hpp>
+
 using namespace aliceVision;
+
 %}

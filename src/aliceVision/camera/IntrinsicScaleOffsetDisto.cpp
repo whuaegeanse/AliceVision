@@ -9,7 +9,17 @@
 namespace aliceVision {
 namespace camera {
 
+std::shared_ptr<IntrinsicScaleOffsetDisto> IntrinsicScaleOffsetDisto::cast(std::shared_ptr<IntrinsicBase> sptr)
+{
+    return std::dynamic_pointer_cast<IntrinsicScaleOffsetDisto>(sptr);
+}
+
 bool IntrinsicScaleOffsetDisto::operator==(const IntrinsicBase& otherBase) const
+{
+    return equalTo(otherBase, false);
+}
+
+bool IntrinsicScaleOffsetDisto::equalTo(const IntrinsicBase& otherBase, bool ignoreDistortion) const
 {
     if (!IntrinsicScaleOffset::operator==(otherBase))
     {
@@ -19,6 +29,11 @@ bool IntrinsicScaleOffsetDisto::operator==(const IntrinsicBase& otherBase) const
     if (typeid(*this) != typeid(otherBase))
     {
         return false;
+    }
+
+    if (ignoreDistortion)
+    {
+        return true;
     }
 
     const IntrinsicScaleOffsetDisto& other = static_cast<const IntrinsicScaleOffsetDisto&>(otherBase);

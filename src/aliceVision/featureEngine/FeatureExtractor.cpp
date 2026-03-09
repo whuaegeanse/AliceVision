@@ -6,9 +6,11 @@
 
 #include "FeatureExtractor.hpp"
 #include <aliceVision/image/io.hpp>
+#include <aliceVision/image/imageAlgo.hpp>
 #include <aliceVision/system/MemoryInfo.hpp>
 #include <aliceVision/utils/filesIO.hpp>
 #include <aliceVision/alicevision_omp.hpp>
+#include <aliceVision/camera/Equidistant.hpp>
 
 #include <filesystem>
 #include <iomanip>
@@ -172,6 +174,13 @@ void FeatureExtractor::computeViewJob(const FeatureExtractorViewJob& job, bool u
     double pixelRatio = 1.0;
     job.view().getImage().getDoubleMetadata({"PixelAspectRatio"}, pixelRatio);
 
+    std::array<Vec2, 5> shifts;
+    shifts[0] = Vec2(-1, 0);
+    shifts[1] = Vec2(1, 0);
+    shifts[2] = Vec2(0, -1);
+    shifts[3] = Vec2(0, 1);
+    shifts[4] = Vec2(0, 0);
+
     if (pixelRatio != 1.0)
     {
         // Resample input image in order to work with square pixels
@@ -265,10 +274,6 @@ void FeatureExtractor::computeViewJob(const FeatureExtractorViewJob& job, bool u
             for (size_t i = 0, n = regions->RegionCount(); i != n; ++i)
             {
                 const Vec2 position = regions->GetRegionPosition(i);
-                const int x = int(position.x());
-                const int y = int(position.y());
-
-
                 bool masked = false;
 
                 //Check if point lies inside potential fisheye circle
@@ -276,12 +281,23 @@ void FeatureExtractor::computeViewJob(const FeatureExtractorViewJob& job, bool u
                 {
                     masked = true;
                 }
-                //Check if the optional image mask tells us to ignore this coordinate
-                else if (x < mask.width() && y < mask.height())
+                else 
                 {
-                    if ((mask(y, x) == 0 && !_maskInvert) || (mask(y, x) != 0 && _maskInvert))
+                    const double scale = regions->Features()[i].scale();
+                    //Check if the optional image mask tells us to ignore this coordinate
+                    for (int idx = 0; idx < shifts.size(); idx++)
                     {
-                        masked = true;
+                        const Vec2 npos = position + scale * shifts[idx];
+                        const int x = int(npos.x());
+                        const int y = int(npos.y());
+                        
+                        if (x >= 0 && y >= 0 && x < mask.width() && y < mask.height())
+                        {
+                            if ((mask(y, x) == 0 && !_maskInvert) || (mask(y, x) != 0 && _maskInvert))
+                            {
+                                masked = true;
+                            }
+                        }
                     }
                 }
 

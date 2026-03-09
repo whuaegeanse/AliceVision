@@ -5,7 +5,9 @@
 // You can obtain one at https://mozilla.org/MPL/2.0/.
 
 #include "remapBbox.hpp"
+
 #include "sphericalMapping.hpp"
+#include <aliceVision/camera/Equidistant.hpp>
 
 namespace aliceVision {
 
@@ -97,7 +99,7 @@ bool computeCoarseBB_Equidistant(BoundingBox& coarse_bbox,
             /**
              * Project this ray to camera pixel coordinates
              */
-            const Vec2 pix_disto = intrinsics.project(pose, ray.homogeneous(), true);
+            const Vec2 pix_disto = intrinsics.transformProject(pose, ray.homogeneous(), true);
 
             /**
              * Ignore invalid coordinates
@@ -124,7 +126,7 @@ bool computeCoarseBB_Equidistant(BoundingBox& coarse_bbox,
             /**
              * Project this ray to camera pixel coordinates
              */
-            const Vec2 pix_disto = intrinsics.project(pose, ray.homogeneous(), true);
+            const Vec2 pix_disto = intrinsics.transformProject(pose, ray.homogeneous(), true);
 
             /**
              * Ignore invalid coordinates
@@ -182,7 +184,7 @@ bool computeCoarseBB_Equidistant(BoundingBox& coarse_bbox,
             /**
              * Project this ray to camera pixel coordinates
              */
-            const Vec2 pix_disto = intrinsics.project(pose, ray.homogeneous(), true);
+            const Vec2 pix_disto = intrinsics.transformProject(pose, ray.homogeneous(), true);
 
             /**
              * Ignore invalid coordinates
@@ -235,7 +237,7 @@ bool computeCoarseBB_Pinhole(BoundingBox& coarse_bbox,
     float max_radius_distorted = max_radius;  // intrinsics.getMaximalDistortion(0.0, max_radius);
 
     /*
-    Coarse rectangle bouding box in camera space
+    Coarse rectangle bounding box in camera space
     We add intermediate points to ensure arclength between 2 points is never more than 180°
     */
     Vec2 pts_radius[] = {{-max_radius_distorted, -max_radius_distorted},

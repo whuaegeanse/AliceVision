@@ -7,7 +7,9 @@
 
 #include "imageStats.hpp"
 
-#include <aliceVision/image/all.hpp>
+#include <aliceVision/image/Image.hpp>
+#include <aliceVision/image/filtering.hpp>
+#include <aliceVision/image/convolution.hpp>
 
 namespace aliceVision {
 namespace feature {
@@ -62,7 +64,7 @@ float computeAutomaticContrastFactor(const image::Image<float>& image, const flo
 
     const std::size_t searchId = percentile * static_cast<float>(nbValues);
 
-    int binId = 0;
+    std::size_t binId = 0;
     std::size_t acc = 0;
 
     while (acc < searchId && binId < nbBins)

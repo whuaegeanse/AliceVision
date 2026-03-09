@@ -65,6 +65,9 @@ class View
         _image(new ImageInfo(imagePath, width, height, metadata))
     {}
 
+    View(const View& v) = default;
+
+
     /**
      * @brief Shallow View Copy
      * return a pointer to a new View
@@ -75,7 +78,7 @@ class View
      * @brief Deep View Copy
      * return a pointer to a new View
      */
-    View* clone()
+    View* clone() const
     {
         View* v = new View(*this);
         v->_image = std::make_shared<ImageInfo>(*this->_image);
@@ -185,7 +188,7 @@ class View
 
     /**
      * @brief setIndependantPose
-     * @param independant
+     * @param independent
      */
     void setIndependantPose(bool independent) { _isPoseIndependent = independent; }
 
@@ -234,8 +237,14 @@ class View
      */
     void setResectionId(IndexT resectionId) { _resectionId = resectionId; }
 
-  private:
-    View(const View& v) = default;
+    /**
+     * @brief Check if the view has the minimal identifiers required for processing.
+     * @return true if view, intrinsic, and pose identifiers are set consistently.
+     */
+    bool isFullySetup()
+    {
+        return (getViewId() != UndefinedIndexT && getIntrinsicId() != UndefinedIndexT && getPoseId() == getViewId());
+    }
 
   private:
     /// view id

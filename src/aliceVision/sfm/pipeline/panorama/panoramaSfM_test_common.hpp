@@ -78,7 +78,7 @@ void test_panorama(std::shared_ptr<camera::IntrinsicBase>& intrinsic_gt,
                     continue;
                 }
 
-                Vec2 im = intrinsic_gt->project(pose, pt.homogeneous(), true);
+                Vec2 im = intrinsic_gt->transformProject(pose, pt.homogeneous(), true);
                 double dice = dist(mt);
                 if (dice < ratio_inliers)
                 {
@@ -141,12 +141,12 @@ void test_panorama(std::shared_ptr<camera::IntrinsicBase>& intrinsic_gt,
     sfmdata = pano.getSfMData();
 
     geometry::Pose3 zRw_gt = poses_gt[0];
-    geometry::Pose3 zRw_est = sfmdata.getPoses()[0].getTransform();
+    geometry::Pose3 zRw_est = sfmdata.getAbsolutePose(0).getTransform();
 
     for (int idPose = 0; idPose < poses_gt.size(); idPose++)
     {
         geometry::Pose3 cRw_gt = poses_gt[idPose];
-        geometry::Pose3 cRw_est = sfmdata.getPoses()[idPose].getTransform();
+        geometry::Pose3 cRw_est = sfmdata.getAbsolutePose(idPose).getTransform();
 
         Eigen::Matrix3d cRz_gt = cRw_gt.rotation() * zRw_gt.rotation().transpose();
         Eigen::Matrix3d cRz_est = cRw_est.rotation() * zRw_est.rotation().transpose();

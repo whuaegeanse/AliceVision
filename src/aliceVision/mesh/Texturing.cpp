@@ -140,7 +140,7 @@ std::istream& operator>>(std::istream& in, EBumpMappingType& bumpMappingType)
  *  coordinates of this pixel relative to \p triangle
  * @return
  */
-bool isPixelInTriangle(const Point2d* triangle, const Pixel& pixel, Point2d& barycentricCoords)
+bool isPixelInTriangle(const Point2d* triangle, const Pixel& pixel, Point2d& barycentricCoords, double margin = 0.5)
 {
     // get pixel center
     GEO::vec2 p(pixel.x + 0.5, pixel.y + 0.5);
@@ -154,7 +154,7 @@ bool isPixelInTriangle(const Point2d* triangle, const Pixel& pixel, Point2d& bar
     barycentricCoords.x = l3;
     barycentricCoords.y = l2;
     // tolerance threshold of 1/2 pixel for pixels on the edges of the triangle
-    return dist < 0.5 + std::numeric_limits<double>::epsilon();
+    return dist < margin + std::numeric_limits<double>::epsilon();
 }
 
 Point2d barycentricToCartesian(const Point2d* triangle, const Point2d& coords)
@@ -165,6 +165,123 @@ Point2d barycentricToCartesian(const Point2d* triangle, const Point2d& coords)
 Point3d barycentricToCartesian(const Point3d* triangle, const Point2d& coords)
 {
     return triangle[0] + (triangle[2] - triangle[0]) * coords.x + (triangle[1] - triangle[0]) * coords.y;
+}
+
+inline GEO::vec3 mesh_facet_interpolate_normal_at_point(const GEO::Mesh& mesh, GEO::index_t f, const GEO::vec3& p)
+{
+    const GEO::index_t v0 = mesh.facets.vertex(f, 0);
+    const GEO::index_t v1 = mesh.facets.vertex(f, 1);
+    const GEO::index_t v2 = mesh.facets.vertex(f, 2);
+
+    const GEO::vec3 p0 = mesh.vertices.point(v0);
+    const GEO::vec3 p1 = mesh.vertices.point(v1);
+    const GEO::vec3 p2 = mesh.vertices.point(v2);
+
+    const GEO::vec3 n0 = GEO::normalize(GEO::Geom::mesh_vertex_normal(mesh, v0));
+    const GEO::vec3 n1 = GEO::normalize(GEO::Geom::mesh_vertex_normal(mesh, v1));
+    const GEO::vec3 n2 = GEO::normalize(GEO::Geom::mesh_vertex_normal(mesh, v2));
+
+    GEO::vec3 barycCoords;
+    GEO::vec3 closestPoint;
+    GEO::Geom::point_triangle_squared_distance<GEO::vec3>(p, p0, p1, p2, closestPoint, barycCoords.x, barycCoords.y, barycCoords.z);
+
+    const GEO::vec3 n = barycCoords.x * n0 + barycCoords.y * n1 + barycCoords.z * n2;
+
+    return GEO::normalize(n);
+}
+
+inline GEO::vec3 mesh_facet_interpolate_normal_at_point(const StaticVector<Point3d>& ptsNormals, const Mesh& mesh, GEO::index_t f, const GEO::vec3& p)
+{
+    const GEO::index_t v0 = (mesh.tris)[f].v[0];
+    const GEO::index_t v1 = (mesh.tris)[f].v[1];
+    const GEO::index_t v2 = (mesh.tris)[f].v[2];
+
+    const GEO::vec3 p0((mesh.pts)[v0].x, (mesh.pts)[v0].y, (mesh.pts)[v0].z);
+    const GEO::vec3 p1((mesh.pts)[v1].x, (mesh.pts)[v1].y, (mesh.pts)[v1].z);
+    const GEO::vec3 p2((mesh.pts)[v2].x, (mesh.pts)[v2].y, (mesh.pts)[v2].z);
+
+    const GEO::vec3 n0(ptsNormals[v0].x, ptsNormals[v0].y, ptsNormals[v0].z);
+    const GEO::vec3 n1(ptsNormals[v1].x, ptsNormals[v1].y, ptsNormals[v1].z);
+    const GEO::vec3 n2(ptsNormals[v2].x, ptsNormals[v2].y, ptsNormals[v2].z);
+
+    GEO::vec3 barycCoords;
+    GEO::vec3 closestPoint;
+    GEO::Geom::point_triangle_squared_distance<GEO::vec3>(p, p0, p1, p2, closestPoint, barycCoords.x, barycCoords.y, barycCoords.z);
+
+    const GEO::vec3 n = barycCoords.x * n0 + barycCoords.y * n1 + barycCoords.z * n2;
+
+    return GEO::normalize(n);
+}
+
+template<class T, GEO::index_t DIM>
+inline Eigen::Matrix<T, DIM, 1> toEigen(const GEO::vecng<DIM, T>& v)
+{
+    return Eigen::Matrix<T, DIM, 1>(v.data());
+}
+
+/**
+ * @brief Compute a transformation matrix to convert coordinates in world space coordinates into the triangle space.
+ * The triangle space is define by the Z-axis as the normal of the triangle,
+ * the X-axis aligned with the horizontal line in the texture file (using texture/UV coordinates).
+ *
+ * @param[in] mesh: input mesh
+ * @param[in] f: facet/triangle index
+ * @param[in] triPts: UV Coordinates
+ * @return Rotation matrix to convert from world space coordinates in the triangle space
+ */
+inline Eigen::Matrix3d computeTriangleTransform(const Mesh& mesh, int f, const Point2d* triPts)
+{
+    const Eigen::Vector3d p0 = toEigen((mesh.pts)[(mesh.tris)[f].v[0]]);
+    const Eigen::Vector3d p1 = toEigen((mesh.pts)[(mesh.tris)[f].v[1]]);
+    const Eigen::Vector3d p2 = toEigen((mesh.pts)[(mesh.tris)[f].v[2]]);
+
+    const Eigen::Vector3d tX = (p1 - p0).normalized();                        // edge0 => local triangle X-axis
+    const Eigen::Vector3d N = tX.cross((p2 - p0).normalized()).normalized();  // cross(edge0, edge1) => Z-axis
+
+    // Correct triangle X-axis to be align with X-axis in the texture
+    const GEO::vec2 t0 = GEO::vec2(triPts[0].m);
+    const GEO::vec2 t1 = GEO::vec2(triPts[1].m);
+    const GEO::vec2 tV = GEO::normalize(t1 - t0);
+    const GEO::vec2 origNormal(1.0, 0.0);  // X-axis in the texture
+    const double tAngle = GEO::Geom::angle(tV, origNormal);
+    Eigen::Matrix3d transform(Eigen::AngleAxisd(tAngle, N).toRotationMatrix());
+    // Rotate triangle v0v1 axis around Z-axis, to get a X axis aligned with the 2d texture
+    Eigen::Vector3d X = (transform * tX).normalized();
+
+    const Eigen::Vector3d Y = N.cross(X).normalized();  // Y-axis
+
+    Eigen::Matrix3d m;
+    m.col(0) = X;
+    m.col(1) = Y;
+    m.col(2) = N;
+    // const Eigen::Matrix3d mInv = m.inverse();
+    const Eigen::Matrix3d mT = m.transpose();
+
+    return mT;
+}
+
+inline void computeNormalHeight(const GEO::Mesh& mesh,
+                                double orientation,
+                                double t,
+                                GEO::index_t f,
+                                const Eigen::Matrix3d& m,
+                                const GEO::vec3& q,
+                                const GEO::vec3& qA,
+                                const GEO::vec3& qB,
+                                float& out_height,
+                                image::RGBfColor& out_normal)
+{
+    GEO::vec3 intersectionPoint = t * qB + (1.0 - t) * qA;
+    out_height = q.distance(intersectionPoint) * orientation;
+
+    // Use facet normal
+    // GEO::vec3 denseMeshNormal_f = normalize(GEO::Geom::mesh_facet_normal(mesh, f));
+    // Use per pixel normal using weighted interpolation of the facet vertex normals
+    const GEO::vec3 denseMeshNormal = mesh_facet_interpolate_normal_at_point(mesh, f, intersectionPoint);
+
+    Eigen::Vector3d dNormal = m * toEigen(denseMeshNormal);
+    dNormal.normalize();
+    out_normal = image::RGBfColor(dNormal(0), dNormal(1), dNormal(2));
 }
 
 void Texturing::generateUVsBasicMethod(mvsUtils::MultiViewParams& mp)
@@ -282,7 +399,8 @@ void Texturing::updateAtlases()
 void Texturing::generateTextures(const mvsUtils::MultiViewParams& mp,
                                  const fs::path& outPath,
                                  size_t memoryAvailable,
-                                 image::EImageFileType textureFileType)
+                                 image::EImageFileType textureFileType,
+                                 mvsUtils::EFileType imageType)
 {
     // Ensure that contribution levels do not contain 0 and are sorted (as each frequency band contributes to lower bands).
     auto& m = texParams.multiBandNbContrib;
@@ -323,6 +441,7 @@ void Texturing::generateTextures(const mvsUtils::MultiViewParams& mp,
     const int memoryPerAtlas = (imageMaxMemSize + imagePyramidMaxMemSize) + atlasPyramidMaxMemSize;
     int nbAtlasMax = std::floor(availableMem / double(memoryPerAtlas));  // maximum number of textures laplacian pyramid in RAM
     nbAtlasMax = std::min(nbAtlas, nbAtlasMax);                          // if enough memory, do it with all atlases
+    nbAtlasMax = std::max(1, nbAtlasMax);                                // avoid division zero calculating chunks
 
     ALICEVISION_LOG_INFO("nbAtlas: " << nbAtlas);
     ALICEVISION_LOG_INFO("availableRam: " << availableRam);
@@ -330,6 +449,9 @@ void Texturing::generateTextures(const mvsUtils::MultiViewParams& mp,
     ALICEVISION_LOG_INFO("memoryPerAtlas: " << memoryPerAtlas);
 
     ALICEVISION_LOG_DEBUG("nbAtlasMax: " << nbAtlasMax);
+
+    if (availableMem < memoryPerAtlas)
+        ALICEVISION_LOG_WARNING("Memory may be insufficient to complete the job. Lack (MB): " << memoryPerAtlas - availableMem);
 
     // Add rounding to have a uniform repartition between chunks (avoid a small chunk at the end)
     const int nChunks = divideRoundUp(nbAtlas, nbAtlasMax);
@@ -363,7 +485,7 @@ void Texturing::generateTextures(const mvsUtils::MultiViewParams& mp,
             atlasIDs.push_back(atlasID);
         }
         ALICEVISION_LOG_INFO("Generating texture for atlases " << n * nbAtlasMax + 1 << " to " << n * nbAtlasMax + imax);
-        generateTexturesSubSet(mp, atlasIDs, imageCache, outPath, textureFileType);
+        generateTexturesSubSet(mp, atlasIDs, imageCache, outPath, textureFileType, imageType);
     }
 }
 
@@ -371,7 +493,8 @@ void Texturing::generateTexturesSubSet(const mvsUtils::MultiViewParams& mp,
                                        const std::vector<size_t>& atlasIDs,
                                        mvsUtils::ImagesCache<image::Image<image::RGBfColor>>& imageCache,
                                        const fs::path& outPath,
-                                       image::EImageFileType textureFileType)
+                                       image::EImageFileType textureFileType,
+                                       mvsUtils::EFileType imageType)
 {
     if (atlasIDs.size() > _atlases.size())
         throw std::runtime_error("Invalid atlas IDs ");
@@ -740,7 +863,114 @@ void Texturing::generateTexturesSubSet(const mvsUtils::MultiViewParams& mp,
                 }
             }
         }
-        writeTexture(atlasTexture, atlasID, outPath, textureFileType, -1);
+
+        // If mode "normalMaps"
+        if (imageType == mvsUtils::EFileType::normalMap)
+        {
+            Eigen::Matrix<bool, Eigen::Dynamic, Eigen::Dynamic> visitedPixels(atlasTexture.img.rows(), atlasTexture.img.cols());
+            visitedPixels.fill(false);
+
+            // Rotation and normalization of normals
+#pragma omp parallel for
+            for (int i = 0; i < static_cast<int>(_atlases[atlasID].size()); ++i)
+            {
+                int triangleId = _atlases[atlasID][i];
+
+                // Retrieve triangle 3D and UV coordinates
+                Point2d triPixs[3];
+                Point3d triPts[3];
+                auto& triangleUvIds = mesh->trisUvIds[triangleId];
+
+                // Retrieve triangle normal
+
+                // Compute the Bottom-Left minima of the current UDIM for [0,1] range remapping
+                Point2d udimBL;
+                StaticVector<Point2d>& uvCoords = mesh->uvCoords;
+                udimBL.x = std::floor(std::min({uvCoords[triangleUvIds[0]].x, uvCoords[triangleUvIds[1]].x, uvCoords[triangleUvIds[2]].x}));
+                udimBL.y = std::floor(std::min({uvCoords[triangleUvIds[0]].y, uvCoords[triangleUvIds[1]].y, uvCoords[triangleUvIds[2]].y}));
+
+                for (int k = 0; k < 3; k++)
+                {
+                    const int pointIndex = (mesh->tris)[triangleId].v[k];
+                    triPts[k] = (mesh->pts)[pointIndex];  // 3D coordinates
+                    const int uvPointIndex = triangleUvIds.m[k];
+
+                    Point2d uv = uvCoords[uvPointIndex];
+                    // UDIM: remap coordinates between [0,1]
+                    uv = uv - udimBL;
+
+                    triPixs[k] = uv * texParams.textureSide;  // UV coordinates
+                }
+
+                // compute triangle bounding box in pixel indexes
+                // min values: floor(value)
+                // max values: ceil(value)
+                Pixel LU, RD;
+                LU.x = static_cast<int>(std::floor(std::min({triPixs[0].x, triPixs[1].x, triPixs[2].x})));
+                LU.y = static_cast<int>(std::floor(std::min({triPixs[0].y, triPixs[1].y, triPixs[2].y})));
+                RD.x = static_cast<int>(std::ceil(std::max({triPixs[0].x, triPixs[1].x, triPixs[2].x})));
+                RD.y = static_cast<int>(std::ceil(std::max({triPixs[0].y, triPixs[1].y, triPixs[2].y})));
+
+                // sanity check: clamp values to [0; textureSide]
+                int texSide = static_cast<int>(texParams.textureSide);
+                LU.x = clamp(LU.x, 0, texSide);
+                LU.y = clamp(LU.y, 0, texSide);
+                RD.x = clamp(RD.x, 0, texSide);
+                RD.y = clamp(RD.y, 0, texSide);
+
+                const Eigen::Matrix3d worldToTriangleMatrix = computeTriangleTransform(*mesh, triangleId, triPixs);
+
+                // iterate over bounding box's pixels
+                for (int y = LU.y; y < RD.y; ++y)
+                {
+                    for (int x = LU.x; x < RD.x; ++x)
+                    {
+                        Pixel pix(x, y);  // top-left corner of the pixel
+                        Point2d barycCoords;
+
+                        // test if the pixel is inside triangle
+                        // and retrieve its barycentric coordinates
+                        const double margin = 0.5;
+                        if (!isPixelInTriangle(triPixs, pix, barycCoords, margin))
+                        {
+                            continue;
+                        }
+
+                        // remap 'y' to image coordinates system (inverted Y axis)
+                        const unsigned int y_ = (texParams.textureSide - 1) - y;
+                        // 1D pixel index
+                        const unsigned int xyoffset = y_ * texParams.textureSide + x;
+
+                        /*
+                        // get 3D coordinates
+                        const Point3d pt3d = barycentricToCartesian(triPts, barycCoords);
+                        const GEO::vec3 q(pt3d.x, pt3d.y, pt3d.z);
+
+                        // Texel normal (weighted normal from the 3 vertices normals), instead of face normal for better
+                        // transitions (reduce seams)
+                        const GEO::vec3 triangleNormal_p = mesh_facet_interpolate_normal_at_point(sparseMesh, triangleId, q);
+                        // const GEO::vec3 triangleNormal_p = GEO::vec3(triangleNormal.m); // to use the triangle normal instead
+                        const GEO::vec3 scaledTriangleNormal = triangleNormal_p * minEdgeLength * 10; // ??????
+
+                        */
+
+                        Vec3 origNormal = atlasTexture.img(xyoffset).cast<double>();
+                        if (visitedPixels(x, y))
+                        {
+                            continue;
+                        }
+                        visitedPixels(x, y) = true;
+
+                        origNormal = worldToTriangleMatrix * origNormal;
+                        origNormal.normalize();
+
+                        origNormal = origNormal * 0.5 + Vec3(0.5, 0.5, 0.5);  // Normal in visual representation
+                        atlasTexture.img(xyoffset) = image::RGBfColor(origNormal[0], origNormal[1], origNormal[2]);
+                    }
+                }
+            }
+        }
+        writeTexture(atlasTexture, atlasID, outPath, textureFileType, -1, imageType);
     }
 }
 
@@ -768,7 +998,8 @@ void Texturing::writeTexture(AccuImage& atlasTexture,
                              const std::size_t atlasID,
                              const std::filesystem::path& outPath,
                              image::EImageFileType textureFileType,
-                             const int level)
+                             const int level,
+                             mvsUtils::EFileType imageType)
 {
     unsigned int outTextureSide = texParams.textureSide;
     // WARNING: we modify the "imgCount" to apply the padding (to avoid the creation of a new buffer)
@@ -891,14 +1122,34 @@ void Texturing::writeTexture(AccuImage& atlasTexture,
 
         ALICEVISION_LOG_INFO("  - Downscaling texture (" << texParams.downscale << "x).");
         imageAlgo::resizeImage(texParams.downscale, atlasTexture.img, resizedColorBuffer);
+
+        // Normalize normal map after dowscaling
+        /*if(imageType == mvsUtils::EFileType::normalMap)
+        {
+            for(int i = 0; i < resizedColorBuffer.size(); ++i)
+            {
+                resizedColorBuffer(i).normalize();
+            }
+        }*/
+
         std::swap(resizedColorBuffer, atlasTexture.img);
     }
 
-    material.diffuseType = textureFileType;
-    const std::string textureName = material.textureName(Material::TextureType::DIFFUSE, static_cast<int>(atlasID));
-    material.addTexture(Material::TextureType::DIFFUSE, textureName);
+    std::string textureName;
+    if (imageType == mvsUtils::EFileType::normalMap)
+    {
+        material.bumpType = textureFileType;
+        textureName = material.textureName(Material::TextureType::BUMP, static_cast<int>(atlasID));
+        material.addTexture(Material::TextureType::BUMP, textureName);
+    }
+    else
+    {
+        material.diffuseType = textureFileType;
+        textureName = material.textureName(Material::TextureType::DIFFUSE, static_cast<int>(atlasID));
+        material.addTexture(Material::TextureType::DIFFUSE, textureName);
+    }
 
-    fs::path texturePath = outPath / textureName;
+    const fs::path texturePath = outPath / textureName;
     ALICEVISION_LOG_INFO("  - Writing texture file: " << texturePath.string());
 
     image::writeImage(texturePath.string(),
@@ -1053,23 +1304,30 @@ void Texturing::saveAs(const fs::path& dir, const std::string& basename, EFileTy
     const std::string meshFileTypeStr = EFileType_enumToString(meshFileType);
     const std::string filepath = (dir / (basename + "." + meshFileTypeStr)).string();
 
-    ALICEVISION_LOG_INFO("Save " << filepath << " mesh file");
+    ALICEVISION_LOG_INFO("Saving " << meshFileTypeStr << " mesh file using Assimp.");
 
     if (_atlases.empty())
     {
+        ALICEVISION_LOG_ERROR("No texture atlases available. Cannot save mesh.");
         return;
     }
 
+    // Assimp scene setup
+    // create scene and root node
     aiScene scene;
+    scene.mRootNode = new aiNode();
 
-    scene.mRootNode = new aiNode;
-
-    scene.mMeshes = new aiMesh*[_atlases.size()];
-    scene.mNumMeshes = _atlases.size();
-    scene.mRootNode->mMeshes = new unsigned int[_atlases.size()];
-    scene.mRootNode->mNumMeshes = _atlases.size();
+    // create material array
     scene.mMaterials = new aiMaterial*[_atlases.size()];
     scene.mNumMaterials = _atlases.size();
+
+    // create mesh array
+    scene.mMeshes = new aiMesh*[_atlases.size()];
+    scene.mNumMeshes = _atlases.size();
+
+    // link mesh array to root node
+    scene.mRootNode->mMeshes = new unsigned int[_atlases.size()];
+    scene.mRootNode->mNumMeshes = _atlases.size();
 
     // define shared material properties
     const aiVector3D valcolor = {material.diffuse.r, material.diffuse.g, material.diffuse.b};
@@ -1089,9 +1347,9 @@ void Texturing::saveAs(const fs::path& dir, const std::string& basename, EFileTy
         // Set material for this atlas
         const aiString texName("material_" + Material::textureId(atlasId));
 
-        scene.mMaterials[atlasId] = new aiMaterial;
-        scene.mMaterials[atlasId]->AddProperty(&valcolor, 1, AI_MATKEY_COLOR_AMBIENT);
-        scene.mMaterials[atlasId]->AddProperty(&valambient, 1, AI_MATKEY_COLOR_DIFFUSE);
+        scene.mMaterials[atlasId] = new aiMaterial();
+        scene.mMaterials[atlasId]->AddProperty(&valcolor, 1, AI_MATKEY_COLOR_DIFFUSE);
+        scene.mMaterials[atlasId]->AddProperty(&valambient, 1, AI_MATKEY_COLOR_AMBIENT);
         scene.mMaterials[atlasId]->AddProperty(&valspecular, 1, AI_MATKEY_COLOR_SPECULAR);
         scene.mMaterials[atlasId]->AddProperty(&shininess, 1, AI_MATKEY_SHININESS);
         scene.mMaterials[atlasId]->AddProperty(&texName, AI_MATKEY_NAME);
@@ -1125,10 +1383,17 @@ void Texturing::saveAs(const fs::path& dir, const std::string& basename, EFileTy
         }
 
         scene.mRootNode->mMeshes[atlasId] = atlasId;
-        scene.mMeshes[atlasId] = new aiMesh;
+        scene.mMeshes[atlasId] = new aiMesh();
         aiMesh* aimesh = scene.mMeshes[atlasId];
         aimesh->mMaterialIndex = atlasId;
         aimesh->mNumUVComponents[0] = 2;
+
+        if (meshFileType == EFileType::GLTF || meshFileType == EFileType::GLB)
+        {
+            // set primitive types to triangles, required for gltf and glb export
+            // for other file types, primitive types is unspecified to avoid normal generation 
+            aimesh->mPrimitiveTypes = aiPrimitiveType_TRIANGLE;
+        }
 
         // Assimp does not allow vertex indices different from uv indices
         // So we need to group and duplicate
@@ -1147,24 +1412,31 @@ void Texturing::saveAs(const fs::path& dir, const std::string& basename, EFileTy
 
         aimesh->mNumVertices = unique_pairs.size();
         aimesh->mVertices = new aiVector3D[unique_pairs.size()];
-        aimesh->mTextureCoords[0] = new aiVector3D[unique_pairs.size()];
+
+        if (hasUVs())
+        {
+            aimesh->mTextureCoords[0] = new aiVector3D[unique_pairs.size()];
+        }
 
         int index = 0;
         for (auto& p : unique_pairs)
         {
-            int vertexId = p.first.first;
-            int uvId = p.first.second;
+            const int vertexId = p.first.first;
 
             aimesh->mVertices[index].x = mesh->pts[vertexId].x;
             aimesh->mVertices[index].y = -mesh->pts[vertexId].y;
             aimesh->mVertices[index].z = -mesh->pts[vertexId].z;
 
-            aimesh->mTextureCoords[0][index].x = mesh->uvCoords[uvId].x;
-            aimesh->mTextureCoords[0][index].y = mesh->uvCoords[uvId].y;
-            aimesh->mTextureCoords[0][index].z = 0.0;
+            if (hasUVs())
+            {
+                const int uvId = p.first.second;
+
+                aimesh->mTextureCoords[0][index].x = mesh->uvCoords[uvId].x;
+                aimesh->mTextureCoords[0][index].y = mesh->uvCoords[uvId].y;
+                aimesh->mTextureCoords[0][index].z = 0.0;
+            }
 
             p.second = index;
-
             ++index;
         }
 
@@ -1189,138 +1461,49 @@ void Texturing::saveAs(const fs::path& dir, const std::string& basename, EFileTy
         }
     }
 
-    std::string formatId = meshFileTypeStr;
+    // exporter setup
+    std::string pFormatId = meshFileTypeStr;
     unsigned int pPreprocessing = 0u;
-    // If gltf, use gltf 2.0
-    if (meshFileType == EFileType::GLTF)
+    
+    if (meshFileType == EFileType::GLTF || meshFileType == EFileType::GLB)
     {
-        formatId = "gltf2";
-        // Flip UVs when exporting (issue with UV origin for gltf2)
+        if (meshFileType == EFileType::GLTF)
+        {
+            // gltf file, use gltf 2.0
+            pFormatId = "gltf2";
+        }
+        else
+        {
+            // glb file, use glb 2.0
+            pFormatId = "glb2";
+        }
+
+        // flip UVs when exporting (issue with UV origin for gltf2)
         // https://github.com/around-media/ue4-custom-prompto/commit/044dbad90fc2172f4c5a8b67c779b80ceace5e1e
-        pPreprocessing |= aiPostProcessSteps::aiProcess_FlipUVs | aiProcess_GenNormals;
+        // pPreprocessing |= aiProcess_FlipUVs;
+        
+        // gen normals in order to have correct shading in Qt 3D Scene
+        // but cause problems with assimp importer
+        pPreprocessing |= aiProcess_GenNormals;
     }
 
+    // export mesh
     Assimp::Exporter exporter;
-    exporter.Export(&scene, formatId, filepath, pPreprocessing);
+    const aiReturn ret = exporter.Export(&scene, pFormatId, filepath, pPreprocessing);
 
-    ALICEVISION_LOG_INFO("Save mesh to " << meshFileTypeStr << " done.");
-}
+    // check for errors
+    if (ret != AI_SUCCESS)
+    {
+        if (ret == AI_OUTOFMEMORY)
+        {
+            ALICEVISION_LOG_ERROR("Assimp exporter ran out of memory while exporting mesh to " << filepath);
+        }
 
-inline GEO::vec3 mesh_facet_interpolate_normal_at_point(const GEO::Mesh& mesh, GEO::index_t f, const GEO::vec3& p)
-{
-    const GEO::index_t v0 = mesh.facets.vertex(f, 0);
-    const GEO::index_t v1 = mesh.facets.vertex(f, 1);
-    const GEO::index_t v2 = mesh.facets.vertex(f, 2);
+        ALICEVISION_THROW_ERROR("Assimp exporter failed to export mesh to " << filepath << ", error: " << exporter.GetErrorString());
+        return;
+    }
 
-    const GEO::vec3 p0 = mesh.vertices.point(v0);
-    const GEO::vec3 p1 = mesh.vertices.point(v1);
-    const GEO::vec3 p2 = mesh.vertices.point(v2);
-
-    const GEO::vec3 n0 = GEO::normalize(GEO::Geom::mesh_vertex_normal(mesh, v0));
-    const GEO::vec3 n1 = GEO::normalize(GEO::Geom::mesh_vertex_normal(mesh, v1));
-    const GEO::vec3 n2 = GEO::normalize(GEO::Geom::mesh_vertex_normal(mesh, v2));
-
-    GEO::vec3 barycCoords;
-    GEO::vec3 closestPoint;
-    GEO::Geom::point_triangle_squared_distance<GEO::vec3>(p, p0, p1, p2, closestPoint, barycCoords.x, barycCoords.y, barycCoords.z);
-
-    const GEO::vec3 n = barycCoords.x * n0 + barycCoords.y * n1 + barycCoords.z * n2;
-
-    return GEO::normalize(n);
-}
-
-inline GEO::vec3 mesh_facet_interpolate_normal_at_point(const StaticVector<Point3d>& ptsNormals, const Mesh& mesh, GEO::index_t f, const GEO::vec3& p)
-{
-    const GEO::index_t v0 = (mesh.tris)[f].v[0];
-    const GEO::index_t v1 = (mesh.tris)[f].v[1];
-    const GEO::index_t v2 = (mesh.tris)[f].v[2];
-
-    const GEO::vec3 p0((mesh.pts)[v0].x, (mesh.pts)[v0].y, (mesh.pts)[v0].z);
-    const GEO::vec3 p1((mesh.pts)[v1].x, (mesh.pts)[v1].y, (mesh.pts)[v1].z);
-    const GEO::vec3 p2((mesh.pts)[v2].x, (mesh.pts)[v2].y, (mesh.pts)[v2].z);
-
-    const GEO::vec3 n0(ptsNormals[v0].x, ptsNormals[v0].y, ptsNormals[v0].z);
-    const GEO::vec3 n1(ptsNormals[v1].x, ptsNormals[v1].y, ptsNormals[v1].z);
-    const GEO::vec3 n2(ptsNormals[v2].x, ptsNormals[v2].y, ptsNormals[v2].z);
-
-    GEO::vec3 barycCoords;
-    GEO::vec3 closestPoint;
-    GEO::Geom::point_triangle_squared_distance<GEO::vec3>(p, p0, p1, p2, closestPoint, barycCoords.x, barycCoords.y, barycCoords.z);
-
-    const GEO::vec3 n = barycCoords.x * n0 + barycCoords.y * n1 + barycCoords.z * n2;
-
-    return GEO::normalize(n);
-}
-
-template<class T, GEO::index_t DIM>
-inline Eigen::Matrix<T, DIM, 1> toEigen(const GEO::vecng<DIM, T>& v)
-{
-    return Eigen::Matrix<T, DIM, 1>(v.data());
-}
-
-/**
- * @brief Compute a transformation matrix to convert coordinates in world space coordinates into the triangle space.
- * The triangle space is define by the Z-axis as the normal of the triangle,
- * the X-axis aligned with the horizontal line in the texture file (using texture/UV coordinates).
- *
- * @param[in] mesh: input mesh
- * @param[in] f: facet/triangle index
- * @param[in] triPts: UV Coordinates
- * @return Rotation matrix to convert from world space coordinates in the triangle space
- */
-inline Eigen::Matrix3d computeTriangleTransform(const Mesh& mesh, int f, const Point2d* triPts)
-{
-    const Eigen::Vector3d p0 = toEigen((mesh.pts)[(mesh.tris)[f].v[0]]);
-    const Eigen::Vector3d p1 = toEigen((mesh.pts)[(mesh.tris)[f].v[1]]);
-    const Eigen::Vector3d p2 = toEigen((mesh.pts)[(mesh.tris)[f].v[2]]);
-
-    const Eigen::Vector3d tX = (p1 - p0).normalized();                        // edge0 => local triangle X-axis
-    const Eigen::Vector3d N = tX.cross((p2 - p0).normalized()).normalized();  // cross(edge0, edge1) => Z-axis
-
-    // Correct triangle X-axis to be align with X-axis in the texture
-    const GEO::vec2 t0 = GEO::vec2(triPts[0].m);
-    const GEO::vec2 t1 = GEO::vec2(triPts[1].m);
-    const GEO::vec2 tV = GEO::normalize(t1 - t0);
-    const GEO::vec2 origNormal(1.0, 0.0);  // X-axis in the texture
-    const double tAngle = GEO::Geom::angle(tV, origNormal);
-    Eigen::Matrix3d transform(Eigen::AngleAxisd(tAngle, N).toRotationMatrix());
-    // Rotate triangle v0v1 axis around Z-axis, to get a X axis aligned with the 2d texture
-    Eigen::Vector3d X = (transform * tX).normalized();
-
-    const Eigen::Vector3d Y = N.cross(X).normalized();  // Y-axis
-
-    Eigen::Matrix3d m;
-    m.col(0) = X;
-    m.col(1) = Y;
-    m.col(2) = N;
-    // const Eigen::Matrix3d mInv = m.inverse();
-    const Eigen::Matrix3d mT = m.transpose();
-
-    return mT;
-}
-
-inline void computeNormalHeight(const GEO::Mesh& mesh,
-                                double orientation,
-                                double t,
-                                GEO::index_t f,
-                                const Eigen::Matrix3d& m,
-                                const GEO::vec3& q,
-                                const GEO::vec3& qA,
-                                const GEO::vec3& qB,
-                                float& out_height,
-                                image::RGBfColor& out_normal)
-{
-    GEO::vec3 intersectionPoint = t * qB + (1.0 - t) * qA;
-    out_height = q.distance(intersectionPoint) * orientation;
-
-    // Use facet normal
-    // GEO::vec3 denseMeshNormal_f = normalize(GEO::Geom::mesh_facet_normal(mesh, f));
-    // Use per pixel normal using weighted interpolation of the facet vertex normals
-    const GEO::vec3 denseMeshNormal = mesh_facet_interpolate_normal_at_point(mesh, f, intersectionPoint);
-
-    Eigen::Vector3d dNormal = m * toEigen(denseMeshNormal);
-    dNormal.normalize();
-    out_normal = image::RGBfColor(dNormal(0), dNormal(1), dNormal(2));
+    ALICEVISION_LOG_INFO("Mesh saved.");
 }
 
 void Texturing::_generateNormalAndHeightMaps(const mvsUtils::MultiViewParams& mp,

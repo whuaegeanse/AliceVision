@@ -17,11 +17,12 @@
 #include <aliceVision/sfm/sfm.hpp>
 #include <aliceVision/graph/graph.hpp>
 #include <aliceVision/config.hpp>
-#include <aliceVision/image/all.hpp>
+#include <aliceVision/image/Image.hpp>
+#include <aliceVision/image/io.hpp>
 // load features per view
 #include <aliceVision/sfm/pipeline/regionsIO.hpp>
 // feature matches
-#include <aliceVision/matching/IndMatch.hpp>
+#include <aliceVision/matching/MatchesCollections.hpp>
 #include <aliceVision/matching/io.hpp>
 #include <aliceVision/stl/stl.hpp>
 // selection Methods
@@ -168,7 +169,7 @@ bool ColorHarmonizationEngineGlobal::process()
     //-------------------
 
     std::map<size_t, size_t> mapCameraNodeToCameraIndex;  // graph node Id to 0->Ncam
-    std::map<size_t, size_t> mapCameraIndexTocameraNode;  // 0->Ncam correspondance to graph node Id
+    std::map<size_t, size_t> mapCameraIndexTocameraNode;  // 0->Ncam correspondence to graph node Id
     std::set<size_t> setIndexImage;
 
     for (size_t i = 0; i < _pairwiseMatches.size(); ++i)

@@ -15,6 +15,9 @@ namespace sfmData {
 class CameraPose
 {
   public:
+    using ptr = CameraPose*;
+    using sptr = std::shared_ptr<CameraPose>;
+  public:
     /**
      * @brief CameraPose default constructor
      */
@@ -29,6 +32,11 @@ class CameraPose
       : _transform(transform),
         _locked(locked)
     {}
+
+    CameraPose::ptr clone() const
+    {
+        return new CameraPose(*this);
+    }
 
     /**
      * @brief Get the 3d transformation of the camera
@@ -79,11 +87,64 @@ class CameraPose
 
     void setState(EEstimatorParameterState state) { _state = state; }
 
+    bool isRotationOnly() const
+    {
+        return _rotationOnly;
+    }   
+
+    /**
+     * Set the flag for partial state
+     * Partial flag set to on means the camera translation is not known
+    */
+    void setRotationOnly(bool partial)
+    {
+        _rotationOnly = partial;
+    }
+
+    /**
+     * @brief Can this pose be removed from sfmdata given heuristics ?
+     * @param removable true if it can be removed normally
+    */
+    void setRemovable(bool removable)
+    {
+        _removable = removable;
+    }
+
+    /**
+     * @brief Can this pose be removed from sfmdata given heuristics ?
+     * @return true if it can be removed normally
+    */
+    bool isRemovable() const
+    {
+        return _removable;
+    }
+
+    inline void updateFromEstimator(const std::array<double, 6> & data) 
+    {
+        // do not update a camera pose set as Ignored or Constant in the Local strategy
+        if (getState() != EEstimatorParameterState::REFINED)
+        {
+            return;
+        }
+        
+        const Vec3 r_refined(data.at(0), data.at(1), data.at(2));
+        const Vec3 t_refined(data.at(3), data.at(4), data.at(5));
+
+        const Mat3 R_refined = SO3::expm(r_refined);
+
+        // update the pose
+        setTransform(geometry::poseFromRT(R_refined, t_refined));
+    }
+
   private:
     /// camera 3d transformation
     geometry::Pose3 _transform;
     /// camera lock
     bool _locked = false;
+    /// Only rotation is solved
+    bool _rotationOnly = false;
+    /// Can be removed
+    bool _removable = true;
     /// Estimator state
     EEstimatorParameterState _state = EEstimatorParameterState::REFINED;
 };

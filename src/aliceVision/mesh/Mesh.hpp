@@ -50,7 +50,9 @@ enum class EFileType
     OBJ = 0,
     FBX,
     GLTF,
-    STL
+    GLB,
+    STL,
+    PLY
 };
 
 EFileType EFileType_stringToEnum(const std::string& filetype);
@@ -314,7 +316,7 @@ class Mesh
 
     /**
      * @brief Lock mesh vertices on the surface boundaries.
-     * @param[in] neighbourIterations Number of boudary neighbours.
+     * @param[in] neighbourIterations Number of boundary neighbours.
      * @param[out] out_ptsCanMove For each mesh vertices set to true if locked. Initialized if empty.
      * @param[in] invert if true lock all vertices not on the surface boundaries.
      * @return false if no boundaries.

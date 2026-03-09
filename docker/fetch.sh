@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Download as many external dependancies as possible to minimise
+# Download as many external dependencies as possible to minimise
 # the amount of repeated downloads when building Docker images
 #
 # The downloaded files are stored in the 'dl' directory in the
-# top of the AliceVision source, and copied into the Docker enviroments
+# top of the AliceVision source, and copied into the Docker environments
 # when the images are built
 
 set -e
@@ -22,6 +22,9 @@ test -f dl/sphereDetection_Mask-RCNN.onnx || \
         wget https://gitlab.com/alicevision/SphereDetectionModel/-/raw/main/sphereDetection_Mask-RCNN.onnx -O dl/sphereDetection_Mask-RCNN.onnx
 test -f dl/fcn_resnet50.onnx || \
         wget https://gitlab.com/alicevision/semanticSegmentationModel/-/raw/main/fcn_resnet50.onnx -O dl/fcn_resnet50.onnx
+test -d dl/ColorChartDetectionModel || \
+        git clone --depth=1 --branch=main https://gitlab.com/alicevision/ColorchartDetectionModel.git dl/ColorChartDetectionModel && \
+        rm dl/ColorChartDetectionModel/README.md && rm -rf dl/ColorChartDetectionModel/.git
 export CMAKE_VERSION=3.26.0
 export CMAKE_VERSION_MM=3.26
 test -f dl/cmake-${CMAKE_VERSION}.tar.gz || \
@@ -54,7 +57,6 @@ cmake -P "external/src/gmp-stamp/download-gmp.cmake"
 cmake -P "external/src/lapack-stamp/download-lapack.cmake"
 cmake -P "external/src/mpfr-stamp/download-mpfr.cmake"
 cmake -P "external/src/openexr-stamp/download-openexr.cmake"
-# cmake -P "external/src/opengv-stamp/download-opengv.cmake"
 cmake -P "external/src/openimageio-stamp/download-openimageio.cmake"
 # cmake -P "external/src/pcl-stamp/download-pcl.cmake"
 cmake -P "external/src/png-stamp/download-png.cmake"

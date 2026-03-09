@@ -35,7 +35,7 @@ IndexT removeOutliersWithPixelResidualError(sfmData::SfMData& sfmData,
             const geometry::Pose3 pose = sfmData.getPose(*view).getTransform();
             const camera::IntrinsicBase* intrinsic = sfmData.getIntrinsics().at(view->getIntrinsicId()).get();
 
-            Vec2 residual = intrinsic->residual(pose, iterTracks->second.X.homogeneous(), itObs->second.getCoordinates());
+            Vec2 residual = intrinsic->residual(pose, iterTracks->second.getX().homogeneous(), itObs->second.getCoordinates());
             if (featureConstraint == EFeatureConstraint::SCALE && itObs->second.getScale() > 0.0)
             {
                 // Apply the scale of the feature to get a residual value
@@ -43,7 +43,7 @@ IndexT removeOutliersWithPixelResidualError(sfmData::SfMData& sfmData,
                 residual /= itObs->second.getScale();
             }
 
-            if ((pose.depth(iterTracks->second.X) < 0) || (residual.norm() > dThresholdPixel))
+            if ((pose.depth(iterTracks->second.getX()) < 0) || (residual.norm() > dThresholdPixel))
             {
                 ++outlierCount;
                 itObs = observations.erase(itObs);
@@ -75,7 +75,13 @@ IndexT removeOutliersWithAngleError(sfmData::SfMData& sfmData, const double dMin
 #pragma omp parallel for
     for (int landmarkIndex = 0; landmarkIndex < vKeys.size(); ++landmarkIndex)
     {
-        const sfmData::Observations& observations = sfmData.getLandmarks().at(vKeys[landmarkIndex]).getObservations();
+        const sfmData::Landmark & landmark = sfmData.getLandmarks().at(vKeys[landmarkIndex]);
+        if (landmark.isParallaxRobust())
+        {
+            continue;
+        }
+
+        const sfmData::Observations& observations = landmark.getObservations();
 
         // create matrix for observation directions from camera to point
         Mat3X viewDirections(3, observations.size());
@@ -160,56 +166,68 @@ bool eraseUnstablePoses(sfmData::SfMData& sfmData, const IndexT minPointsPerPose
     // Count the observation poses occurrence
     std::map<IndexT, IndexT> posesCount;
 
-    // Init with 0 count, undefined rig id (in order to be able to remove non referenced elements)
-    for (sfmData::Poses::const_iterator itPoses = sfmData.getPoses().begin(); itPoses != sfmData.getPoses().end(); ++itPoses)
-        posesCount[itPoses->first] = 0;
+    // Loop over all poses
+    for (auto & [poseId, pose] : sfmData.getPoses().valueRange())
+    {
+        if (!pose.isRemovable())
+        {
+            continue;
+        }
+
+        posesCount[poseId] = 0;
+    }
 
     // Count occurrence of the poses in the Landmark observations
-    for (sfmData::Landmarks::const_iterator itLandmarks = landmarks.begin(); itLandmarks != landmarks.end(); ++itLandmarks)
+    for (const auto & [idLandmark, landmark] : landmarks)
     {
-        const sfmData::Observations& observations = itLandmarks->second.getObservations();
-        for (sfmData::Observations::const_iterator itObs = observations.begin(); itObs != observations.end(); ++itObs)
-        {
-            const IndexT viewId = itObs->first;
-            const sfmData::View* v = sfmData.getViews().at(viewId).get();
-            const auto poseInfoIt = posesCount.find(v->getPoseId());
+        const sfmData::Observations& observations = landmark.getObservations();
 
+        for (const auto & [viewId, obs] : observations)
+        {
+            const sfmData::View & v = sfmData.getView(viewId);
+            
+            const auto poseInfoIt = posesCount.find(v.getPoseId());
             if (poseInfoIt != posesCount.end())
+            {
                 poseInfoIt->second++;
-            else  // all pose should be defined in map_PoseId_Count
-                throw std::runtime_error(std::string("eraseUnstablePoses: found unknown pose id referenced by a view.\n\t- view id: ") +
-                                         std::to_string(v->getViewId()) + std::string("\n\t- pose id: ") + std::to_string(v->getPoseId()));
+            }
         }
     }
 
     // If usage count is smaller than the threshold, remove the Pose
-    for (std::map<IndexT, IndexT>::const_iterator it = posesCount.begin(); it != posesCount.end(); ++it)
+    for (const auto & [idPose, count] : posesCount)
     {
-        if (it->second < minPointsPerPose)
+        if (count < minPointsPerPose)
         {
-            sfmData.erasePose(it->first, true);  // no throw
+            sfmData.erasePose(idPose, true);  // no throw
 
-            for (auto& viewPair : sfmData.getViews())
+            for (auto& [viewId, view] : sfmData.getViews())
             {
-                if (viewPair.second->getPoseId() == it->first)
+                if (view->getPoseId() == idPose)
                 {
-                    if (viewPair.second->isPartOfRig())
+                    if (view->isPartOfRig())
                     {
                         // the pose is now independant
-                        viewPair.second->setPoseId(viewPair.first);
-                        viewPair.second->setIndependantPose(true);
+                        view->setPoseId(idPose);
+                        view->setIndependantPose(true);
                     }
 
                     // add view id to the removedViewsId set
                     if (outRemovedViewsId != NULL)
-                        outRemovedViewsId->insert(viewPair.first);
+                    {
+                        outRemovedViewsId->insert(viewId);
+                    }
                 }
             }
             ++removedElements;
         }
     }
+    
     if (removedElements)
+    {
         ALICEVISION_LOG_DEBUG("eraseUnstablePoses: " << removedElements);
+    }
+
     return removedElements > 0;
 }
 
@@ -253,6 +271,24 @@ bool eraseObservationsWithMissingPoses(sfmData::SfMData& sfmData, const IndexT m
     return removedElements > 0;
 }
 
+bool eraseLandmarksWithMissingReferenceView(sfmData::SfMData& sfmData)
+{
+    size_t countRemoved = std::erase_if(sfmData.getLandmarks(), [&sfmData](const auto & item) 
+    {
+        const auto & [key, value] = item;
+
+        IndexT viewId = value.getReferenceViewIndex();
+        if (viewId == UndefinedIndexT)
+        {
+            return false;
+        }
+
+        return !sfmData.isPoseAndIntrinsicDefined(viewId);
+    });
+
+    return countRemoved > 0;
+}
+
 /// Remove unstable content from analysis of the sfm_data structure
 bool eraseUnstablePosesAndObservations(sfmData::SfMData& sfmData,
                                        const IndexT minPointsPerPose,
@@ -271,13 +307,58 @@ bool eraseUnstablePosesAndObservations(sfmData::SfMData& sfmData,
             removedPoses = true;
             removedContent = eraseObservationsWithMissingPoses(sfmData, minPointsPerLandmark);
             if (removedContent)
+            {
                 removedObservations = true;
+            }
+
+            removedContent = eraseLandmarksWithMissingReferenceView(sfmData);
             // Erase some observations can make some Poses index disappear so perform the process in a loop
         }
         removeIteration += removedContent ? 1 : 0;
     } while (removedContent);
 
     return removedPoses || removedObservations;
+}
+
+IndexT removeConstraints(sfmData::SfMData& sfmData, double maxDist)
+{
+    const auto & landmarks = sfmData.getLandmarks();
+    auto & constraints = sfmData.getConstraintsPoint();
+
+    // Remove all constraints which are very far from associated landmark
+
+    size_t count = 0;
+    auto itConstraints = constraints.begin();
+    while (itConstraints != constraints.end())
+    {
+        IndexT trackId = itConstraints->first;
+
+        auto landmarkIt = landmarks.find(trackId);
+
+        //If the associated landmark does not exists anymore, remove the constraint
+        if (landmarkIt == landmarks.end())
+        {
+            itConstraints = constraints.erase(itConstraints);
+            count++;
+            continue;
+        }
+    
+        const Vec3 & lpt = landmarkIt->second.getX();
+        double dist = (itConstraints->second.point - lpt).norm();
+
+        //Remove if the landmark is too far away
+        if (dist > maxDist)
+        {
+            itConstraints = constraints.erase(itConstraints);
+            count++;
+        }
+        else 
+        {
+            ++itConstraints;
+        }
+    }
+
+    return count;
 }
 
 }  // namespace sfm

@@ -32,6 +32,7 @@ namespace multiview {
  */
 void TriangulateNView(const Mat2X& x, const std::vector<Mat34>& Ps, Vec4& X, const std::vector<double>* weights = nullptr);
 
+
 /**
  * @brief Compute a 3D position of a point from several images of it. In particular,
  * compute the projective point X in R^4 such that x ~ PX.
@@ -66,6 +67,23 @@ void TriangulateNViewAlgebraic(const ContainerT& x, const std::vector<Mat34>& Ps
 /**
  * @brief Compute a 3D position of a point from several images of it. In particular,
  * compute the projective point X in R^4 such that x ~ PX.
+ * Algorithm is the standard DLT
+ * It also allows to specify some (optional) weight for each point (solving the 
+ * weighted least squared problem)
+ * 
+ * @param[in] xs are 2D coordinates (x,y) in each image
+ * @param[in] Ps is the list of Transformation matrices for each camera
+ * @param[out] X is the estimated 3D point
+ * @param[in] weights a (optional) list of weights for each point
+ */
+void TriangulateNViewAlgebraicSpherical(const std::vector<Vec3> &xs, 
+                               const std::vector<Eigen::Matrix4d> & Ts,
+                               Vec4 & X, 
+                               const std::vector<double> *weights = nullptr);
+
+/**
+ * @brief Compute a 3D position of a point from several images of it. In particular,
+ * compute the projective point X in R^4 such that x ~ PX.
  * Algorithm is Lo-RANSAC
  * It can return the the list of the cameras set as intlier by the Lo-RANSAC algorithm.
  *
@@ -73,7 +91,7 @@ void TriangulateNViewAlgebraic(const ContainerT& x, const std::vector<Mat34>& Ps
  * @param[in] Ps is the list of projective matrices for each camera
  * @param[out] X is the estimated 3D point
  * @param[out] inliersIndex (optional) store the index of the cameras (following Ps ordering, not the view_id) set as Inliers by Lo-RANSAC
- * @param[in] thresholdError (optional) set a threashold value to the Lo-RANSAC scorer
+ * @param[in] thresholdError (optional) set a threshold value to the Lo-RANSAC scorer
  */
 void TriangulateNViewLORANSAC(const std::vector<Vec2>& x,
                               const std::vector<Mat34>& Ps,
@@ -149,6 +167,46 @@ struct TriangulateNViewsSolver
         X.push_back(robustEstimation::MatrixModel<Vec4>(pt3d));
         assert(X.size() == 1);
     }
+};
+
+struct TriangulateNViewsSphericalSolver 
+{
+    /**
+     * @brief Return the minimum number of required samples
+     * @return minimum number of required samples
+     */
+    inline std::size_t getMinimumNbRequiredSamples() const
+    {
+        return 2;
+    }
+
+    /**
+     * @brief Return the maximum number of models
+     * @return maximum number of models
+     */
+    inline std::size_t getMaximumNbModels() const
+    {
+        return 1;
+    }
+
+    void solve(const std::vector<Vec3> & x, const std::vector<Eigen::Matrix4d>& Ts, std::vector<robustEstimation::MatrixModel<Vec4>>& X) const
+    {
+        Vec4 pt3d;
+        TriangulateNViewAlgebraicSpherical(x, Ts, pt3d);
+        X.push_back(robustEstimation::MatrixModel<Vec4>(pt3d));
+        assert(X.size() == 1);
+    }
+
+
+
+    void solve(const std::vector<Vec3> & x, const std::vector<Eigen::Matrix4d>& Ts, std::vector<robustEstimation::MatrixModel<Vec4>>& X, const std::vector<double>& weights) const
+    {
+        Vec4 pt3d;
+        TriangulateNViewAlgebraicSpherical(x, Ts, pt3d, &weights);
+        X.push_back(robustEstimation::MatrixModel<Vec4>(pt3d));
+        assert(X.size() == 1);
+    }
+
 };
 
 }  // namespace multiview

@@ -6,13 +6,16 @@
 // You can obtain one at https://mozilla.org/MPL/2.0/.
 
 #include <aliceVision/sfm/pipeline/global/GlobalSfMTranslationAveragingSolver.hpp>
+
+#include <aliceVision/config.hpp>
+#include <aliceVision/alicevision_omp.hpp>
 #include <aliceVision/sfm/filters.hpp>
 #include <aliceVision/sfm/sfmTriangulation.hpp>
 #include <aliceVision/sfmDataIO/sfmDataIO.hpp>
 #include <aliceVision/sfm/bundle/BundleAdjustmentCeres.hpp>
 #include <aliceVision/sfm/pipeline/global/reindexGlobalSfM.hpp>
 #include <aliceVision/sfm/pipeline/global/MutexSet.hpp>
-#include <aliceVision/matching/IndMatch.hpp>
+#include <aliceVision/matching/MatchesCollections.hpp>
 #include <aliceVision/multiview/translationAveraging/common.hpp>
 #include <aliceVision/multiview/translationAveraging/solver.hpp>
 #include <aliceVision/graph/graph.hpp>
@@ -26,8 +29,8 @@
 #include <aliceVision/multiview/translationAveraging/common.hpp>
 #include <aliceVision/multiview/translationAveraging/solver.hpp>
 #include <aliceVision/sfm/pipeline/global/TranslationTripletKernelACRansac.hpp>
-#include <aliceVision/config.hpp>
-#include <aliceVision/alicevision_omp.hpp>
+#include <aliceVision/camera/Pinhole.hpp>
+
 
 #include <aliceVision/utils/Histogram.hpp>
 
@@ -660,7 +663,7 @@ bool GlobalSfMTranslationAveragingSolver::estimateTTriplet(const SfMData& sfmDat
     // compute 3D scene base on motion estimation
     SfMData tinyScene;
 
-    // intialize poses (which are now shared by a group of images)
+    // initialize poses (which are now shared by a group of images)
     tinyScene.poses[posesId.i] = Pose3(vecGlobalRTriplet[0], -vecGlobalRTriplet[0].transpose() * vecTis[0]);
     tinyScene.poses[posesId.j] = Pose3(vecGlobalRTriplet[1], -vecGlobalRTriplet[1].transpose() * vecTis[1]);
     tinyScene.poses[posesId.k] = Pose3(vecGlobalRTriplet[2], -vecGlobalRTriplet[2].transpose() * vecTis[2]);

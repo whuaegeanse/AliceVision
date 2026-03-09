@@ -12,7 +12,9 @@
 #include <aliceVision/sfmDataIO/sfmDataIO.hpp>
 #include <aliceVision/sfmDataIO/AlembicExporter.hpp>
 #include <aliceVision/sfmDataIO/viewIO.hpp>
-#include <aliceVision/image/all.hpp>
+#include <aliceVision/image/Image.hpp>
+#include <aliceVision/image/io.hpp>
+#include <aliceVision/camera/cameraUndistortImage.hpp>
 
 #include <aliceVision/utils/filesIO.hpp>
 #include <aliceVision/utils/regexFilter.hpp>
@@ -108,6 +110,7 @@ int aliceVision_main(int argc, char** argv)
     std::string sfmDataFilterFilepath;
     std::string outImageFileTypeName = image::EImageFileType_enumToString(image::EImageFileType::JPEG);
     std::string outMapFileTypeName = image::EImageFileType_enumToString(image::EImageFileType::EXR);
+    double frameRate = 24.0;
 
     // clang-format off
     po::options_description requiredParams("Required parameters");
@@ -133,7 +136,9 @@ int aliceVision_main(int argc, char** argv)
         ("sfmDataFilter", po::value<std::string>(&sfmDataFilterFilepath)->default_value(sfmDataFilterFilepath),
          "Filter out cameras from the export if they are part of this SfMData. Export all cameras if empty.")
         ("undistortedImageType", po::value<std::string>(&outImageFileTypeName)->default_value(outImageFileTypeName),
-         image::EImageFileType_informations().c_str());
+         image::EImageFileType_informations().c_str())
+         ("frameRate", po::value<double>(&frameRate)->default_value(frameRate),
+         "Define the camera's Frames per seconds.");
     // clang-format on
 
     CmdLine cmdline("AliceVision exportAnimatedCamera");
@@ -179,7 +184,7 @@ int aliceVision_main(int argc, char** argv)
     }
     system::Timer timer;
 
-    // Decide the views and instrinsics to export
+    // Decide the views and intrinsics to export
     sfmData::SfMData sfmDataExport;
     for (auto& viewPair : sfmData.getViews())
     {
@@ -205,7 +210,7 @@ int aliceVision_main(int argc, char** argv)
         sfmDataExport.getViews().emplace(view.getViewId(), viewPair.second);
 
         // Export intrinsics with at least one view with a valid pose
-        if (sfmData.isPoseAndIntrinsicDefined(&view))
+        if (sfmData.isPoseAndIntrinsicDefined(view))
         {
             // std::map::emplace does nothing if the key already exist
             sfmDataExport.getIntrinsics().emplace(view.getIntrinsicId(), sfmData.getIntrinsics().at(view.getIntrinsicId()));
@@ -315,7 +320,7 @@ int aliceVision_main(int argc, char** argv)
             image::readImage(view.getImage().getImagePath(), image, image::EImageColorSpace::LINEAR);
             oiio::ParamValueList metadata = image::readImageMetadata(view.getImage().getImagePath());
 
-            if (cam->isValid() && cam->hasDistortion())
+            if (cam != nullptr && cam->isValid() && cam->hasDistortion())
             {
                 // Undistort the image and save it
                 if (exportFullROD)
@@ -348,6 +353,14 @@ int aliceVision_main(int argc, char** argv)
             }
             else  // No distortion
             {
+                if(cam == nullptr)
+                {
+                    ALICEVISION_LOG_ERROR("One camera intrinsic is undefined (intrinsic Id: " << view.getIntrinsicId() << ", view Id: " << view.getViewId() << ")");
+                }
+                else if(!cam->isValid())
+                {
+                    ALICEVISION_LOG_ERROR("One camera intrinsic is not valid (intrinsic Id: " << view.getIntrinsicId() << ", view Id: " << view.getViewId() << ")");
+                }
                 // Copy the image since there is no distortion
                 image::writeImage(dstImage, image, image::ImageWriteOptions(), metadata);
             }
@@ -355,7 +368,7 @@ int aliceVision_main(int argc, char** argv)
 
         // Pose and intrinsic defined
         // Note: we use "sfmData" and not "sfmDataExport" to have access to poses
-        if (!sfmData.isPoseAndIntrinsicDefined(&view))
+        if (!sfmData.isPoseAndIntrinsicDefined(view))
             continue;
 
         std::string cameraName = view.getImage().getMetadataMake() + "_" + view.getImage().getMetadataModel();
@@ -435,7 +448,7 @@ int aliceVision_main(int argc, char** argv)
         const std::map<std::size_t, IndexT>& frameToView = cameraViews.second;
         const std::size_t firstFrame = cameraViews.second.begin()->first;
 
-        exporter.initAnimatedCamera(cameraViews.first, firstFrame);
+        exporter.initAnimatedCamera(cameraViews.first, firstFrame, frameRate);
 
         for (std::size_t frame = firstFrame; frame <= frameToView.rbegin()->first; ++frame)
         {

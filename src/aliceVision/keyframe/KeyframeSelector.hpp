@@ -7,7 +7,8 @@
 #pragma once
 
 #include <aliceVision/dataio/FeedProvider.hpp>
-#include <aliceVision/image/all.hpp>
+#include <aliceVision/image/Image.hpp>
+#include <aliceVision/image/io.hpp>
 #include <aliceVision/sensorDB/parseDatabase.hpp>
 #include <aliceVision/sfmData/SfMData.hpp>
 #include <aliceVision/sfmDataIO/sfmDataIO.hpp>
@@ -260,7 +261,7 @@ class KeyframeSelector
      * @param[in] y the y-coordinate of the top-left corner of the window for the local standard deviation computation
      * @param[in] windowSize the size of the window along the x- and y-axis for the local standard deviation computation
      * @param[in] mask the mask associated to the frame the integral and integral images were calculated from
-     * @return a const double value representating the local standard deviation of the Laplacian
+     * @return a const double value representing the local standard deviation of the Laplacian
      */
     const double computeSharpnessStd(const cv::Mat& sum,
                                      const cv::Mat& squaredSum,
@@ -315,7 +316,7 @@ class KeyframeSelector
      * @param feed the feed provider
      * @param brands brand name for each camera
      * @param models model name for each camera
-     * @param mmFocals focal in millimiters for each camera
+     * @param mmFocals focal in millimeters for each camera
      * @return true if the output SfMData files have successfully been filled, false otherwise
      */
     bool writeSfMDataFromSequences(const std::string& mediaPath,
@@ -342,7 +343,7 @@ class KeyframeSelector
     /**
      * @brief Create an Intrinsic object associated to a specific View
      * @param view the View that the intrinsic will be associated to
-     * @param focalLength the focal length in millimiter (if 0, default value will be used)
+     * @param focalLength the focal length in millimeter (if 0, default value will be used)
      * @param sensorWidth the sensor width
      * @param imageRatio the width over height ratio for the View's image
      * @param mediaIndex the media index
@@ -399,7 +400,7 @@ class KeyframeSelector
     /// Output SfMData containing the non-selected frames
     sfmData::SfMData _outputSfmFrames;
 
-    /// Size of the frame (afer rescale, if any is applied)
+    /// Size of the frame (after rescale, if any is applied)
     unsigned int _frameWidth = 0;
     unsigned int _frameHeight = 0;
 
@@ -407,7 +408,7 @@ class KeyframeSelector
     std::vector<sensorDB::Datasheet> _sensorDatabase;
     bool _parsedSensorDb = false;
 
-    /// Map media path index with names of the output images (used when the input medias are videos)
+    /// Map media path index with names of the output images (used when the input media are videos)
     std::map<std::size_t, std::vector<std::string>> _keyframesPaths;
 
     /// Map score vectors with names for export

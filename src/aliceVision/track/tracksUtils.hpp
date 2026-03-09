@@ -7,6 +7,7 @@
 
 #pragma once
 #include <aliceVision/track/Track.hpp>
+#include <aliceVision/sfmData/SfMData.hpp>
 
 namespace aliceVision {
 namespace track {
@@ -118,12 +119,12 @@ struct FunctorMapFirstEqual
  * @warning The input tracks must be composed of only two images index.
  * @warning Image index are considered sorted (increasing order).
  */
-void tracksToIndexedMatches(const TracksMap& tracks, const std::vector<IndexT>& filterIndex, std::vector<IndMatch>* outIndex);
+void tracksToIndexedMatches(const TracksMap& tracks, const std::vector<IndexT>& filterIndex, std::vector<matching::IndMatch>* outIndex);
 
 /**
  * @brief Return the occurrence of tracks length.
  * @param[in] tracks all tracks of the scene as a map {trackId, track}
- * @param[out] occurenceTrackLength : the occurence length of each trackId in the scene
+ * @param[out] occurenceTrackLength : the occurrence length of each trackId in the scene
  */
 void tracksLength(const TracksMap& tracks, std::map<std::size_t, std::size_t>& occurenceTrackLength);
 
@@ -140,6 +141,24 @@ void imageIdInTracks(const TracksPerView& tracksPerView, std::set<std::size_t>& 
  * @param[out] imagesId set of images considered in the tracks container.
  */
 void imageIdInTracks(const TracksMap& tracks, std::set<std::size_t>& imagesId);
+
+/**
+ * @brief compute the set of pairs of views which shares some observed features
+ * @param covisibility a map indexed by pair of views and whose values are the number of shared features
+ * @param mapTracks the input tracks map
+ */
+void computeCovisibility(std::map<Pair, unsigned int>& covisibility, const track::TracksMap& mapTracks);
+
+/**
+ * @brief Generate noisy tracks
+ * @param[in] sfmData the input SfMData file
+ * @param[in] sigmaNoise the variance (in pixels) of the Gaussian noise added to the observation coordinates
+ * @param[in] outlierRatio the ratio of outliers with respect to the observations count
+ * @param[in] outlierEpipolarRatio the proportion of outliers which are still respecting the epipolar constraint
+ * @param[in] randomNoiseVariancePerView specify whether to use different noise variance per view
+ * @param[out] mapTracks the output tracks map
+ */
+void simulateTracks(const sfmData::SfMData& sfmData, double sigmaNoise, double outlierRatio, double outlierEpipolarRatio, bool randomNoiseVariancePerView, TracksMap& mapTracks);
 
 }  // namespace track
 }  // namespace aliceVision

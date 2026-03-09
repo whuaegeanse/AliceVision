@@ -30,12 +30,13 @@
 
 #include <aliceVision/stl/mapUtils.hpp>
 #include <aliceVision/geometry/lie.hpp>
-#include <aliceVision/sfm/bundle/BundleAdjustmentSymbolicCeres.hpp>
+#include <aliceVision/sfm/bundle/BundleAdjustmentCeres.hpp>
 
 #include <cstdlib>
 #include <filesystem>
 #include <random>
 #include <regex>
+#include <fstream>
 
 #include <boost/graph/graph_traits.hpp>
 #include <boost/graph/adjacency_list.hpp>
@@ -91,7 +92,7 @@ void buildInitialWorld(sfmData::SfMData& sfmData,
 
     // Make sure initial camera pose is identity
     sfmData.setPose(refView, sfmData::CameraPose());
-    sfmData.setPose(nextView, sfmData::CameraPose(geometry::Pose3(pair.R, Vec3::Zero())));
+    sfmData.setPose(nextView, sfmData::CameraPose(pair.pose));
 
     std::shared_ptr<camera::IntrinsicBase> refIntrinsics = sfmData.getIntrinsicSharedPtr(refView.getIntrinsicId());
     std::shared_ptr<camera::IntrinsicBase> nextIntrinsics = sfmData.getIntrinsicSharedPtr(nextView.getIntrinsicId());
@@ -115,7 +116,7 @@ void buildInitialWorld(sfmData::SfMData& sfmData,
         Vec2 nextV = nextTrackItem.coords;
 
         Vec3 refP = refIntrinsics->toUnitSphere(refIntrinsics->ima2cam(refIntrinsics->getUndistortedPixel(refV)));
-        Vec3 tP = pair.R * refP;
+        Vec3 tP = pair.pose.rotation() * refP;
         Vec2 nextp = nextIntrinsics->getUndistortedPixel(nextV);
         Vec2 estp = nextIntrinsics->cam2ima((tP.head(2) / tP(2)));
         double dist = (nextp - estp).norm();
@@ -126,7 +127,7 @@ void buildInitialWorld(sfmData::SfMData& sfmData,
         }
 
         sfmData::Landmark l(track.descType);
-        l.X = refP;
+        l.setX(refP);
         l.getObservations()[pair.reference] = sfmData::Observation(refV, refTrackItem.featureId, refTrackItem.scale);
         l.getObservations()[pair.next] = sfmData::Observation(nextV, nextTrackItem.featureId, nextTrackItem.scale);
 
@@ -207,7 +208,7 @@ bool localizeNext(sfmData::SfMData& sfmData,
         Vec2 nvV = trackItem.coords;
         Vec3 camP = newViewIntrinsics->toUnitSphere(newViewIntrinsics->ima2cam(newViewIntrinsics->getUndistortedPixel(nvV)));
 
-        refX.col(pos) = landmarks.at(trackId).X;
+        refX.col(pos) = landmarks.at(trackId).getX();
         newX.col(pos) = camP;
 
         pos++;
@@ -225,8 +226,6 @@ bool localizeNext(sfmData::SfMData& sfmData,
 
     // Assign pose
     sfmData.setPose(newView, sfmData::CameraPose(geometry::Pose3(R, Vec3::Zero())));
-
-    std::cout << vecInliers.size() << std::endl;
 
     // Add observations
     for (size_t pos : vecInliers)
@@ -309,7 +308,7 @@ bool addPoints(sfmData::SfMData& sfmData,
             }
 
             sfmData::Landmark l(track.descType);
-            l.X = world_R_new * newP;
+            l.setX(world_R_new * newP);
             l.getObservations()[newViewId] = sfmData::Observation(newV, newTrackItem.featureId, newTrackItem.scale);
             l.getObservations()[pV.first] = sfmData::Observation(refV, refTrackItem.featureId, refTrackItem.scale);
 
@@ -382,7 +381,7 @@ int aliceVision_main(int argc, char** argv)
     std::stringstream buffer;
     buffer << tracksFile.rdbuf();
     boost::json::value jv = boost::json::parse(buffer.str());
-    track::TracksMap mapTracks(track::flat_map_value_to<track::Track>(jv));
+    track::TracksMap mapTracks(map_value_to<std::size_t, track::Track>(jv));
 
     // We have loaded a list of tracks
     // A track is a list of observations per view of (we think) a same point.
@@ -412,7 +411,7 @@ int aliceVision_main(int argc, char** argv)
         // Load the file content
         // This is a vector of sfm::ReconstructedPair
         std::ifstream inputfile(file.path().string());
-        boost::json::error_code ec;
+        boost::system::error_code ec;
         std::vector<boost::json::value> values = readJsons(inputfile, ec);
         for (const boost::json::value& value : values)
         {
@@ -435,7 +434,7 @@ int aliceVision_main(int argc, char** argv)
     // Using two views, create an initial map and pair of cameras
     buildInitialWorld(sfmData, reconstructedPairs[0], mapTracksPerView, mapTracks);
 
-    // Loop until termination of the process using the current boostrapped map
+    // Loop until termination of the process using the current bootstrapped map
     std::set<IndexT> visited;
     while (1)
     {
@@ -459,8 +458,8 @@ int aliceVision_main(int argc, char** argv)
         }
     }
 
-    // Refinment options
-    sfm::BundleAdjustmentSymbolicCeres::CeresOptions options;
+    // Refinement options
+    sfm::BundleAdjustmentCeres::CeresOptions options;
     sfm::BundleAdjustment::ERefineOptions refineOptions =
       sfm::BundleAdjustment::REFINE_ROTATION | sfm::BundleAdjustment::REFINE_STRUCTURE | sfm::BundleAdjustment::REFINE_INTRINSICS_FOCAL |
       sfm::BundleAdjustment::REFINE_INTRINSICS_OPTICALOFFSET_ALWAYS | sfm::BundleAdjustment::REFINE_INTRINSICS_DISTORTION |
@@ -474,10 +473,9 @@ int aliceVision_main(int argc, char** argv)
     int countRemoved = 0;
     do
     {
-        sfm::BundleAdjustmentSymbolicCeres BA(options, 3);
+        sfm::BundleAdjustmentCeres BA(options, 3);
         const bool success = BA.adjust(sfmData, refineOptions);
         countRemoved = sfm::removeOutliersWithPixelResidualError(sfmData, sfm::EFeatureConstraint::SCALE, 2.0, 2);
-        std::cout << countRemoved << std::endl;
     } while (countRemoved > 0);
 
     sfmDataIO::save(sfmData, sfmDataOutputFilename, sfmDataIO::ESfMData::ALL);

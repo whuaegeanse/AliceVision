@@ -10,7 +10,7 @@
 #include <aliceVision/cmdline/cmdline.hpp>
 #include <aliceVision/system/main.hpp>
 
-#include <aliceVision/calibration/distortionEstimation.hpp>
+#include <aliceVision/calibration/distortionEstimationPoint.hpp>
 #include <aliceVision/camera/UndistortionRadial.hpp>
 
 #include <boost/program_options.hpp>
@@ -67,9 +67,10 @@ bool convert(std::shared_ptr<camera::Undistortion> & undistortion, const camera:
             calibration::PointPair ppt;
             ppt.distortedPoint = pobs.second.getCoordinates();
             ppt.undistortedPoint = intrinsic.getUndistortedPixel(ppt.distortedPoint);
+            ppt.scale = pobs.second.getScale();
 
             Vec2 check = intrinsic.getDistortedPixel(ppt.undistortedPoint);
-            if ((check - ppt.distortedPoint).norm() > 1e-2)
+            if ((check - ppt.distortedPoint).norm() > 1e-3)
             {
                 countErrors++;
                 continue;
@@ -100,7 +101,7 @@ bool convert(std::shared_ptr<camera::Undistortion> & undistortion, const camera:
                     };
         break;
     default:
-        ALICEVISION_LOG_ERROR("Unsupported camera model for convertion.");
+        ALICEVISION_LOG_ERROR("Unsupported camera model for conversion.");
         return false;
     };
 
@@ -170,6 +171,8 @@ int aliceVision_main(int argc, char** argv)
             continue;
         }
 
+        ALICEVISION_LOG_INFO("Processing intrinsic " << pairIntrinsic.first);
+
         if (from == "distortion")
         {
             if (to == "undistortion")
@@ -219,7 +222,7 @@ int aliceVision_main(int argc, char** argv)
     // export the SfMData scene in the expected format
     if (!sfmDataIO::save(sfmData, outputSfMDataFilename, sfmDataIO::ESfMData::ALL))
     {
-        ALICEVISION_LOG_ERROR("An error occured while trying to save '" << outputSfMDataFilename << "'");
+        ALICEVISION_LOG_ERROR("An error occurred while trying to save '" << outputSfMDataFilename << "'");
         return EXIT_FAILURE;
     }
 

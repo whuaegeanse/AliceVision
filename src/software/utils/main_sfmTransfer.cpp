@@ -36,6 +36,7 @@ enum class EMatchingMethod : unsigned char
     FROM_VIEWID = 0,
     FROM_FILEPATH,
     FROM_METADATA,
+    FROM_POSEID,
     FROM_INTRINSICID
 };
 
@@ -54,6 +55,8 @@ std::string EMatchingMethod_enumToString(EMatchingMethod alignmentMethod)
             return "from_filepath";
         case EMatchingMethod::FROM_METADATA:
             return "from_metadata";
+        case EMatchingMethod::FROM_POSEID:
+            return "from_poseid";
         case EMatchingMethod::FROM_INTRINSICID:
             return "from_intrinsicid";
     }
@@ -76,6 +79,8 @@ EMatchingMethod EMatchingMethod_stringToEnum(const std::string& alignmentMethod)
         return EMatchingMethod::FROM_FILEPATH;
     if (method == "from_metadata")
         return EMatchingMethod::FROM_METADATA;
+    if (method == "from_poseid")
+        return EMatchingMethod::FROM_POSEID;
     if (method == "from_intrinsicid")
         return EMatchingMethod::FROM_INTRINSICID;
     throw std::out_of_range("Invalid SfM alignment method : " + alignmentMethod);
@@ -184,6 +189,10 @@ int aliceVision_main(int argc, char** argv)
             sfm::matchViewsByMetadataMatching(sfmData, sfmDataRef, metadataMatchingList, commonViewIds);
             break;
         }
+        case EMatchingMethod::FROM_POSEID:
+        {
+            break;
+        }
         case EMatchingMethod::FROM_INTRINSICID:
         {
             break;
@@ -193,15 +202,27 @@ int aliceVision_main(int argc, char** argv)
 
     if (matchingMethod == EMatchingMethod::FROM_INTRINSICID)
     {
-        for (auto intrinsic : sfmData.getIntrinsics())
+        for (auto & [idIntrinsic, intrinsic] : sfmData.getIntrinsics())
         {
-            for (const auto intrinsicRef : sfmDataRef.getIntrinsics())
+            for (const auto & [idIntrinsicRef, intrinsicRef] : sfmDataRef.getIntrinsics())
             {
-                if (intrinsic.first == intrinsicRef.first)
+                if (idIntrinsic == idIntrinsicRef)
                 {
-                    intrinsic.second->updateFromParams(intrinsicRef.second->getParams());
+                    intrinsic.reset(intrinsicRef->clone());
                     break;
                 }
+            }
+        }
+    }
+    else if (matchingMethod == EMatchingMethod::FROM_POSEID)
+    {
+        for (auto& view : sfmData.getViews())
+        {
+            auto pose = sfmDataRef.getPoses().find(view.second->getPoseId());
+            if (pose != sfmDataRef.getPoses().end())
+            {
+                view.second->setPoseId(pose->first);
+                sfmData.getPoses().assign(pose->first, *(pose->second));
             }
         }
     }
@@ -265,8 +286,8 @@ int aliceVision_main(int argc, char** argv)
                                     throw std::runtime_error("Invalid RigId/PoseId (out of rig) for view: " + viewA.getImage().getImagePath());
                             }
                         }
-                        // copy the pose of the rig or the independant pose
-                        sfmData.getPoses()[viewA.getPoseId()] = sfmDataRef.getPoses().at(viewB.getPoseId());
+                        // copy the pose of the rig or the independent pose
+                        sfmData.getPoses().assign(viewA.getPoseId(), sfmDataRef.getAbsolutePose(viewB.getPoseId()));
 
                         // warning: we copy the full rig (and not only the subpose corresponding to the view).
                         sfmData.getRigs()[viewA.getRigId()] = sfmDataRef.getRigs()[viewB.getRigId()];
@@ -278,7 +299,7 @@ int aliceVision_main(int argc, char** argv)
                             viewA.setPoseId(viewA.getViewId());
                             viewA.setIndependantPose(true);
                         }
-                        sfmData.getPoses()[viewA.getPoseId()] = sfmDataRef.getPose(viewB);
+                        sfmData.setPose(viewA, sfmDataRef.getPose(viewB));
                     }
                 }
                 if (transferIntrinsics)
@@ -316,7 +337,7 @@ int aliceVision_main(int argc, char** argv)
                             for (const auto& obsIt : landIt.second.getObservations())
                             {
                                 const IndexT viewId = obsIt.first;
-                                // If the observation view has a correspondance in the other sfmData, we copy it :
+                                // If the observation view has a correspondence in the other sfmData, we copy it :
                                 if (commonViewsMap.find(viewId) != commonViewsMap.end())
                                 {
                                     newLandmark.getObservations().emplace(commonViewsMap.at(viewId), landIt.second.getObservations().at(viewId));
@@ -344,15 +365,17 @@ int aliceVision_main(int argc, char** argv)
             usedPoseIds.insert(viewIt.second->getPoseId());
         }
         std::set<IndexT> poseIdsToRemove;
-        for (auto poseIt : sfmData.getPoses())
+        for (auto [poseId, _] : sfmData.getPoses())
         {
-            if (usedPoseIds.find(poseIt.first) == usedPoseIds.end())
+            if (usedPoseIds.find(poseId) == usedPoseIds.end())
             {
-                poseIdsToRemove.insert(poseIt.first);
+                poseIdsToRemove.insert(poseId);
             }
         }
         for (auto r : poseIdsToRemove)
+        {
             sfmData.getPoses().erase(r);
+        }
     }
 
     ALICEVISION_LOG_INFO("Save into '" << outSfMDataFilename << "'");

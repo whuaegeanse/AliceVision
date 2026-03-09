@@ -59,9 +59,24 @@ class IntrinsicScaleOffsetDisto : public IntrinsicScaleOffset
         }
     }
 
+    static std::shared_ptr<IntrinsicScaleOffsetDisto> cast(std::shared_ptr<IntrinsicBase> sptr);
+
     void assign(const IntrinsicBase& other) override { *this = dynamic_cast<const IntrinsicScaleOffsetDisto&>(other); }
 
+    /**
+    * @brief compare to another intrinsic object
+    * @param otherBase an intrinsic object to compare to.
+    * @return true if both objects are considered equal
+    */
     bool operator==(const IntrinsicBase& otherBase) const override;
+
+    /**
+    * @brief compare to another intrinsic object
+    * @param otherBase an intrinsic object to compare to.
+    * @param ignoreDistortion ignore difference in distortion.
+    * @return true if both objects are considered equal
+    */
+    bool equalTo(const IntrinsicBase& otherBase, bool ignoreDistortion) const;
 
     void setDistortionObject(std::shared_ptr<Distortion> object) { _pDistortion = object; }
 
@@ -129,7 +144,7 @@ class IntrinsicScaleOffsetDisto : public IntrinsicScaleOffset
 
     void setDistortionParams(const std::vector<double>& distortionParams)
     {
-        int expected = 0;
+        std::size_t expected = 0;
         if (_pDistortion != nullptr)
         {
             expected = _pDistortion->getDistortionParametersCount();
@@ -184,39 +199,26 @@ class IntrinsicScaleOffsetDisto : public IntrinsicScaleOffset
     }
 
     // Data wrapper for non linear optimization (get data)
-    std::vector<double> getParams() const override
+    std::vector<double> getParameters() const override
     {
         std::vector<double> params = {_scale(0), _scale(1), _offset(0), _offset(1)};
-
-        if (_pDistortion)
-        {
-            params.insert(params.end(), _pDistortion->getParameters().begin(), _pDistortion->getParameters().end());
-        }
 
         return params;
     }
 
-    std::size_t getParamsSize() const override
-    {
-        std::size_t size = 4;
-        if (_pDistortion)
-        {
-            size += _pDistortion->getParameters().size();
-        }
-        return size;
-    }
+    std::size_t getParametersSize() const override { return 4; }
 
     // Data wrapper for non linear optimization (update from data)
     bool updateFromParams(const std::vector<double>& params) override;
 
-    float getMaximalDistortion(double min_radius, double max_radius) const override
+    float getMaximalDistortion([[maybe_unused]] double minRadius, double maxRadius) const override
     {
         if (_pDistortion == nullptr)
         {
-            return max_radius;
+            return maxRadius;
         }
 
-        return _pDistortion->getUndistortedRadius(max_radius);
+        return _pDistortion->getUndistortedRadius(maxRadius);
     }
 
     Eigen::Matrix<double, 2, 2> getDerivativeAddDistoWrtPt(const Vec2& pt) const
@@ -257,6 +259,11 @@ class IntrinsicScaleOffsetDisto : public IntrinsicScaleOffset
 
         return this->_pDistortion->getDerivativeRemoveDistoWrtDisto(pt);
     }
+
+    virtual Eigen::Matrix<double, 2, Eigen::Dynamic> getDerivativeTransformProjectWrtDistortion(const Eigen::Matrix4d& pose,
+                                                                                                const Vec4& pt) const = 0;
+
+    virtual Eigen::Matrix<double, 3, Eigen::Dynamic> getDerivativeBackProjectUnitWrtDistortion(const Vec2& pt2D) const = 0;
 
     /**
      * @brief Set The intrinsic disto initialization mode

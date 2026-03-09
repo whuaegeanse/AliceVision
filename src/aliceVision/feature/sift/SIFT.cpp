@@ -114,7 +114,7 @@ std::size_t getMemoryConsumptionVLFeat(std::size_t width, std::size_t height, co
     }
     pyramidMemoryConsuption *= params._numScales * sizeof(float);
 
-    const int nbTempPyramids = 4;             // Gaussian + DOG + Gradiant + orientation (Note: DOG use 1 layer less, but this is ignored here)
+    const int nbTempPyramids = 4;             // Gaussian + DOG + Gradient + orientation (Note: DOG use 1 layer less, but this is ignored here)
     return fullImgSize * 4 * sizeof(float) +  // input RGBA image
            nbTempPyramids * pyramidMemoryConsuption +          // pyramids
            (params._maxTotalKeypoints * 128 * sizeof(float));  // output keypoints
@@ -208,7 +208,7 @@ bool extractSIFT(const image::Image<float>& image,
         vl_sift_detect(filt);
 
         VlSiftKeypoint const* keys = vl_sift_get_keypoints(filt);
-        const int nkeys = vl_sift_get_nkeypoints(filt);
+        const std::size_t nkeys = vl_sift_get_nkeypoints(filt);
 
         std::vector<IndexT> filteredKeypointsIndex;
 
@@ -273,7 +273,7 @@ bool extractSIFT(const image::Image<float>& image,
 
                 const std::size_t sizeMat = params._gridSize * params._gridSize;
                 std::vector<std::size_t> countFeatPerCell(sizeMat, 0);
-                for (int idx = 0; idx < sizeMat; ++idx)
+                for (std::size_t idx = 0; idx < sizeMat; ++idx)
                 {
                     countFeatPerCell[idx] = 0;
                 }
@@ -281,7 +281,7 @@ bool extractSIFT(const image::Image<float>& image,
                 const double regionWidth = w / double(params._gridSize);
                 const double regionHeight = h / double(params._gridSize);
 
-                for (IndexT ii = 0; ii < nkeys; ++ii)
+                for (IndexT ii = 0; ii < static_cast<IndexT>(nkeys); ++ii)
                 {
                     const IndexT i = keysIndexSort[ii];  // use sorted keypoints
                     const auto& keypoint = keys[i];
@@ -359,7 +359,7 @@ bool extractSIFT(const image::Image<float>& image,
             std::vector<IndexT> newFilteredKeypointsIndex;
             const image::Image<unsigned char>& maskIma = *mask;
 
-            for (int ii = 0; ii < filteredKeypointsIndex.size(); ++ii)
+            for (IndexT ii = 0; ii < filteredKeypointsIndex.size(); ++ii)
             {
                 const int i = filteredKeypointsIndex[ii];
                 if (maskIma(keys[i].y, keys[i].x) > 0)
@@ -372,7 +372,7 @@ bool extractSIFT(const image::Image<float>& image,
         std::vector<std::vector<double>> anglesPerKeypoint(filteredKeypointsIndex.size());
 
 #pragma omp parallel for
-        for (int ii = 0; ii < filteredKeypointsIndex.size(); ++ii)
+        for (int ii = 0; ii < static_cast<int>(filteredKeypointsIndex.size()); ++ii)
         {
             const int i = filteredKeypointsIndex[ii];
 

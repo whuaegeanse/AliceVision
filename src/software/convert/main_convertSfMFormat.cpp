@@ -48,6 +48,7 @@ int aliceVision_main(int argc, char** argv)
     bool flagExtrinsics = true;
     bool flagStructure = true;
     bool flagObservations = true;
+    bool flagSurveys = true;
 
     // clang-format off
     po::options_description requiredParams("Required parameters");
@@ -72,6 +73,8 @@ int aliceVision_main(int argc, char** argv)
          "Export extrinsics.")
         ("structure", po::value<bool>(&flagStructure)->default_value(flagStructure),
          "Export structure.")
+        ("surveys", po::value<bool>(&flagSurveys)->default_value(flagSurveys),
+         "Export surveys.")
         ("observations", po::value<bool>(&flagObservations)->default_value(flagObservations),
          "Export observations.");
     // clang-format on
@@ -90,8 +93,12 @@ int aliceVision_main(int argc, char** argv)
         return EXIT_FAILURE;
     }
 
-    int flags = (flagViews ? sfmDataIO::VIEWS : 0) | (flagIntrinsics ? sfmDataIO::INTRINSICS : 0) | (flagExtrinsics ? sfmDataIO::EXTRINSICS : 0) |
-                (flagObservations ? sfmDataIO::OBSERVATIONS_WITH_FEATURES : 0) | (flagStructure ? sfmDataIO::STRUCTURE : 0);
+    int flags = (flagViews ? sfmDataIO::VIEWS : 0) | 
+                (flagIntrinsics ? sfmDataIO::INTRINSICS : 0) | 
+                (flagExtrinsics ? sfmDataIO::EXTRINSICS : 0) |
+                (flagObservations ? sfmDataIO::OBSERVATIONS_WITH_FEATURES : 0) | 
+                (flagStructure ? sfmDataIO::STRUCTURE : 0) |
+                (flagSurveys ? sfmDataIO::SURVEYS : 0);
 
     flags = (flags) ? flags : sfmDataIO::ALL;
 
@@ -176,7 +183,7 @@ int aliceVision_main(int argc, char** argv)
         std::vector<IndexT> toRemove;
         for (const auto& landmarkPair : sfmData.getLandmarks())
         {
-            if (std::find(imageDescriberTypes.begin(), imageDescriberTypes.end(), landmarkPair.second.descType) == imageDescriberTypes.end())
+            if (std::find(imageDescriberTypes.begin(), imageDescriberTypes.end(), landmarkPair.second.getDescType()) == imageDescriberTypes.end())
                 toRemove.push_back(landmarkPair.first);
         }
         for (const IndexT landmarkId : toRemove)
@@ -185,7 +192,7 @@ int aliceVision_main(int argc, char** argv)
     // export the SfMData scene in the expected format
     if (!sfmDataIO::save(sfmData, outputSfMDataFilename, sfmDataIO::ESfMData(flags)))
     {
-        ALICEVISION_LOG_ERROR("An error occured while trying to save '" << outputSfMDataFilename << "'");
+        ALICEVISION_LOG_ERROR("An error occurred while trying to save '" << outputSfMDataFilename << "'");
         return EXIT_FAILURE;
     }
 

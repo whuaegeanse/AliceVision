@@ -41,7 +41,7 @@ struct SamplerNearest
      ** @brief Computes weight associated to neighboring pixels
      ** @author Romuald Perrot <perrot.romuald_AT_gmail.com>
      ** @param x Sampling position
-     ** @param[out] weigth Sampling factors associated to the neighboring
+     ** @param[out] weight Sampling factors associated to the neighboring
      ** @note weight must be at least neighborWidth length
      **/
     void operator()(const double x, double* const weight) const
@@ -111,10 +111,10 @@ struct SamplerCubic
         // remember :
         // A      B    x  C       D
 
-        // weigth[0] -> weight for A
+        // weight[0] -> weight for A
         // weight[1] -> weight for B
         // weight[2] -> weight for C
-        // weight[3] -> weigth for D
+        // weight[3] -> weight for D
 
         weight[0] = CubicInter12(_sharpness, x + 1.0);
         weight[1] = CubicInter01(_sharpness, x);
@@ -193,7 +193,7 @@ struct SamplerCubic
  ** a2 = - 1/3 y0 + y1 - y2 + 1/3 y3
  **
  **
- ** When you have coefs, you just have to express your curve as a linear combinaison of the control points, fort ex
+ ** When you have coefs, you just have to express your curve as a linear combination of the control points, fort ex
  ** with f2 :
  **
  **
@@ -206,7 +206,7 @@ struct SamplerCubic
  ** w2(x) = -x^3 + 6/5 * x^2 + 4/5 * x
  ** w3(x) = 1/3 * x^3 - 1/5 * x^2 - 2/15 * x
  **
- ** substituing boundary conditions gives the correct coeficients for y0,y1,y2,y3 giving the final sampling scheme
+ ** substituting boundary conditions gives the correct coefficients for y0,y1,y2,y3 giving the final sampling scheme
  **/
 struct SamplerSpline16
 {
@@ -417,7 +417,7 @@ struct Sampler2d
         for (int i = 0; i < SamplerFunc::neighborWidth; ++i)
         {
             // Get current i value
-            // +1 for correct scheme (draw it to be conviced)
+            // +1 for correct scheme (draw it to be convinced)
             const int iCurrent = gridY + 1 + i - _halfWidth;
 
             // handle out of range

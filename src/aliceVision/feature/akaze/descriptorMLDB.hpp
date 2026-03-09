@@ -9,7 +9,7 @@
 
 #include <aliceVision/feature/Descriptor.hpp>
 #include <aliceVision/feature/PointFeature.hpp>
-#include <aliceVision/image/all.hpp>
+#include <aliceVision/image/Image.hpp>
 #include <aliceVision/numeric/MathTrait.hpp>
 
 namespace aliceVision {
@@ -35,7 +35,7 @@ inline void ComputeMeanValuesInSubdivisions(const Eigen::Matrix<Real, Eigen::Dyn
                                             const Eigen::Matrix<Real, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>& samples_Ly,
                                             const int nb_subdiv,
                                             const int subdiv_size,
-                                            const int pattern_size,
+                                            [[maybe_unused]] const int pattern_size,
                                             const Real c,  // cos( theta )
                                             const Real s,  // sin( theta )
                                             Eigen::Matrix<Real, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>& mean_Li,
@@ -98,8 +98,8 @@ inline void ComputeMeanValuesInSubdivisions(const Eigen::Matrix<Real, Eigen::Dyn
 ** @param mean_Lx input mean values of Lx values (mean per subdivision)
 ** @param mean_Ly input mean values of Ly values (mean per subdivision)
 ** @param nb_subdiv Number of subdivision (in 2d so it's a nb_subdivxnb_subdiv pattern)
-** @param outIndex input/ouput index to store description
-** @param desc ouput vector (idealy a std::bitset) containing binary description of theses regions
+** @param outIndex input/output index to store description
+** @param desc output vector (ideally a std::bitset) containing binary description of these regions
 **/
 template<typename DescriptorType, typename Real>
 inline void ComputeBinaryValues(const Eigen::Matrix<Real, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>& mean_Li,
@@ -210,7 +210,7 @@ inline void ComputeMLDBDescriptor(const image::Image<Real>& Li,
     ComputeMeanValuesInSubdivisions(samples_Li, samples_Lx, samples_Ly, 4, subdiv_size, pattern_size, c, s, sumLi, sumLx, sumLy);
     ComputeBinaryValues(sumLi, sumLx, sumLy, 4, outIndex, desc);
 
-    assert(outIndex == 486);  // Just to be sure (and we are sure ! completly sure !)
+    assert(outIndex == 486);  // Just to be sure (and we are sure ! completely sure !)
 }
 
 }  // namespace feature

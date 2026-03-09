@@ -58,7 +58,7 @@ class ReconstructionEngine_sequentialSfM : public ReconstructionEngine
 
         /// minimum number of obersvations to triangulate a 3d point.
         std::size_t minNbObservationsForTriangulation = 2;
-        /// a 3D point must have at least 2 obervations not too much aligned.
+        /// a 3D point must have at least 2 observations not too much aligned.
         double minAngleForTriangulation = 3.0;
         double minAngleForLandmark = 2.0;
         double maxReprojectionError = 4.0;
@@ -147,11 +147,6 @@ class ReconstructionEngine_sequentialSfM : public ReconstructionEngine
      */
     void createInitialReconstruction(const std::vector<Pair>& initialImagePairCandidates);
 
-    /**
-     * @brief If we have already reconstructed landmarks in a previous reconstruction,
-     * we need to recognize the corresponding tracks and update the landmarkIds accordingly.
-     */
-    void remapLandmarkIdsToTrackIds();
 
     /**
      * @brief Loop of reconstruction updates
@@ -303,7 +298,7 @@ class ReconstructionEngine_sequentialSfM : public ReconstructionEngine
 
     /**
      * @brief Check if a 3D points is well located in front of a set of views.
-     * @param[in] pt3D A 3D point (euclidian coordinates)
+     * @param[in] pt3D A 3D point (euclidean coordinates)
      * @param[in] viewsId A set of views index
      * @param[in] scene All the data about the 3D reconstruction.
      * @return false if the 3D points is located behind one view (or more), else \c true.
@@ -312,7 +307,7 @@ class ReconstructionEngine_sequentialSfM : public ReconstructionEngine
 
     /**
      * @brief Check if the maximal angle formed by a 3D points and 2 views exceeds a min. angle, among a set of views.
-     * @param[in] pt3D A 3D point (euclidian coordinates)
+     * @param[in] pt3D A 3D point (euclidean coordinates)
      * @param[in] viewsId A set of views index
      * @param[in] scene All the data about the 3D reconstruction.
      * @param[in] kMinAngle The angle limit.

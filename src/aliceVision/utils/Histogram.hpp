@@ -25,11 +25,11 @@ namespace utils {
 // 2009-06-30, updated 2011-06-17 and 2011-08-03
 
 // 2011-12-17 Modified by Pierre Moulon
-//  - use vector array to avoid memory managment
+//  - use vector array to avoid memory management
 //  - add value by sequence with iterator
 
 /**
- * @brief Histogram computes the distrubution function (df) of
+ * @brief Histogram computes the distribution function (df) of
  *  unique sended value or iterable data inside the provided range.
  *
  * @author Pierre MOULON base on work from Jansson Consulting
@@ -103,13 +103,21 @@ class Histogram
 
     // Text display of the histogram
     template<typename KeyDataType = T, typename ValueDataType = T>
-    std::string ToString(const std::string& sTitle = "", int precision = 3) const
+    std::string ToString(const std::string& sTitle = "", int precision = 3, bool removeEmpty=false) const
     {
         std::ostringstream os;
         os << std::endl << sTitle << std::endl;
         const size_t n = freq.size();
         for (size_t i = 0; i < n; ++i)
         {
+            if (removeEmpty)
+            {
+                if (i < n -1 && freq[i] == 0)
+                {
+                    continue;
+                }
+            }
+
             os << std::setprecision(precision) << KeyDataType(Start + static_cast<float>(End - Start) / n * static_cast<float>(i)) << "\t|\t"
                << ValueDataType(freq[i]) << "\n";
         }

@@ -10,7 +10,7 @@
 #include <aliceVision/graph/graph.hpp>
 #include <aliceVision/multiview/rotationAveraging/rotationAveraging.hpp>
 #include <aliceVision/stl/mapUtils.hpp>
-
+#include <aliceVision/numeric/BoxStats.hpp>
 #include <aliceVision/utils/Histogram.hpp>
 
 namespace aliceVision {

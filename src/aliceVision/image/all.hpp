@@ -19,7 +19,6 @@
 #include "aliceVision/image/filtering.hpp"
 #include "aliceVision/image/resampling.hpp"
 #include "aliceVision/image/diffusion.hpp"
-#include "aliceVision/image/concat.hpp"
 #include <aliceVision/image/imageAlgo.hpp>
 #include "aliceVision/image/io.hpp"
 #include "aliceVision/image/convolutionBase.hpp"
@@ -28,4 +27,3 @@
 #include "aliceVision/image/Sampler.hpp"
 #include "aliceVision/image/conversionOpenCV.hpp"
 #include "aliceVision/image/dcp.hpp"
-#include "aliceVision/image/ImageCache.hpp"

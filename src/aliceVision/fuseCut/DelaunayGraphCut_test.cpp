@@ -9,7 +9,7 @@
 #include <aliceVision/fuseCut/Fuser.hpp>
 #include <aliceVision/fuseCut/PointCloud.hpp>
 #include <aliceVision/fuseCut/GraphFiller.hpp>
-
+#include <aliceVision/numeric/projection.hpp>
 #include <boost/math/constants/constants.hpp>
 
 #include <string>
@@ -67,7 +67,7 @@ BOOST_AUTO_TEST_CASE(fuseCut_delaunayGraphCut)
     const NViewDatasetConfigurator config(1000, 1000, 500, 500, 1, 0);
     SfMData sfmData = generateSfm(config, 6);
 
-    mvsUtils::MultiViewParams mp(sfmData, "", "", "", false);
+    mvsUtils::MultiViewParams mp(sfmData, "", "", "");
 
     mp.userParams.put("LargeScale.universePercentile", 0.999);
     mp.userParams.put("delaunaycut.seed", 1);
@@ -87,7 +87,7 @@ BOOST_AUTO_TEST_CASE(fuseCut_delaunayGraphCut)
     const std::string tempDirPath = std::filesystem::temp_directory_path().generic_string();
 
     
-    ALICEVISION_LOG_TRACE("Creating dense point cloud witout support pts.");
+    ALICEVISION_LOG_TRACE("Creating dense point cloud without support pts.");
 
     // delaunayGC.createDensePointCloud(&hexah[0], cams, &sfmData, nullptr);
     const float minDist = (hexah[0] - hexah[1]).size() / 1000.0f;
@@ -116,7 +116,7 @@ BOOST_AUTO_TEST_CASE(fuseCut_delaunayGraphCut)
 }
 
 /**
- * @brief Generate syntesize dataset with succesion of n(size) alignaed regular thetraedron and two camera on the last thetrahedron.
+ * @brief Generate synthesized dataset with succession of n(size) aligned regular thetraedron and two camera on the last tetrahedron.
  *
  * @param size
  * @param eintrinsic
@@ -200,7 +200,7 @@ SfMData generateSfm(const NViewDatasetConfigurator& config, const size_t size, c
     for (size_t i = 0; i < ptsSize; ++i)
     {
         Landmark landmark;
-        landmark.X = matPts.col(i);
+        landmark.setX(matPts.col(i));
         for (int j = 0; j < camsPts.size(); ++j)
         {
             const Vec2 pt = projectedPtsPerCam[j].col(i);

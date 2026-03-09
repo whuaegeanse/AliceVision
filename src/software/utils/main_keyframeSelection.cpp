@@ -4,7 +4,8 @@
 // v. 2.0. If a copy of the MPL was not distributed with this file,
 // You can obtain one at https://mozilla.org/MPL/2.0/.
 
-#include <aliceVision/image/all.hpp>
+#include <aliceVision/image/Image.hpp>
+#include <aliceVision/image/io.hpp>
 #include <aliceVision/keyframe/KeyframeSelector.hpp>
 #include <aliceVision/system/Logger.hpp>
 #include <aliceVision/cmdline/cmdline.hpp>
@@ -221,6 +222,22 @@ int aliceVision_main(int argc, char** argv)
     {
         ALICEVISION_LOG_ERROR("Unsupported extension for the output file. Supported extensions are: " << supportedExtensions);
         return EXIT_FAILURE;
+    }
+
+    if (outputExtension == "none")
+    {
+        for (std::size_t i = 0; i < nbCameras; i++)
+        {
+            const std::string ext = fs::path(inputPaths.at(i)).extension().string();
+            if (image::isVideoExtension(ext))
+            {
+                ALICEVISION_LOG_ERROR("At least one input path (" << inputPaths.at(i) << ") is a video. "
+                    << "The output extension being set to '" << outputExtension
+                    << "', the selected keyframes will not be written on disk, meaning the SfMData "
+                    << "file for the keyframes cannot be written. An output extension is needed for video inputs.");
+                return EXIT_FAILURE;
+            }
+        }
     }
 
     brands.resize(nbCameras);

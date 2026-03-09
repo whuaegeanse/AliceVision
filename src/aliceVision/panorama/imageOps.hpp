@@ -7,7 +7,7 @@
 #pragma once
 
 #include "cachedImage.hpp"
-#include <aliceVision/image/all.hpp>
+#include <aliceVision/image/Image.hpp>
 #include <aliceVision/half.hpp>
 
 namespace aliceVision {
@@ -310,7 +310,7 @@ bool loopyImageExtract(image::Image<T>& output, const image::Image<T>& input, co
             output.block(outputBb.top, outputBb.left, outputBb.height, outputBb.width) =
               input.block(inputBb.top, inputBb.left, inputBb.height, inputBb.width);
 
-            // Update the bouding box for output
+            // Update the bounding box for output
             outputBb.left += extractedWidth;
             availableWidth -= extractedWidth;
 
@@ -359,7 +359,7 @@ bool loopyCachedImageExtract(aliceVision::image::Image<T>& output, CachedImage<T
                 return false;
             }
 
-            // Update the bouding box for output
+            // Update the bounding box for output
             outputBb.left += extractedWidth;
             availableWidth -= extractedWidth;
 

@@ -38,35 +38,6 @@ namespace fs = std::filesystem;
 using namespace aliceVision::track;
 using namespace aliceVision::sfm;
 
-/**
- * @brief Retrieve the view id in the sfmData from the image filename.
- * @param[in] sfmData the SfM scene
- * @param[in] name the image name to find (uid or filename or path)
- * @param[out] out_viewId the id found
- * @return if a view is found
- */
-bool retrieveViewIdFromImageName(const sfmData::SfMData& sfmData, const std::string& name, IndexT& out_viewId)
-{
-    out_viewId = UndefinedIndexT;
-
-    // list views uid / filenames and find the one that correspond to the user ones
-    for (const auto& viewPair : sfmData.getViews())
-    {
-        const sfmData::View& v = *(viewPair.second.get());
-
-        if (name == std::to_string(v.getViewId()) || name == fs::path(v.getImage().getImagePath()).filename().string() ||
-            name == v.getImage().getImagePath())
-        {
-            out_viewId = v.getViewId();
-            break;
-        }
-    }
-
-    if (out_viewId == UndefinedIndexT)
-        ALICEVISION_LOG_ERROR("Can't find the given initial pair view: " << name);
-
-    return out_viewId != UndefinedIndexT;
-}
 
 int aliceVision_main(int argc, char** argv)
 {
@@ -228,14 +199,16 @@ int aliceVision_main(int argc, char** argv)
     if (lockScenePreviouslyReconstructed)
     {
         // lock all reconstructed camera poses
-        for (auto& cameraPosePair : sfmData.getPoses())
-            cameraPosePair.second.lock();
+        for (auto & [_, pose] : sfmData.getPoses().valueRange())
+        {
+            pose.lock();
+        }
 
         for (const auto& viewPair : sfmData.getViews())
         {
             // lock all reconstructed views intrinsics
             const sfmData::View& view = *(viewPair.second);
-            if (sfmData.isPoseAndIntrinsicDefined(&view))
+            if (sfmData.isPoseAndIntrinsicDefined(view))
                 sfmData.getIntrinsics().at(view.getIntrinsicId())->lock();
         }
     }
@@ -277,7 +250,6 @@ int aliceVision_main(int argc, char** argv)
         // return EXIT_FAILURE;
     }
 
-    // handle initial pair parameter
     if (!initialPairString.first.empty() || !initialPairString.second.empty())
     {
         if (initialPairString.first == initialPairString.second)
@@ -286,19 +258,27 @@ int aliceVision_main(int argc, char** argv)
             return EXIT_FAILURE;
         }
 
-        if (!initialPairString.first.empty() && !retrieveViewIdFromImageName(sfmData, initialPairString.first, sfmParams.userInitialImagePair.first))
+        if (!initialPairString.first.empty())
         {
-            ALICEVISION_LOG_ERROR("Could not find corresponding view in the initial pair: " + initialPairString.first);
-            return EXIT_FAILURE;
+            sfmParams.userInitialImagePair.first = sfmData.findView(initialPairString.first);
+            if (sfmParams.userInitialImagePair.first == UndefinedIndexT)
+            {
+                ALICEVISION_LOG_ERROR("Could not find corresponding view in the initial pair: " + initialPairString.first);
+                return EXIT_FAILURE;
+            }
         }
 
-        if (!initialPairString.second.empty() &&
-            !retrieveViewIdFromImageName(sfmData, initialPairString.second, sfmParams.userInitialImagePair.second))
+        if (!initialPairString.second.empty())
         {
-            ALICEVISION_LOG_ERROR("Could not find corresponding view in the initial pair: " + initialPairString.second);
-            return EXIT_FAILURE;
+            sfmParams.userInitialImagePair.second = sfmData.findView(initialPairString.second);
+            if (sfmParams.userInitialImagePair.second == UndefinedIndexT)
+            {
+                ALICEVISION_LOG_ERROR("Could not find corresponding view in the initial pair: " + initialPairString.second);
+                return EXIT_FAILURE;
+            }
         }
     }
+
 
     sfm::ReconstructionEngine_sequentialSfM sfmEngine(sfmData, sfmParams, extraInfoFolder, (fs::path(extraInfoFolder) / "sfm_log.html").string());
 
@@ -309,7 +289,10 @@ int aliceVision_main(int argc, char** argv)
     sfmEngine.setMatches(&pairwiseMatches);
 
     if (!sfmEngine.process())
+    {
+        ALICEVISION_LOG_ERROR("Failed to reconstruct.");
         return EXIT_FAILURE;
+    }
 
     // Mimic sfmTransform "EAlignmentMethod::AUTO"
     if (useAutoTransform)
@@ -336,7 +319,9 @@ int aliceVision_main(int argc, char** argv)
 
     // get the color for the 3D points
     if (computeStructureColor)
+    {
         sfmEngine.colorize();
+    }
 
     sfmEngine.retrieveMarkersId();
 

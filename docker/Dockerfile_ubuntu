@@ -35,6 +35,7 @@ ENV AV_DEV=/opt/AliceVision_git \
 
 COPY CMakeLists.txt *.md ${AV_DEV}/
 COPY src ${AV_DEV}/src
+COPY meshroom ${AV_DEV}/meshroom
 
 WORKDIR "${AV_BUILD}"
 
@@ -52,14 +53,13 @@ RUN export CPU_CORES=`${AV_DEV}/docker/check-cpu.sh`; \
         -DMINIGLOG:BOOL=ON \
         -DALICEVISION_USE_CCTAG:BOOL=ON \
         -DALICEVISION_USE_OPENCV:BOOL=ON \
-        -DALICEVISION_USE_OPENGV:BOOL=ON \
         -DALICEVISION_USE_POPSIFT:BOOL=ON \
         -DALICEVISION_USE_CUDA:BOOL=ON \
         -DALICEVISION_USE_ONNX_GPU:BOOL=OFF \
         -DALICEVISION_BUILD_DOC:BOOL=OFF \
-        -DALICEVISION_BUILD_EXAMPLES:BOOL=OFF \
         -DALICEVISION_BUILD_SWIG_BINDING:BOOL=ON \
-        -DSWIG_DIR:PATH="${AV_INSTALL}/share/swig/4.2.0" -DSWIG_EXECUTABLE:PATH="${AV_INSTALL}/bin-deps/swig" \
+        -DSWIG_DIR:PATH="${AV_INSTALL}/share/swig/4.3.0" -DSWIG_EXECUTABLE:PATH="${AV_INSTALL}/bin-deps/swig" \
+        -DPython3_EXECUTABLE:PATH=/usr/bin/python \
         "${AV_DEV}" && \
     make install -j${CPU_CORES} && \
     make bundle && \

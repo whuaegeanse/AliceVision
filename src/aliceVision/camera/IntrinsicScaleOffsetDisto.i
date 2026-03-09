@@ -4,6 +4,9 @@
 // v. 2.0. If a copy of the MPL was not distributed with this file,
 // You can obtain one at https://mozilla.org/MPL/2.0/.
 
+%include <std_shared_ptr.i>
+%shared_ptr(aliceVision::camera::IntrinsicScaleOffsetDisto)
+
 %include <aliceVision/camera/IntrinsicScaleOffset.i>
 %include <aliceVision/camera/IntrinsicScaleOffsetDisto.hpp>
 

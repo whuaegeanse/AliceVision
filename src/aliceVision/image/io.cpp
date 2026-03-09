@@ -5,8 +5,14 @@
 // v. 2.0. If a copy of the MPL was not distributed with this file,
 // You can obtain one at https://mozilla.org/MPL/2.0/.
 
-#include <aliceVision/image/all.hpp>
 
+#include <aliceVision/image/io.hpp>
+
+#include <aliceVision/image/Image.hpp>
+#include <aliceVision/image/colorspace.hpp>
+#include <aliceVision/image/dcp.hpp>
+#include <aliceVision/half.hpp>
+#include <aliceVision/stl/mapUtils.hpp>
 #include <aliceVision/system/Logger.hpp>
 #include <aliceVision/utils/filesIO.hpp>
 
@@ -16,9 +22,6 @@
 #include <OpenImageIO/color.h>
 #include <OpenImageIO/imagecache.h>
 
-#include <aliceVision/half.hpp>
-#include <aliceVision/stl/mapUtils.hpp>
-
 #include <boost/algorithm/string.hpp>
 
 #include <cstring>
@@ -26,6 +29,8 @@
 #include <stdexcept>
 #include <iostream>
 #include <cmath>
+#include <algorithm>
+#include <cctype>
 
 namespace aliceVision {
 namespace image {
@@ -88,7 +93,10 @@ std::string getImageColorSpace(const OIIO::ImageSpec& oiioSpec, const std::strin
     std::string colorSpaceFromFileName = "";
     if (!imagePath.empty())
     {
-        colorSpaceFromFileName = getGlobalColorConfigOCIO().getColorSpaceFromFilepath(imagePath);
+        // Use only filename for color space inferring
+        const std::string filename = fs::path(imagePath).filename().string(); 
+        colorSpaceFromFileName = getGlobalColorConfigOCIO().getColorSpaceFromFilepath(filename);
+        boost::algorithm::to_lower(colorSpaceFromFileName);
     }
 
     std::map<std::string, std::string> mapColorSpaces;
@@ -121,7 +129,7 @@ std::string getImageColorSpace(const OIIO::ImageSpec& oiioSpec, const std::strin
     {
         colorSpace = mapColorSpaces.at("workPlateColourSpace");
     }
-    else if (!colorSpaceFromFileName.empty())
+    else if (!colorSpaceFromFileName.empty() && colorSpaceFromFileName != "raw")
     {
         colorSpace = colorSpaceFromFileName;
     }
@@ -197,22 +205,23 @@ std::vector<std::string> getSupportedExtensions()
 {
     std::vector<std::string> supportedExtensions;
 
-    // Map containing the parsed "extension_list" with each supported format and its associated extensions
-    static std::map<std::string, std::vector<std::string>> extensionList = oiio::get_extension_map();
-
-    for (auto& format : extensionList)
+    // oiio::get_extension_map() contains the parsed "extension_list" with each
+    // supported format and its associated extensions
+    for (const auto& [formatName, extensions] : oiio::get_extension_map())
     {
-        for (auto& extension : format.second)
+        for (const auto& extension : extensions)
         {
-            supportedExtensions.push_back(extension.insert(0, "."));
+            supportedExtensions.push_back("." + extension);
         }
     }
+
     return supportedExtensions;
 }
 
 bool isSupported(const std::string& extension)
 {
-    static const std::vector<std::string> supportedExtensions = getSupportedExtensions();
+    const std::vector<std::string> supportedExtensions = getSupportedExtensions();
+
     const auto start = supportedExtensions.begin();
     const auto end = supportedExtensions.end();
     return (std::find(start, end, boost::to_lower_copy(extension)) != end);
@@ -416,8 +425,8 @@ std::string ERawColorInterpretation_informations()
 {
     return "Raw color interpretation :\n"
            "* none : None \n"
-           "* librawnowhitebalancing : libRaw whithout white balancing \n"
-           "* librawwhitebalancing : libRaw whith white balancing \n"
+           "* librawnowhitebalancing : libRaw without white balancing \n"
+           "* librawwhitebalancing : libRaw with white balancing \n"
            "* dcplinearprocessing : DCP linear processing \n"
            "* dcpmetadata : None but DCP info embedded in metadata";
 }
@@ -480,7 +489,26 @@ oiio::ParamValueList getMetadataFromMap(const std::map<std::string, std::string>
 {
     oiio::ParamValueList metadata;
     for (const auto& metadataPair : metadataMap)
+    {   
+        if (metadataPair.first == "version")
+        {
+            //OpenEXR may crash if version is not stored as an int.
+            int version = 0;
+            try 
+            {
+                version = std::stoi(metadataPair.second);
+                metadata.push_back(oiio::ParamValue(metadataPair.first, version));
+                continue;
+            }
+            catch (...)
+            {
+                //If not an int, then business as usual
+            }
+        }
+
         metadata.push_back(oiio::ParamValue(metadataPair.first, metadataPair.second));
+    }
+
     return metadata;
 }
 
@@ -635,7 +663,7 @@ void readImage(const std::string& path, oiio::TypeDesc format, int nchannels, Im
             configSpec.attribute("raw:auto_bright", 0);                                                // disable exposure correction
             configSpec.attribute("raw:use_camera_wb", 0);                                              // no white balance correction
             configSpec.attribute("raw:user_mul", oiio::TypeDesc(oiio::TypeDesc::FLOAT, 4), user_mul);  // no neutralization
-            configSpec.attribute("raw:use_camera_matrix", 0);                                          // do not use embeded color profile if any
+            configSpec.attribute("raw:use_camera_matrix", 0);                                          // do not use embedded color profile if any
             configSpec.attribute("raw:ColorSpace", "raw");                                             // use raw data
             configSpec.attribute("raw:HighlightMode", imageReadOptions.highlightMode);
             configSpec.attribute("raw:balance_clamped", (imageReadOptions.highlightMode == 0) ? 1 : 0);
@@ -648,7 +676,7 @@ void readImage(const std::string& path, oiio::TypeDesc format, int nchannels, Im
             configSpec.attribute("raw:auto_bright", imageReadOptions.rawAutoBright);       // automatic exposure correction
             configSpec.attribute("raw:Exposure", imageReadOptions.rawExposureAdjustment);  // manual exposure adjustment
             configSpec.attribute("raw:use_camera_wb", 0);                                  // no white balance correction
-            configSpec.attribute("raw:use_camera_matrix", 1);  // do not use embeded color profile if any, except for dng files
+            configSpec.attribute("raw:use_camera_matrix", 1);  // do not use embedded color profile if any, except for dng files
             configSpec.attribute("raw:ColorSpace", "Linear");  // use linear colorspace with sRGB primaries
             configSpec.attribute("raw:HighlightMode", imageReadOptions.highlightMode);
             configSpec.attribute("raw:balance_clamped", (imageReadOptions.highlightMode == 0) ? 1 : 0);
@@ -661,7 +689,7 @@ void readImage(const std::string& path, oiio::TypeDesc format, int nchannels, Im
             configSpec.attribute("raw:auto_bright", imageReadOptions.rawAutoBright);       // automatic exposure correction
             configSpec.attribute("raw:Exposure", imageReadOptions.rawExposureAdjustment);  // manual exposure adjustment
             configSpec.attribute("raw:use_camera_wb", 1);                                  // white balance correction
-            configSpec.attribute("raw:use_camera_matrix", 1);  // do not use embeded color profile if any, except for dng files
+            configSpec.attribute("raw:use_camera_matrix", 1);  // do not use embedded color profile if any, except for dng files
             configSpec.attribute("raw:ColorSpace", "Linear");  // use linear colorspace with sRGB primaries
             configSpec.attribute("raw:HighlightMode", imageReadOptions.highlightMode);
             configSpec.attribute("raw:balance_clamped", (imageReadOptions.highlightMode == 0) ? 1 : 0);
@@ -688,7 +716,7 @@ void readImage(const std::string& path, oiio::TypeDesc format, int nchannels, Im
             configSpec.attribute("raw:Exposure", imageReadOptions.rawExposureAdjustment);  // manual exposure adjustment
             configSpec.attribute("raw:use_camera_wb", 0);                                  // No White balance correction => user_mul is used
             configSpec.attribute("raw:user_mul", oiio::TypeDesc(oiio::TypeDesc::FLOAT, 4), user_mul);
-            configSpec.attribute("raw:use_camera_matrix", 0);  // do not use embeded color profile if any
+            configSpec.attribute("raw:use_camera_matrix", 0);  // do not use embedded color profile if any
             configSpec.attribute("raw:ColorSpace", "raw");
             configSpec.attribute("raw:HighlightMode", imageReadOptions.highlightMode);
             configSpec.attribute("raw:balance_clamped", (imageReadOptions.highlightMode == 0) ? 1 : 0);
@@ -714,7 +742,7 @@ void readImage(const std::string& path, oiio::TypeDesc format, int nchannels, Im
             configSpec.attribute("raw:auto_bright", 0);                                                // disable exposure correction
             configSpec.attribute("raw:use_camera_wb", 0);                                              // no white balance correction
             configSpec.attribute("raw:user_mul", oiio::TypeDesc(oiio::TypeDesc::FLOAT, 4), user_mul);  // no neutralization
-            configSpec.attribute("raw:use_camera_matrix", 0);                                          // do not use embeded color profile if any
+            configSpec.attribute("raw:use_camera_matrix", 0);                                          // do not use embedded color profile if any
             configSpec.attribute("raw:ColorSpace", "raw");                                             // use raw data
             configSpec.attribute("raw:HighlightMode", imageReadOptions.highlightMode);
             configSpec.attribute("raw:balance_clamped", (imageReadOptions.highlightMode == 0) ? 1 : 0);
@@ -731,7 +759,7 @@ void readImage(const std::string& path, oiio::TypeDesc format, int nchannels, Im
 
     oiio::ImageBuf inBuf(path, 0, 0, NULL, &configSpec);
 
-    inBuf.read(0, 0, true, oiio::TypeDesc::FLOAT);  // force image convertion to float (for grayscale and color space convertion)
+    inBuf.read(0, 0, true, oiio::TypeDesc::FLOAT);  // force image conversion to float (for grayscale and color space conversion)
 
     if (!inBuf.initialized())
         ALICEVISION_THROW_ERROR("Failed to open the image file: '" << path << "'. The file might not exist.");
@@ -897,7 +925,7 @@ void readImage(const std::string& path, oiio::TypeDesc format, int nchannels, Im
     // convert to grayscale if needed
     if (nchannels == 1 && inBuf.spec().nchannels >= 3)
     {
-        // convertion region of interest (for inBuf.spec().nchannels > 3)
+        // conversion region of interest (for inBuf.spec().nchannels > 3)
         oiio::ROI convertionROI = inBuf.roi();
         convertionROI.chbegin = 0;
         convertionROI.chend = 3;
@@ -1034,6 +1062,16 @@ void writeImage(const std::string& path,
 
     oiio::ImageSpec imageSpec(image.width(), image.height(), nchannels, typeDesc);
     imageSpec.extra_attribs = metadata;  // add custom metadata
+
+    auto itversion = metadata.find("version");
+    if (isEXR && itversion != metadata.end())
+    {
+        // The "version" metadata of exr images must be an integer, otherwise the exr image could be misinterpreted.
+        if (itversion->type() != oiio::TypeDesc::INT)
+        {
+            imageSpec.attribute("version", itversion->get_int());
+        }
+    }
 
     imageSpec.attribute("jpeg:subsampling", "4:4:4");  // if possible, always subsampling 4:4:4 for jpeg
 
@@ -1199,6 +1237,16 @@ void writeImageNoFloat(const std::string& path,
     oiio::ImageSpec imageSpec(image.width(), image.height(), 1, typeDesc);
     imageSpec.extra_attribs = metadata;  // add custom metadata
 
+    auto itversion = metadata.find("version");
+    if (isEXR && itversion != metadata.end())
+    {
+        // The "version" metadata of exr images must be an integer, otherwise the exr image could be misinterpreted.
+        if (itversion->type() != oiio::TypeDesc::INT)
+        {
+            imageSpec.attribute("version", itversion->get_int());
+        }
+    }
+
     imageSpec.attribute("jpeg:subsampling", "4:4:4");             // if possible, always subsampling 4:4:4 for jpeg
     imageSpec.attribute("compression", isEXR ? "zips" : "none");  // if possible, set compression (zips for EXR, none for the other)
 
@@ -1223,6 +1271,11 @@ void writeImageNoFloat(const std::string& path,
 void readImage(const std::string& path, Image<float>& image, const ImageReadOptions& imageReadOptions)
 {
     readImage(path, oiio::TypeDesc::FLOAT, 1, image, imageReadOptions);
+}
+
+void readImage(const std::string& path, Image<IndexT>& image, const ImageReadOptions& imageReadOptions)
+{
+    readImage(path, oiio::TypeDesc::UINT32, 1, image, imageReadOptions);
 }
 
 void readImage(const std::string& path, Image<unsigned char>& image, const ImageReadOptions& imageReadOptions)
@@ -1256,7 +1309,7 @@ void readImage(const std::string& path, Image<RGBColor>& image, const ImageReadO
 
 void logOIIOImageCacheInfo()
 {
-    oiio::ImageCache* cache = oiio::ImageCache::create(true);
+    std::shared_ptr<oiio::ImageCache> cache = oiio::ImageCache::create(true);
 
     int maxOpenFiles = -1;
     cache->getattribute("max_open_files", maxOpenFiles);
@@ -1399,7 +1452,67 @@ std::string getAliceVisionOCIOConfig()
     return {};
 }
 
-void setAliceVisionRootOverride(const std::string& value) { aliceVisionRootOverride = value; }
+void setAliceVisionRootOverride(const std::string& value) 
+{ 
+    aliceVisionRootOverride = value; 
+}
+
+bool listImages(std::vector<std::string> & images, const std::string & path)
+{
+    images.clear();
+
+    // Retrieve all image extensions supported by oiio
+    std::vector<std::string> oiioExtensions = getSupportedExtensions();
+
+    // Lambda to check if a path has a supported image extension
+    auto isSupportedImageExtension = [&oiioExtensions](const fs::path& filePath) -> bool 
+    {
+        std::string currentExtension = filePath.extension().string();
+        std::transform(currentExtension.begin(), currentExtension.end(), currentExtension.begin(), ::tolower);
+
+        for (const auto& oiioExtension : oiioExtensions)
+        {
+            if (oiioExtension == currentExtension)
+            {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    // Check if path is a file
+    fs::path paramPath(path);
+    if (fs::is_regular_file(paramPath))
+    {
+        if (isSupportedImageExtension(paramPath))
+        {
+            images.push_back(path);
+            return true;
+        }
+    }
+
+    // Check if path is a directory
+    if (!fs::is_directory(paramPath))
+    {
+        return false;
+    }
+
+    // Recursively find all files with a given extension
+    for (const auto& entry : fs::recursive_directory_iterator(path)) 
+    {
+        if (!entry.is_regular_file())
+        {
+            continue;
+        }
+
+        if (isSupportedImageExtension(entry.path()))
+        {
+            images.push_back(entry.path().string());
+        }
+    }
+
+    return true;
+}
 
 }  // namespace image
 }  // namespace aliceVision

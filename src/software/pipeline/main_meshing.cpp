@@ -108,7 +108,7 @@ void createDenseSfMData(const sfmData::SfMData& sfmData,
             {
                 const sfmData::View& view = sfmData.getView(mp.getViewId(cam));
                 const camera::IntrinsicBase* intrinsicPtr = sfmData.getIntrinsicPtr(view.getIntrinsicId());
-                const sfmData::Observation observation(intrinsicPtr->project(sfmData.getPose(view).getTransform(), pt3D.homogeneous(), true),
+                const sfmData::Observation observation(intrinsicPtr->transformProject(sfmData.getPose(view).getTransform(), pt3D.homogeneous(), true),
                                                        UndefinedIndexT,
                                                        unknownScale);  // apply distortion
                 landmark.getObservations()[view.getViewId()] = observation;
@@ -306,7 +306,7 @@ int aliceVision_main(int argc, char* argv[])
     }
 
     // initialization
-    mvsUtils::MultiViewParams mp(sfmData, "", "", depthMapsFolder, meshingFromDepthMaps);
+    mvsUtils::MultiViewParams mp(sfmData, "", "", depthMapsFolder, meshingFromDepthMaps ? mvsUtils::EFileType::depthMap : mvsUtils::EFileType::none);
 
     mp.userParams.put("LargeScale.universePercentile", universePercentile);
     mp.userParams.put("LargeScale.helperPointsGridSize", helperPointsGridSize);
@@ -462,7 +462,7 @@ int aliceVision_main(int argc, char* argv[])
         colors.resize(mesh->pts.size(), {0, 0, 0});
         for (std::size_t i = 0; i < mesh->pts.size(); ++i)
         {
-            const auto& c = landmarks.at(i).rgb;
+            const auto& c = landmarks.at(i).getRgb();
             colors[i] = {c.r(), c.g(), c.b()};
         }
     }

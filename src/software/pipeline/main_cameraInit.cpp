@@ -16,6 +16,7 @@
 #include <aliceVision/cmdline/cmdline.hpp>
 #include <aliceVision/image/io.cpp>
 #include <aliceVision/image/dcp.hpp>
+#include <aliceVision/camera/Pinhole.hpp>
 
 #include <boost/atomic/atomic_ref.hpp>
 #include <boost/program_options.hpp>
@@ -216,9 +217,9 @@ int aliceVision_main(int argc, char** argv)
         ("defaultOffsetY", po::value<double>(&defaultOffsetY)->default_value(defaultOffsetY),
          "Default offset from the principal point Y coordinate.")
         ("defaultCameraModel", po::value<std::string>(&defaultCameraModelName)->default_value(defaultCameraModelName),
-         "Default camera model type (pinhole, equidistant).")
+         "Default camera model type (pinhole, equidistant, equirectangular).")
         ("defaultDistortionModel", po::value<std::string>(&defaultDistortionModelName)->default_value(defaultDistortionModelName),
-         "Default Distortion model type (none, radialk1, radialk3, radialk3pt, radialbrown, fisheye, fisheye1, 3deradial4, 3deanamorphic4, 3declassicld).")
+         "Default Distortion model type (none, radialk1, radialk3, radialk3pt, radialbrown, fisheye, fisheye1).")
         ("groupCameraFallback", po::value<EGroupCameraFallback>(&groupCameraFallback)->default_value(groupCameraFallback),
          std::string("When there is no serial number in the image metadata, we cannot know if the images come from the same camera. "
          "This is problematic for grouping images sharing the same internal camera settings and we have to decide on a fallback strategy:\n"
@@ -362,7 +363,7 @@ int aliceVision_main(int argc, char** argv)
     // number of views with LCP data used to add chromatic aberration params in metadata
     std::size_t lcpChromaticViewCount = 0;
 
-    // load known informations
+    // load known information
     if (imageFolder.empty())
     {
         // fill SfMData from the JSON file
@@ -380,7 +381,7 @@ int aliceVision_main(int argc, char** argv)
             for (int i = 0; i < imagePaths.size(); ++i)
             {
                 auto view = std::make_shared<sfmData::View>(imagePaths.at(i).string());
-                updateIncompleteView(*view, viewIdMethod, viewIdRegex);
+                bootstrapView(*view, viewIdMethod, viewIdRegex);
 
 #pragma omp critical
                 {
@@ -468,7 +469,10 @@ int aliceVision_main(int argc, char** argv)
             }
         }
 
-        if (boost::algorithm::starts_with(parentPath.stem().string(), "ps_") || boost::algorithm::starts_with(parentPath.stem().string(), "hdr_"))
+        std::string toCompare = parentPath.stem().string();
+        transform(toCompare.begin(), toCompare.end(), toCompare.begin(), ::tolower);
+
+        if (boost::algorithm::starts_with(toCompare, "ps_") || boost::algorithm::starts_with(parentPath.stem().string(), "hdr_"))
         {
             std::hash<std::string> hash;
             IndexT tmpPoseID = hash(parentPath.string());  // use a temporary pose Id to group the images
@@ -642,6 +646,7 @@ int aliceVision_main(int argc, char** argv)
 
         // build intrinsic
         std::shared_ptr<camera::IntrinsicBase> intrinsicBase = getViewIntrinsic(view,
+                                                                                intrinsicInitMode,
                                                                                 focalLengthmm,
                                                                                 sensorWidth,
                                                                                 defaultFocalLength,
@@ -801,24 +806,24 @@ int aliceVision_main(int argc, char** argv)
     {
         for (const auto& poseGroup : poseGroups)
         {
-            bool hasAmbiant = false;
+            bool hasAmbient = false;
 
-            // Photometric stereo : ambiant viewId used for all pictures
+            // Photometric stereo : ambient viewId used for all pictures
             for (const IndexT vId : poseGroup.second)
             {
                 const fs::path imagePath = fs::path(sfmData.getView(vId).getImage().getImagePath());
-                if (boost::algorithm::icontains(imagePath.stem().string(), "ambiant"))
+                if (boost::algorithm::icontains(imagePath.stem().string(), "ambient"))
                 {
-                    hasAmbiant = true;
+                    hasAmbient = true;
                     for (const auto it : poseGroup.second)
                     {
-                        // Update poseId with ambiant view id
+                        // Update poseId with ambient view id
                         sfmData.getView(it).setPoseId(vId);
                     }
                     break;
                 }
             }
-            if (!hasAmbiant)
+            if (!hasAmbient)
             {
                 // Sort views of the poseGroup per timestamps
                 std::vector<std::pair<int64_t, IndexT>> sortedViews;

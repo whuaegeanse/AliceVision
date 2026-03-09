@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include <aliceVision/image/all.hpp>
+#include <aliceVision/image/Image.hpp>
 #include <aliceVision/utils/Histogram.hpp>
 
 #include <string>
@@ -26,7 +26,7 @@ class CommonDataByPair
     virtual ~CommonDataByPair() {}
 
     /**
-     * Compute mask forthe two images
+     * Compute mask for the two images
      *
      * \param[out] maskLeft Mask of the left image (initialized to corresponding image size).
      * \param[out] maskRight  Mask of the right image (initialized to corresponding image size).
@@ -54,7 +54,7 @@ class CommonDataByPair
         {
             for (int i = 0; i < mask.width(); ++i)
             {
-                if ((int)mask(j, i) != 0)
+                if (static_cast<int>(mask(j, i)) != 0)
                     histo.Add(image(j, i)(channelIndex));
             }
         }

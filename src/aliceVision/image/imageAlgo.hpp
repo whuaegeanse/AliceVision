@@ -11,8 +11,6 @@ namespace oiio = OIIO;
 
 namespace aliceVision {
 
-class rgb;
-
 namespace imageAlgo {
 
 void RGBtoXYZ(oiio::ImageBuf::Iterator<float>& pixel);
@@ -25,7 +23,7 @@ void RGBtoLAB(oiio::ImageBuf::Iterator<float>& pixel);
 void LABtoRGB(oiio::ImageBuf::Iterator<float>& pixel);
 
 /**
- * @brief split an image in chunks and proces them in parallel
+ * @brief split an image in chunks and process them in parallel
  * @param [in] image to process (in place or not)
  * @param [in] pixelFunc the function to apply
  */
@@ -160,6 +158,16 @@ void resizeImage(int downscale, image::Image<image::RGBAfColor>& inoutImage, con
 void resampleImage(int newWidth, int newHeight, const image::Image<IndexT>& inImage, image::Image<IndexT>& outImage, bool interpolate);
 
 /**
+ * @brief resample a given image buffer.
+ * @param[in] newWidth The destination width
+ * @param[in] newHeight The destination height
+ * @param[in] inImage The input image buffer
+ * @param[out] outImage The output image buffer
+ * @param[in] interpolate use interpolation (bilinear) ?
+ */
+void resampleImage(int newWidth, int newHeight, const image::Image<unsigned char>& inImage, image::Image<unsigned char>& outImage, bool interpolate);
+
+/**
  * @brief convolve a given image buffer
  * @param[in] inBuffer The input image buffer
  * @param[out] outBuffer outBuffer The output image buffer
@@ -167,16 +175,10 @@ void resampleImage(int newWidth, int newHeight, const image::Image<IndexT>& inIm
  *            Default is gaussian kernel
  *            See openImageIO documentation "ImageBufAlgo.make_kernel"
  * @param[in] kernelWidth The kernel width
- * @param[in] kernelHeight The kernal height
+ * @param[in] kernelHeight The kernel height
  */
 void convolveImage(const image::Image<unsigned char>& inBuffer,
                    image::Image<unsigned char>& outBuffer,
-                   const std::string& kernel = "gaussian",
-                   float kernelWidth = 5.0f,
-                   float kernelHeight = 5.0f);
-
-void convolveImage(const image::Image<rgb>& inBuffer,
-                   image::Image<rgb>& outBuffer,
                    const std::string& kernel = "gaussian",
                    float kernelWidth = 5.0f,
                    float kernelHeight = 5.0f);

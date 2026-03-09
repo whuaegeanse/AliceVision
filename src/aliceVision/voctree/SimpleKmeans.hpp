@@ -134,7 +134,7 @@ struct InitKmeanspp
             for (int j = 0; j < numTrials; ++j)
             {
                 typename std::vector<squared_distance_type>::iterator dstiter;
-        
+
                 // draw an element from 0 to currSum
                 // in order to choose a point with a probability proportional to D(x)^2
                 // let's compute the overall sum of D(x)^2 and draw a number between
@@ -239,7 +239,7 @@ void printFeatVector(const std::vector<Feature>& f)
  * of these values are found it prints them out and in the end it returns false
  *
  * @param f the feature to check (supposed to have a size() method)
- * @param str somethig to write as debug
+ * @param str something to write as debug
  * @return true if everything is ok
  */
 template<class Feature>

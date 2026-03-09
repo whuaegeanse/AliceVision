@@ -54,26 +54,26 @@ class CommonDataByPair_vldSegment : public CommonDataByPair
             matchesPair.emplace_back(match._i, match._j);
         }
 
-        std::vector<double> vec_score;
+        std::vector<double> scores;
 
         // In order to illustrate the gvld(or vld)-consistant neighbors, the following two parameters has been externalized as inputs of the function
         // KVLD.
-        //  gvld-consistancy matrix, intitialized to -1,  >0 consistancy value, -1=unknow, -2=false
+        //  gvld-consistency matrix, initialized to -1,  >0 consistency value, -1=unknow, -2=false
         aliceVision::Mat E = aliceVision::Mat::Ones(_matches.size(), _matches.size()) * (-1);
 
         // indices of match in the initial matches, if true at the end of KVLD, a match is kept.
         std::vector<bool> valid(_matches.size(), true);
 
-        size_t it_num = 0;
+        size_t itNum = 0;
         KvldParameters kvldparameters;  // initial parameters of KVLD
         // kvldparameters.K = 5;
-        while (it_num < 5 &&
-               kvldparameters.inlierRate > KVLD(imgA, imgB, _featsL, _featsR, matchesPair, matchesFiltered, vec_score, E, valid, kvldparameters))
+        while (itNum < 5 &&
+               kvldparameters.inlierRate > KVLD(imgA, imgB, _featsL, _featsR, matchesPair, matchesFiltered, scores, E, valid, kvldparameters))
         {
             kvldparameters.inlierRate /= 2;
             ALICEVISION_LOG_DEBUG("low inlier rate, re-select matches with new rate=" << kvldparameters.inlierRate);
             kvldparameters.K = 2;
-            it_num++;
+            itNum++;
         }
 
         if (matchesPair.empty())

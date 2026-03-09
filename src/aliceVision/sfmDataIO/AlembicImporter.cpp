@@ -14,6 +14,8 @@
 #include <aliceVision/version.hpp>
 #include <aliceVision/system/Logger.hpp>
 
+#include <aliceVision/camera/Equidistant.hpp>
+
 namespace aliceVision {
 namespace sfmDataIO {
 
@@ -186,6 +188,44 @@ bool readPointCloud(const Version& abcVersion, IObject iObj, M44d mat, sfmData::
         }
     }
 
+    BoolArraySamplePtr sampleIsParallaxRobust;
+    if (userProps && userProps.getPropertyHeader("mvg_isParallaxRobust"))
+    {
+        IBoolArrayProperty propIsParallaxRobust(userProps, "mvg_isParallaxRobust");
+        propIsParallaxRobust.get(sampleIsParallaxRobust);
+
+        if (sampleIsParallaxRobust->size() != positions->size())
+        {
+            ALICEVISION_LOG_WARNING("[Alembic Importer] isParallaxRobust property will be ignored.");
+            sampleIsParallaxRobust->reset();
+        }
+    }
+
+    BoolArraySamplePtr sampleIsLocked;
+    if (userProps && userProps.getPropertyHeader("mvg_isLocked"))
+    {
+        IBoolArrayProperty propIsLocked(userProps, "mvg_isLocked");
+        propIsLocked.get(sampleIsLocked);
+
+        if (sampleIsLocked->size() != positions->size())
+        {
+            ALICEVISION_LOG_WARNING("[Alembic Importer] isLocked property will be ignored.");
+            sampleIsLocked->reset();
+        }
+    }
+    
+    AV_UInt32ArraySamplePtr sampleReferenceViewIndices;
+    if (userProps && userProps.getPropertyHeader("mvg_referenceViewIndices"))
+    {
+        sampleReferenceViewIndices.read(userProps, "mvg_referenceViewIndices");
+        if (sampleReferenceViewIndices.size() != positions->size())
+        {
+            ALICEVISION_LOG_WARNING("[Alembic Importer] Reference views will be ignored. Vector size: "
+                                    << sampleReferenceViewIndices.size() << ", positions vector size: " << positions->size());
+            sampleReferenceViewIndices.reset();
+        }
+    }
+
     // Number of points before adding the Alembic data
     const std::size_t nbPointsInit = sfmdata.getLandmarks().size();
     for (std::size_t point3d_i = 0; point3d_i < positions->size(); ++point3d_i)
@@ -207,15 +247,37 @@ bool readPointCloud(const Version& abcVersion, IObject iObj, M44d mat, sfmData::
         if (sampleColors)
         {
             const P3fArraySamplePtr::element_type::value_type& color_i = sampleColors->get()[point3d_i];
-            landmark.rgb = image::RGBColor(static_cast<unsigned char>(color_i[0] * 255.0f),
-                                           static_cast<unsigned char>(color_i[1] * 255.0f),
-                                           static_cast<unsigned char>(color_i[2] * 255.0f));
+            landmark.setRgb(image::RGBColor(static_cast<unsigned char>(color_i[0] * 255.0f),
+                                            static_cast<unsigned char>(color_i[1] * 255.0f),
+                                            static_cast<unsigned char>(color_i[2] * 255.0f)));
         }
 
         if (sampleDescs)
         {
             const std::size_t descType_i = sampleDescs[point3d_i];
-            landmark.descType = static_cast<feature::EImageDescriberType>(descType_i);
+            landmark.setDescType(static_cast<feature::EImageDescriberType>(descType_i));
+        }
+
+        if (sampleIsParallaxRobust)
+        {
+            const bool isParallaxRobust = sampleIsParallaxRobust->get()[point3d_i];
+            landmark.setParallaxRobust(isParallaxRobust);
+        }
+
+        if (sampleIsLocked)
+        {
+            const bool isLocked = sampleIsLocked->get()[point3d_i];
+            landmark.setLocked(isLocked);
+        }
+
+        if (sampleReferenceViewIndices)
+        {
+            IndexT referenceViewIndex = sampleReferenceViewIndices[point3d_i];
+            if (referenceViewIndex != UndefinedIndexT)
+            {
+                sfmData::View::sptr view = sfmdata.getViews().at(referenceViewIndex);
+                landmark.setReferenceView(view);
+            }
         }
     }
 
@@ -293,6 +355,7 @@ bool readPointCloud(const Version& abcVersion, IObject iObj, M44d mat, sfmData::
         AV_UInt32ArraySamplePtr sampleVisibilityFeatId;
         FloatArraySamplePtr sampleVisibilityFeatPos;
         FloatArraySamplePtr sampleVisibilityFeatScale;
+        FloatArraySamplePtr sampleVisibilityFeatDepth;
 
         if (userProps.getPropertyHeader("mvg_visibilityFeatId") && userProps.getPropertyHeader("mvg_visibilityFeatPos") &&
             flags_part & ESfMData::OBSERVATIONS_WITH_FEATURES)
@@ -306,6 +369,12 @@ bool readPointCloud(const Version& abcVersion, IObject iObj, M44d mat, sfmData::
             {
                 IFloatArrayProperty propVisibilityFeatScale(userProps, "mvg_visibilityFeatScale");
                 propVisibilityFeatScale.get(sampleVisibilityFeatScale);
+            }
+
+            if (userProps && userProps.getPropertyHeader("mvg_visibilityFeatDepth"))
+            {
+                IFloatArrayProperty propVisibilityFeatDepth(userProps, "mvg_visibilityFeatDepth");
+                propVisibilityFeatDepth.get(sampleVisibilityFeatDepth);
             }
 
             if (sampleVisibilityViewId.size() != sampleVisibilityFeatId.size() ||
@@ -361,6 +430,11 @@ bool readPointCloud(const Version& abcVersion, IObject iObj, M44d mat, sfmData::
                     {
                         observation.setScale((*sampleVisibilityFeatScale)[obsGlobalIndex]);
                     }
+
+                    if (sampleVisibilityFeatDepth)
+                    {
+                        observation.setDepth((*sampleVisibilityFeatDepth)[obsGlobalIndex]);
+                    }
                 }
                 else
                 {
@@ -372,6 +446,55 @@ bool readPointCloud(const Version& abcVersion, IObject iObj, M44d mat, sfmData::
 
     return true;
 }
+
+bool readSurveys(IObject iObj, sfmData::SfMData& sfmdata)
+{
+    using namespace aliceVision::geometry;
+
+    IPoints points(iObj, kWrapExisting);
+    IPointsSchema& ms = points.getSchema();
+    ICompoundProperty userProps = getAbcUserProperties(ms);
+
+    if (!(userProps.getPropertyHeader("mvg_surveyIds") && userProps.getPropertyHeader("mvg_surveyData")))
+    {
+        return false;
+    }
+
+    AV_UInt32ArraySamplePtr sampleId;
+    DoubleArraySamplePtr sampleData;
+
+    sampleId.read(userProps, "mvg_surveyIds");
+
+    IDoubleArrayProperty propData(userProps, "mvg_surveyData");
+    propData.get(sampleData);
+
+    const int sampleDataSize = 7;
+
+    if (sampleId.size() * sampleDataSize != sampleData->size())
+    {
+        return false;
+    }
+
+    sfmData::SurveyPoints & output = sfmdata.getSurveyPoints();
+    for (int pos = 0; pos < sampleId.size(); pos++)
+    {
+        IndexT viewId = sampleId[pos];
+
+        sfmData::SurveyPoint pt;
+        pt.point3d.x() = (*sampleData)[pos * sampleDataSize + 0];
+        pt.point3d.y() = (*sampleData)[pos * sampleDataSize + 1];
+        pt.point3d.z() = (*sampleData)[pos * sampleDataSize + 2];
+        pt.survey.x() = (*sampleData)[pos * sampleDataSize + 3];
+        pt.survey.y() = (*sampleData)[pos * sampleDataSize + 4];
+        pt.residual.x() = (*sampleData)[pos * sampleDataSize + 5];
+        pt.residual.y() = (*sampleData)[pos * sampleDataSize + 6];
+
+        output[viewId].push_back(pt);
+    }
+
+    return true;
+}
+
 
 bool readCamera(const Version& abcVersion,
                 const ICamera& camera,
@@ -417,12 +540,21 @@ bool readCamera(const Version& abcVersion,
     IndexT resectionId = UndefinedIndexT;
     bool intrinsicLocked = false;
     bool poseLocked = false;
+    bool rotationOnly = false;
+    bool removable = true;
     bool poseIndependant = true;
     bool lockRatio = true;
+    bool lockOffset = false;
+    bool lockScale = false;
+    bool lockDistortion = false;
     std::vector<double> distortionParams;
     std::vector<double> undistortionParams;
     Vec2 undistortionOffset = {0, 0};
     double undistortionDiagonal = 0.0;
+    double undistortionPixelAspectRatio = 1.0;
+    bool undistortionDesqueezed = false;
+    bool undistortionLocked = false;
+    std::string serialNumber = "";
 
     if (userProps)
     {
@@ -459,6 +591,10 @@ bool readCamera(const Version& abcVersion,
             {
                 resectionId = getAbcProp_uint(userProps, *propHeader, "mvg_resectionId", sampleFrame);
             }
+            if (const Alembic::Abc::PropertyHeader* propHeader = userProps.getPropertyHeader("mvg_intrinsicSerialNumber"))
+            {
+                serialNumber = getAbcProp<Alembic::Abc::IStringProperty>(userProps, *propHeader, "mvg_intrinsicSerialNumber", sampleFrame);
+            }
             if (const Alembic::Abc::PropertyHeader* propHeader = userProps.getPropertyHeader("mvg_intrinsicLocked"))
             {
                 intrinsicLocked = getAbcProp<Alembic::Abc::IBoolProperty>(userProps, *propHeader, "mvg_intrinsicLocked", sampleFrame);
@@ -467,9 +603,25 @@ bool readCamera(const Version& abcVersion,
             {
                 lockRatio = getAbcProp<Alembic::Abc::IBoolProperty>(userProps, *propHeader, "mvg_intrinsicPixelRatioLocked", sampleFrame);
             }
+            if (const Alembic::Abc::PropertyHeader* propHeader = userProps.getPropertyHeader("mvg_intrinsicOffsetLocked"))
+            {
+                lockOffset = getAbcProp<Alembic::Abc::IBoolProperty>(userProps, *propHeader, "mvg_intrinsicOffsetLocked", sampleFrame);
+            }
+            if (const Alembic::Abc::PropertyHeader* propHeader = userProps.getPropertyHeader("mvg_intrinsicScaleLocked"))
+            {
+                lockScale = getAbcProp<Alembic::Abc::IBoolProperty>(userProps, *propHeader, "mvg_intrinsicScaleLocked", sampleFrame);
+            }
             if (const Alembic::Abc::PropertyHeader* propHeader = userProps.getPropertyHeader("mvg_poseLocked"))
             {
                 poseLocked = getAbcProp<Alembic::Abc::IBoolProperty>(userProps, *propHeader, "mvg_poseLocked", sampleFrame);
+            }
+            if (const Alembic::Abc::PropertyHeader* propHeader = userProps.getPropertyHeader("mvg_rotationOnly"))
+            {
+                rotationOnly = getAbcProp<Alembic::Abc::IBoolProperty>(userProps, *propHeader, "mvg_rotationOnly", sampleFrame);
+            }
+            if (const Alembic::Abc::PropertyHeader* propHeader = userProps.getPropertyHeader("mvg_removable"))
+            {
+                removable = getAbcProp<Alembic::Abc::IBoolProperty>(userProps, *propHeader, "mvg_removable", sampleFrame);
             }
             if (const Alembic::Abc::PropertyHeader* propHeader = userProps.getPropertyHeader("mvg_poseIndependant"))
             {
@@ -575,6 +727,10 @@ bool readCamera(const Version& abcVersion,
                 prop.get(sample, ISampleSelector(sampleFrame));
                 distortionParams.assign(sample->get(), sample->get() + sample->size());
             }
+            if (const Alembic::Abc::PropertyHeader* propHeader = userProps.getPropertyHeader("mvg_distortionLocked"))
+            {
+                lockDistortion = getAbcProp<Alembic::Abc::IBoolProperty>(userProps, *propHeader, "mvg_distortionLocked", sampleFrame);
+            }
             if (userProps.getPropertyHeader("mvg_undistortionParams"))
             {
                 // Undistortion parameters
@@ -594,6 +750,18 @@ bool readCamera(const Version& abcVersion,
                 if (const Alembic::Abc::PropertyHeader* propHeader = userProps.getPropertyHeader("mvg_undistortionDiagonal"))
                 {
                     undistortionDiagonal = getAbcProp<Alembic::Abc::IDoubleProperty>(userProps, *propHeader, "mvg_undistortionDiagonal", sampleFrame);
+                }
+                if (const Alembic::Abc::PropertyHeader* propHeader = userProps.getPropertyHeader("mvg_undistortionPixelAspectRatio"))
+                {
+                    undistortionPixelAspectRatio = getAbcProp<Alembic::Abc::IDoubleProperty>(userProps, *propHeader, "mvg_undistortionPixelAspectRatio", sampleFrame);
+                }
+                if (const Alembic::Abc::PropertyHeader* propHeader = userProps.getPropertyHeader("mvg_undistortionDesqueezed"))
+                {
+                    undistortionDesqueezed = getAbcProp<Alembic::Abc::IBoolProperty>(userProps, *propHeader, "mvg_undistortionDesqueezed", sampleFrame);
+                }
+                if (const Alembic::Abc::PropertyHeader* propHeader = userProps.getPropertyHeader("mvg_undistortionLocked"))
+                {
+                    undistortionLocked = getAbcProp<Alembic::Abc::IBoolProperty>(userProps, *propHeader, "mvg_undistortionLocked", sampleFrame);
                 }
             }
         }
@@ -632,6 +800,7 @@ bool readCamera(const Version& abcVersion,
           /*width*/ sensorSize_pix.at(0),
           /*height*/ sensorSize_pix.at(1));
 
+        intrinsic->setSerialNumber(serialNumber);
         intrinsic->setSensorWidth(sensorSize_mm.at(0));
         intrinsic->setSensorHeight(sensorSize_mm.at(1));
         intrinsic->importFromParams(mvg_intrinsicParams, abcVersion);
@@ -642,15 +811,26 @@ bool readCamera(const Version& abcVersion,
         if (intrinsicCasted)
         {
             // fy_pix = fx_pix * fy/fx
-            initialFocalLengthPix(1) =
-              (initialFocalLengthPix(0) > 0) ? initialFocalLengthPix(0) * mvg_intrinsicParams[1] / mvg_intrinsicParams[0] : -1;
+            initialFocalLengthPix(1) = initialFocalLengthPix(0);
+            if (initialFocalLengthPix(0) > 0.0)
+            {
+                initialFocalLengthPix(0) = initialFocalLengthPix(0) / intrinsicCasted->getPixelAspectRatio();
+            }
+
             intrinsicCasted->setInitialScale(initialFocalLengthPix);
             intrinsicCasted->setRatioLocked(lockRatio);
+            intrinsicCasted->setOffsetLocked(lockOffset);
+            intrinsicCasted->setScaleLocked(lockScale);
 
             std::shared_ptr<camera::Distortion> distortion = intrinsicCasted->getDistortion();
             if (distortion)
             {
-                distortion->setParameters(distortionParams);
+                distortion->setParameters(distortionParams);    
+
+                if (abcVersion >= Version(1, 2, 10))
+                {
+                    distortion->setLocked(lockDistortion);
+                }
             }
 
             std::shared_ptr<camera::Undistortion> undistortion = intrinsicCasted->getUndistortion();
@@ -658,10 +838,17 @@ bool readCamera(const Version& abcVersion,
             {
                 undistortion->setParameters(undistortionParams);
                 undistortion->setOffset(undistortionOffset);
+                undistortion->setLocked(undistortionLocked);
 
                 if (abcVersion >= Version(1, 2, 7))
                 {
                     undistortion->setDiagonal(undistortionDiagonal);
+                }
+
+                if (abcVersion >= Version(1, 2, 9))
+                {
+                    undistortion->setPixelAspectRatio(undistortionPixelAspectRatio);
+                    undistortion->setDesqueezed(undistortionDesqueezed);
                 }
 
                 // If undistortion exists, distortion does not
@@ -757,7 +944,10 @@ bool readCamera(const Version& abcVersion,
         }
         else
         {
-            sfmData.setPose(*view, sfmData::CameraPose(pose, poseLocked));
+            sfmData::CameraPose cp(pose, poseLocked);
+            cp.setRotationOnly(rotationOnly);
+            cp.setRemovable(removable);
+            sfmData.setPose(*view, cp);
         }
     }
 
@@ -919,7 +1109,7 @@ bool readXform(const Version& abcVersion, IXform& xform, M44d& mat, sfmData::SfM
 
         if (sfmData.getPoses().find(poseId) == sfmData.getPoses().end())
         {
-            sfmData.getPoses().emplace(poseId, sfmData::CameraPose(pose, rigPoseLocked));
+            sfmData.getPoses().assign(poseId, sfmData::CameraPose(pose, rigPoseLocked));
         }
     }
 
@@ -938,9 +1128,22 @@ void visitObject(const Version& abcVersion, IObject iObj, M44d mat, sfmData::SfM
         isReconstructed = false;
 
     const MetaData& md = iObj.getMetaData();
-    if (IPoints::matches(md) && (flagsPart & ESfMData::STRUCTURE))
+    if (IPoints::matches(md))
     {
-        readPointCloud(abcVersion, iObj, mat, sfmdata, flagsPart);
+        if (iObj.getName() == "surveys")
+        {
+            if (flagsPart & ESfMData::SURVEYS)
+            {
+                readSurveys(iObj, sfmdata);
+            }
+        }
+        else 
+        {
+            if (flagsPart & ESfMData::STRUCTURE )
+            {
+                readPointCloud(abcVersion, iObj, mat, sfmdata, flagsPart);
+            }
+        }
     }
     else if (IXform::matches(md))
     {

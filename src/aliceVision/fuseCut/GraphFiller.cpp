@@ -121,14 +121,17 @@ void GraphFiller::rayMarchingGraphEmpty(int vertexIndex,
 
     assert(cam >= 0);
     assert(cam < _mp.ncams);
+    
+    if (_camsVertexes[cam] < 0)
+    {
+        return;
+    }
 
     // Initialisation
     GeometryIntersection geometry(vertexIndex);  // Starting on global vertex index
     Point3d intersectPt = originPt;
     // toTheCam
     const double pointCamDistance = (_mp.CArr[cam] - originPt).size();
-
-
 
     TetrahedronsRayMarching marching(_tetrahedralization, vertexIndex, _camsVertexes[cam], false);
 
@@ -138,7 +141,7 @@ void GraphFiller::rayMarchingGraphEmpty(int vertexIndex,
     while (geometry.type != EGeometryType::Vertex || (_mp.CArr[cam] - intersectPt).size() >= 1.0e-3)
     {
         lastGeoIsVertex = false;
-        // Keep previous informations
+        // Keep previous information
         const GeometryIntersection previousGeometry = geometry;
         const Point3d lastIntersectPt = intersectPt;
 
@@ -200,6 +203,14 @@ void GraphFiller::rayMarchingGraphFull(int vertexIndex,
                                          float fullWeight,
                                          double nPixelSizeBehind)
 {
+    assert(cam >= 0);
+    assert(cam < _mp.ncams);
+    
+    if (_camsVertexes[cam] < 0)
+    {
+        return;
+    }
+
     const int maxint = std::numeric_limits<int>::max();
     const Point3d& originPt = _verticesCoords[vertexIndex];
     const double pixSize = _verticesAttr[vertexIndex].pixSize;
@@ -221,7 +232,7 @@ void GraphFiller::rayMarchingGraphFull(int vertexIndex,
     // While we are within the surface margin (as long as we find a next geometry)
     while ((originPt - intersectPt).size() < maxDist)
     {
-        // Keep previous informations
+        // Keep previous information
         const GeometryIntersection previousGeometry = geometry;
         const Point3d lastIntersectPt = intersectPt;
 
@@ -295,7 +306,11 @@ void GraphFiller::forceTedgesByGradientIJCV(float nPixelSizeBehind)
                 GeometryIntersection geometry(vertexIndex);  // Starting on global vertex index
                 Point3d intersectPt = originPt;
                 // toTheCam
-            
+
+                if (_camsVertexes[cam] < 0)
+                {
+                    continue;
+                }
 
                 TetrahedronsRayMarching marching(_tetrahedralization, vertexIndex, _camsVertexes[cam], false);
 
@@ -306,7 +321,7 @@ void GraphFiller::forceTedgesByGradientIJCV(float nPixelSizeBehind)
                        &&
                        (lastIntersectPt - originPt).size() <= (nsigmaJumpPart + nsigmaFrontSilentPart) * maxDist)  // We are to far from the originPt
                 {
-                    // Keep previous informations
+                    // Keep previous information
                     const GeometryIntersection previousGeometry = geometry;
                     lastIntersectPt = intersectPt;
 
@@ -352,7 +367,7 @@ void GraphFiller::forceTedgesByGradientIJCV(float nPixelSizeBehind)
                 // While we are within the surface margin defined by maxDist (as long as we find a next geometry)
                 while ((lastIntersectPt - originPt).size() <= nsigmaBackSilentPart * maxDist)
                 {
-                    // Keep previous informations
+                    // Keep previous information
                     const GeometryIntersection previousGeometry = geometry;
                     lastIntersectPt = intersectPt;
 

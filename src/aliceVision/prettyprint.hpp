@@ -55,7 +55,7 @@ struct has_begin_end : private sfinae_base
     // typename
     template<typename C, typename LEFT = C::const_iterator (C::*)() const>
     static yes& f(typename std::enable_if<
-                  std::is_same<decltype(static_cast<typename LEFT>(&C::begin)), typename C::const_iterator (C::*)() const>::value>::type*);
+                  std::is_same<decltype(static_cast<LEFT>(&C::begin)), typename C::const_iterator (C::*)() const>::value>::type*);
 #else   // _MSCV_VER
     template<typename C>
     static yes& f(typename std::enable_if<std::is_same<decltype(static_cast<typename C::const_iterator (C::*)() const>(&C::begin)),
@@ -68,7 +68,7 @@ struct has_begin_end : private sfinae_base
 #ifdef _MSC_VER
     template<typename C, typename LEFT = C::const_iterator (C::*)() const>
     static yes& g(
-      typename std::enable_if<std::is_same<decltype(static_cast<typename LEFT>(&C::end)), typename C::const_iterator (C::*)() const>::value,
+      typename std::enable_if<std::is_same<decltype(static_cast<LEFT>(&C::end)), typename C::const_iterator (C::*)() const>::value,
                               void>::type*);
 #else   // _MSCV_VER
     template<typename C>
@@ -108,7 +108,7 @@ struct delimiters
 };
 
 // Functor to print containers. You can use this directly if you want
-// to specificy a non-default delimiters type. The printing logic can
+// to specify a non-default delimiters type. The printing logic can
 // be customized by specializing the nested template.
 
 template<typename T, typename TChar = char, typename TCharTraits = ::std::char_traits<TChar>, typename TDelimiters = delimiters<T, TChar>>

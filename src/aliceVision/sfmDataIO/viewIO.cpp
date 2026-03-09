@@ -9,8 +9,10 @@
 #include <aliceVision/numeric/numeric.hpp>
 #include <aliceVision/sfmData/uid.hpp>
 #include <aliceVision/camera/camera.hpp>
+#include <aliceVision/camera/IntrinsicScaleOffset.hpp>
 #include <aliceVision/image/io.hpp>
-#include "aliceVision/utils/filesIO.hpp"
+#include <aliceVision/utils/filesIO.hpp>
+#include <aliceVision/system/Logger.hpp>
 
 #include <stdexcept>
 #include <regex>
@@ -20,66 +22,71 @@ namespace fs = std::filesystem;
 namespace aliceVision {
 namespace sfmDataIO {
 
-void updateIncompleteView(sfmData::View& view, EViewIdMethod viewIdMethod, const std::string& viewIdRegex)
+namespace {
+
+IndexT viewIdFromFilenameRegex(const sfmData::View& view, const std::string& viewIdRegex)
+{
+    std::regex re;
+    try
+    {
+        re = viewIdRegex;
+    }
+    catch (const std::regex_error& e)
+    {
+        throw std::invalid_argument("Invalid regex conversion, your regexfilename '" + viewIdRegex + "' may be invalid.");
+    }
+
+    const std::string filename = fs::path(view.getImage().getImagePath()).stem().string();
+
+    std::smatch match;
+    std::regex_search(filename, match, re);
+    if (match.size() == 2)
+    {
+        try
+        {
+            return IndexT(std::stoul(match.str(1)));
+        }
+        catch (std::invalid_argument& e)
+        {
+            ALICEVISION_LOG_ERROR("ViewId captured in the filename '" << filename << "' can't be converted to a number. The regex '" << viewIdRegex << "' is probably incorrect.");
+            throw;
+        }
+    }
+
+    ALICEVISION_LOG_ERROR("The Regex '" << viewIdRegex << "' must match a unique number in the filename " << filename << "' to be used as viewId.");
+    throw std::invalid_argument("The Regex '" + viewIdRegex + "' must match a unique number in the filename " + filename + "' to be used as viewId.");
+}
+
+}  // namespace
+
+void bootstrapView(sfmData::View& view, EViewIdMethod viewIdMethod, const std::string& viewIdRegex)
 {
     // check if the view is complete
-    if (view.getViewId() != UndefinedIndexT && view.getIntrinsicId() != UndefinedIndexT && view.getPoseId() == view.getViewId() &&
-        view.getImage().getHeight() > 0 && view.getImage().getWidth() > 0)
+    if (view.isFullySetup() &&  view.getImage().getHeight() > 0 && view.getImage().getWidth() > 0)
+    {
         return;
+    }
 
+    // Read image metadata and size
     int width, height;
     const auto metadata = image::readImageMetadata(view.getImage().getImagePath(), width, height);
 
+    // Setup view size
     view.getImage().setWidth(width);
     view.getImage().setHeight(height);
 
     // reset metadata
     if (view.getImage().getMetadata().empty())
+    {
         view.getImage().setMetadata(image::getMapFromMetadata(metadata));
+    }
 
     // Reset viewId
     if (view.getViewId() == UndefinedIndexT)
     {
         if (viewIdMethod == EViewIdMethod::FILENAME)
         {
-            std::regex re;
-            try
-            {
-                re = viewIdRegex;
-            }
-            catch (const std::regex_error& e)
-            {
-                throw std::invalid_argument("Invalid regex conversion, your regexfilename '" + viewIdRegex + "' may be invalid.");
-            }
-
-            // Get view image filename without extension
-            const std::string filename = fs::path(view.getImage().getImagePath()).stem().string();
-
-            std::smatch match;
-            std::regex_search(filename, match, re);
-            if (match.size() == 2)
-            {
-                try
-                {
-                    const IndexT id(std::stoul(match.str(1)));
-                    view.setViewId(id);
-                }
-                catch (std::invalid_argument& e)
-                {
-                    ALICEVISION_LOG_ERROR("ViewId captured in the filename '" << filename
-                                                                              << "' can't be converted to a number. "
-                                                                                 "The regex '"
-                                                                              << viewIdRegex << "' is probably incorrect.");
-                    throw;
-                }
-            }
-            else
-            {
-                ALICEVISION_LOG_ERROR("The Regex '" << viewIdRegex << "' must match a unique number in the filename " << filename
-                                                    << "' to be used as viewId.");
-                throw std::invalid_argument("The Regex '" + viewIdRegex + "' must match a unique number in the filename " + filename +
-                                            "' to be used as viewId.");
-            }
+            view.setViewId(viewIdFromFilenameRegex(view, viewIdRegex));
         }
         else
         {
@@ -93,22 +100,23 @@ void updateIncompleteView(sfmData::View& view, EViewIdMethod viewIdMethod, const
         // check if the rig poseId id is defined
         if (view.isPartOfRig())
         {
-            ALICEVISION_LOG_ERROR("Error: Can't find poseId for'" << fs::path(view.getImage().getImagePath()).filename().string()
-                                                                  << "' marked as part of a rig." << std::endl);
-            throw std::invalid_argument("Error: Can't find poseId for'" + fs::path(view.getImage().getImagePath()).filename().string() +
-                                        "' marked as part of a rig.");
+            const std::string imageName = fs::path(view.getImage().getImagePath()).filename().string();
+            ALICEVISION_LOG_ERROR("Error: Can't find poseId for'" << imageName << "' marked as part of a rig.");
+            throw std::invalid_argument("Error: Can't find poseId for'" + imageName + "' marked as part of a rig.");
         }
         else
+        {
             view.setPoseId(view.getViewId());
+        }
     }
     else if ((!view.isPartOfRig()) && (view.getPoseId() != view.getViewId()))
     {
-        ALICEVISION_LOG_WARNING("PoseId and viewId are different for image '" << fs::path(view.getImage().getImagePath()).filename().string() << "'."
-                                                                              << std::endl);
+        ALICEVISION_LOG_WARNING("PoseId and viewId are different for image '" << fs::path(view.getImage().getImagePath()).filename().string() << "'.");
     }
 }
 
 std::shared_ptr<camera::IntrinsicBase> getViewIntrinsic(const sfmData::View& view,
+                                                        const camera::EInitMode intrinsicInitMode,
                                                         double mmFocalLength,
                                                         double sensorWidth,
                                                         double defaultFocalLength,
@@ -123,7 +131,7 @@ std::shared_ptr<camera::IntrinsicBase> getViewIntrinsic(const sfmData::View& vie
     // can't combine defaultFocalLengthPx and defaultFieldOfView
     assert(defaultFocalLength < 0 || defaultFieldOfView < 0);
 
-    // get view informations
+    // get view information
     const std::string& cameraBrand = view.getImage().getMetadataMake();
     const std::string& cameraModel = view.getImage().getMetadataModel();
     const std::string& bodySerialNumber = view.getImage().getMetadataBodySerialNumber();
@@ -190,13 +198,18 @@ std::shared_ptr<camera::IntrinsicBase> getViewIntrinsic(const sfmData::View& vie
         hasFocalLengthInput = true;
     }
 
+    // Do not enforce focal length
+    if (intrinsicInitMode == camera::EInitMode::NONE || intrinsicInitMode == camera::EInitMode::UNKNOWN)
+    {
+        hasFocalLengthInput = false;
+    }
+
     double focalLengthIn35mm = 36.0 * focalLength;
     double pxFocalLength = (focalLength / sensorWidth) * std::max(view.getImage().getWidth(), view.getImage().getHeight());
 
     // retrieve pixel aspect ratio
     double pixelAspectRatio = 1.0 / defaultFocalRatio;
     view.getImage().getDoubleMetadata({"PixelAspectRatio"}, pixelAspectRatio);
-    const double focalRatio = 1.0 / pixelAspectRatio;
 
     bool hasFisheyeCompatibleParameters = ((focalLengthIn35mm > 0.0 && focalLengthIn35mm < 18.0) || (defaultFieldOfView > 100.0));
     
@@ -219,11 +232,7 @@ std::shared_ptr<camera::IntrinsicBase> getViewIntrinsic(const sfmData::View& vie
         }
     }
 
-    if (cameraBrand == "Custom")
-    {
-        intrinsicType = camera::EINTRINSIC_stringToEnum(cameraModel);
-    }
-    else if ((lcpIntrinsicType != camera::EINTRINSIC::UNKNOWN))
+    if ((lcpIntrinsicType != camera::EINTRINSIC::UNKNOWN))
     {
         intrinsicType = lcpIntrinsicType;
     }
@@ -239,16 +248,21 @@ std::shared_ptr<camera::IntrinsicBase> getViewIntrinsic(const sfmData::View& vie
         distortionType = camera::EDISTORTION::DISTORTION_RADIALK3;
     }
 
+    //PixelAspectRatio is the vertical size of a pixel over the horizontal size of a pixel
+    //We divide x scale assuming the focal length on an anamorphic lens is for the vertical dimension
+    double horizontalScale = (pxFocalLength > 0) ? pxFocalLength / pixelAspectRatio : -1;
+    double verticalScale = pxFocalLength;
+
     // create the desired intrinsic
     std::shared_ptr<camera::IntrinsicBase> intrinsic = camera::createIntrinsic(
-      /*camera*/ intrinsicType,
+      intrinsicType,
       distortionType,
       camera::EUNDISTORTION::UNDISTORTION_NONE,
-      /*dimensions*/ view.getImage().getWidth(),
+      view.getImage().getWidth(),
       view.getImage().getHeight(),
-      /*focal length*/ pxFocalLength,
-      pxFocalLength / focalRatio,
-      /*offset*/ 0,
+      horizontalScale,
+      verticalScale,
+      0,
       0);
 
     if (hasFocalLengthInput)
@@ -257,7 +271,15 @@ std::shared_ptr<camera::IntrinsicBase> getViewIntrinsic(const sfmData::View& vie
 
         if (intrinsicScaleOffset)
         {
-            intrinsicScaleOffset->setInitialScale({pxFocalLength, (pxFocalLength > 0) ? pxFocalLength / focalRatio : -1});
+            intrinsicScaleOffset->setInitialScale({horizontalScale, verticalScale});
+        }
+    }
+
+    //In any case, we can fill the default offset
+    {
+        std::shared_ptr<camera::IntrinsicScaleOffset> intrinsicScaleOffset = std::dynamic_pointer_cast<camera::IntrinsicScaleOffset>(intrinsic);
+        if (intrinsicScaleOffset)
+        {
             intrinsicScaleOffset->setOffset({defaultOffsetX, defaultOffsetY});
         }
     }

@@ -8,6 +8,7 @@
 #include <aliceVision/sfmDataIO/viewIO.hpp>
 #include <aliceVision/system/Logger.hpp>
 #include <aliceVision/utils/filesIO.hpp>
+#include <aliceVision/camera/Pinhole.hpp>
 
 #include <random>
 #include <tuple>
@@ -126,7 +127,7 @@ void KeyframeSelector::processRegular()
     // Check if minimum number of frame is zero
     if (nbFrames == 0)
     {
-        ALICEVISION_THROW(std::invalid_argument, "One or multiple medias can't be found or empty!");
+        ALICEVISION_THROW(std::invalid_argument, "One or multiple media can't be found or empty!");
     }
 
     // All frames are unselected so far
@@ -403,7 +404,7 @@ bool KeyframeSelector::computeScores(const std::size_t rescaledWidthSharpness,
     // Check if minimum number of frame is zero
     if (nbFrames == 0)
     {
-        ALICEVISION_THROW(std::invalid_argument, "One or multiple medias can't be found or is empty!");
+        ALICEVISION_THROW(std::invalid_argument, "One or multiple media can't be found or is empty!");
     }
 
     // With the number of threads available and the number of frames to process known,
@@ -414,7 +415,7 @@ bool KeyframeSelector::computeScores(const std::size_t rescaledWidthSharpness,
 
     // If a block contains less than _minBlockSize frames (when there are lots of available threads for a small number
     // of frames, for example), resize it: less threads will be spawned, but since new FeedProvider objects need to be
-    // created for each thread, we prevent spawing thread that will need to create FeedProvider objects
+    // created for each thread, we prevent spawning thread that will need to create FeedProvider objects
     // for very few frames.
     if (blockSize < _minBlockSize && nbFrames >= _minBlockSize)
     {
@@ -1252,6 +1253,8 @@ bool KeyframeSelector::writeSfMData(const std::string& mediaPath,
 
 bool KeyframeSelector::writeSfMDataFromSfMData(const std::string& mediaPath)
 {
+    auto& keyframesPoses = _outputSfmKeyframes.getPoses();
+
     auto& keyframesViews = _outputSfmKeyframes.getViews();
     auto& framesViews = _outputSfmFrames.getViews();
 
@@ -1292,6 +1295,18 @@ bool KeyframeSelector::writeSfMDataFromSfMData(const std::string& mediaPath)
     {
         viewId = views[i]->getViewId();
         intrinsicId = views[i]->getIntrinsicId();
+        IndexT poseId = views[i]->getPoseId();
+
+        bool hasPose = inputSfm.isPoseAndIntrinsicDefined(viewId);
+        if (hasPose)
+        {
+            ALICEVISION_LOG_INFO("A fully calibrated view (Id:" << viewId << ") is moved to keyframes");
+            _selectedFrames[i] = '1';
+
+            //Make sure to keep the pose
+            keyframesPoses.assign(poseId, inputSfm.getAbsolutePose(poseId));
+        }
+
         if (_selectedFrames[i] == '1')
         {
             keyframesViews.emplace(viewId, views[i]);
@@ -1460,7 +1475,7 @@ std::shared_ptr<sfmData::View> KeyframeSelector::createView(const std::string& i
     // Complete the View attributes
     sfmDataIO::EViewIdMethod viewIdMethod = sfmDataIO::EViewIdMethod::METADATA;
     std::string viewIdRegex = ".*?(\\d+)";
-    sfmDataIO::updateIncompleteView(*(view.get()), viewIdMethod, viewIdRegex);
+    sfmDataIO::bootstrapView(*(view.get()), viewIdMethod, viewIdRegex);
 
     // Set the frame ID
     IndexT frameId;
@@ -1486,7 +1501,13 @@ std::shared_ptr<camera::IntrinsicBase> KeyframeSelector::createIntrinsic(const s
                                                                          const double imageRatio,
                                                                          const std::size_t mediaIndex)
 {
-    auto intrinsic = sfmDataIO::getViewIntrinsic(view, focalLength, sensorWidth);
+    camera::EInitMode mode = camera::EInitMode::ESTIMATED;
+    if (sensorWidth <= 0)
+    {
+        mode = camera::EInitMode::UNKNOWN;
+    }
+    
+    auto intrinsic = sfmDataIO::getViewIntrinsic(view, mode, focalLength, sensorWidth);
     if (imageRatio > 1.0 && sensorWidth > -1.0)
     {
         intrinsic->setSensorWidth(sensorWidth);

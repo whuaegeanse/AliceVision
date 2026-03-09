@@ -12,6 +12,8 @@
 #include <Alembic/AbcCoreOgawa/All.h>
 #include <Alembic/Abc/OObject.h>
 
+#include <aliceVision/camera/Equidistant.hpp>
+
 #include <numeric>
 #include <filesystem>
 
@@ -36,6 +38,7 @@ struct AlembicExporter::DataImpl
         _mvgCloud = Alembic::AbcGeom::OXform(_mvgRoot, "mvgCloud");
         _mvgPointCloud = Alembic::AbcGeom::OXform(_mvgCloud, "mvgPointCloud");
         _mvgAncestors = Alembic::AbcGeom::OXform(_mvgRoot, "mvgAncestors");
+        _mvgSurveys = Alembic::AbcGeom::OXform(_mvgCloud, "mvgSurveys");
 
         // add version as custom property
         const std::vector<::uint32_t> abcVersion = {
@@ -76,6 +79,7 @@ struct AlembicExporter::DataImpl
     Alembic::AbcGeom::OXform _mvgAncestors;
     Alembic::AbcGeom::OXform _mvgCloud;
     Alembic::AbcGeom::OXform _mvgPointCloud;
+    Alembic::AbcGeom::OXform _mvgSurveys;
     Alembic::AbcGeom::OXform _xform;
     Alembic::AbcGeom::OCamera _camObj;
     Alembic::AbcGeom::OUInt32ArrayProperty _propSensorSize_pix;
@@ -111,6 +115,8 @@ void AlembicExporter::DataImpl::addCamera(const std::string& name,
     if (pose != nullptr)
     {
         OBoolProperty(userProps, "mvg_poseLocked").set(pose->isLocked());
+        OBoolProperty(userProps, "mvg_rotationOnly").set(pose->isRotationOnly());
+        OBoolProperty(userProps, "mvg_removable").set(pose->isRemovable());
 
         // Convert from computer vision convention to computer graphics (opengl-like)
         Eigen::Matrix4d M = Eigen::Matrix4d::Identity();
@@ -218,16 +224,18 @@ void AlembicExporter::DataImpl::addCamera(const std::string& name,
         std::vector<::uint32_t> sensorSize_pix = {intrinsicCasted->w(), intrinsicCasted->h()};
         std::vector<double> sensorSize_mm = {sensorWidth, sensorHeight};
 
-        double initialFocalLength =
-          (intrinsicCasted->getInitialScale().x() > 0) ? (intrinsicCasted->getInitialScale().x() * sensorWidth / double(intrinsicCasted->w())) : -1;
+        double initialFocalLength = intrinsicCasted->getInitialFocalLength();
 
         OUInt32ArrayProperty(userProps, "mvg_sensorSizePix").set(sensorSize_pix);
         ODoubleArrayProperty(userProps, "mvg_sensorSizeMm").set(sensorSize_mm);
         OStringProperty(userProps, "mvg_intrinsicType").set(intrinsicCasted->getTypeStr());
         OStringProperty(userProps, "mvg_intrinsicInitializationMode").set(camera::EInitMode_enumToString(intrinsicCasted->getInitializationMode()));
         ODoubleProperty(userProps, "mvg_initialFocalLength").set(initialFocalLength);
+        OStringProperty(userProps, "mvg_intrinsicSerialNumber").set(intrinsicCasted->serialNumber());
         OBoolProperty(userProps, "mvg_intrinsicLocked").set(intrinsicCasted->isLocked());
         OBoolProperty(userProps, "mvg_intrinsicPixelRatioLocked").set(intrinsicCasted->isRatioLocked());
+        OBoolProperty(userProps, "mvg_intrinsicOffsetLocked").set(intrinsicCasted->isOffsetLocked());
+        OBoolProperty(userProps, "mvg_intrinsicScaleLocked").set(intrinsicCasted->isScaleLocked());
         OStringProperty(userProps, "mvg_intrinsicDistortionInitializationMode")
           .set(camera::EInitMode_enumToString(intrinsicCasted->getDistortionInitializationMode()));
 
@@ -246,6 +254,7 @@ void AlembicExporter::DataImpl::addCamera(const std::string& name,
         {
             distortionType = distortion->getType();
             ODoubleArrayProperty(userProps, "mvg_distortionParams").set(distortion->getParameters());
+            OBoolProperty(userProps, "mvg_distortionLocked").set(distortion->isLocked());
         }
 
         // Undistortion parameters and offset
@@ -258,6 +267,9 @@ void AlembicExporter::DataImpl::addCamera(const std::string& name,
             ODoubleProperty(userProps, "mvg_undistortionOffsetX").set(undistortion->getOffset().x());
             ODoubleProperty(userProps, "mvg_undistortionOffsetY").set(undistortion->getOffset().y());
             ODoubleProperty(userProps, "mvg_undistortionDiagonal").set(undistortion->getDiagonal());
+            ODoubleProperty(userProps, "mvg_undistortionPixelAspectRatio").set(undistortion->getPixelAspectRatio());
+            OBoolProperty(userProps, "mvg_undistortionDesqueezed").set(undistortion->isDesqueezed());
+            OBoolProperty(userProps, "mvg_undistortionLocked").set(undistortion->isLocked());
         }
         
         OStringProperty(userProps, "mvg_distortionType").set(EDISTORTION_enumToString(distortionType));
@@ -350,6 +362,11 @@ void AlembicExporter::addSfM(const sfmData::SfMData& sfmData, ESfMData flagsPart
                      (flagsPart & ESfMData::OBSERVATIONS_WITH_FEATURES));
     }
 
+    if (flagsPart & ESfMData::SURVEYS)
+    {
+        addSurveys(sfmData.getSurveyPoints());
+    }
+
     if (flagsPart & ESfMData::VIEWS || flagsPart & ESfMData::EXTRINSICS)
     {
         std::map<IndexT, std::map<IndexT, std::vector<IndexT>>> rigsViewIds;  // map<rigId,map<poseId,viewId>>
@@ -389,11 +406,11 @@ void AlembicExporter::addSfMSingleCamera(const sfmData::SfMData& sfmData, const 
 {
     const std::string name = fs::path(view.getImage().getImagePath()).stem().string();
     const sfmData::CameraPose* pose =
-      ((flagsPart & ESfMData::EXTRINSICS) && sfmData.existsPose(view)) ? &(sfmData.getPoses().at(view.getPoseId())) : nullptr;
+      ((flagsPart & ESfMData::EXTRINSICS) && sfmData.existsPose(view)) ? sfmData.getPoses().at(view.getPoseId()).get() : nullptr;
     const std::shared_ptr<camera::IntrinsicBase> intrinsic =
       (flagsPart & ESfMData::INTRINSICS) ? sfmData.getIntrinsicSharedPtr(view.getIntrinsicId()) : nullptr;
 
-    if (sfmData.isPoseAndIntrinsicDefined(&view) && (flagsPart & ESfMData::EXTRINSICS))
+    if (sfmData.isPoseAndIntrinsicDefined(view) && (flagsPart & ESfMData::EXTRINSICS))
         _dataImpl->addCamera(name, view, pose, intrinsic, nullptr, &_dataImpl->_mvgCameras);
     else
         _dataImpl->addCamera(name, view, pose, intrinsic, nullptr, &_dataImpl->_mvgCamerasUndefined);
@@ -490,21 +507,31 @@ void AlembicExporter::addLandmarks(const sfmData::Landmarks& landmarks,
         return;
 
     // Fill vector with the values taken from AliceVision
+    std::vector<IndexT> referenceViewIndices;
     std::vector<V3f> positions;
     std::vector<Imath::C3f> colors;
     std::vector<Alembic::Util::uint32_t> descTypes;
+    std::vector<Alembic::Util::bool_t> isParallaxRobust;
+    std::vector<Alembic::Util::bool_t> isLocked;
+
     positions.reserve(landmarks.size());
     descTypes.reserve(landmarks.size());
+    isParallaxRobust.reserve(landmarks.size());
+    isLocked.reserve(landmarks.size());
+    referenceViewIndices.reserve(landmarks.size());
 
     // For all the 3d points in the hash_map
     for (const auto& landmark : landmarks)
     {
-        const Vec3& pt = landmark.second.X;
-        const image::RGBColor& color = landmark.second.rgb;
+        const Vec3& pt = landmark.second.getX();
+        const image::RGBColor& color = landmark.second.getRgb();
         // convert position from computer vision convention to computer graphics (opengl-like)
         positions.emplace_back(pt[0], -pt[1], -pt[2]);
         colors.emplace_back(color.r() / 255.f, color.g() / 255.f, color.b() / 255.f);
-        descTypes.emplace_back(static_cast<Alembic::Util::uint8_t>(landmark.second.descType));
+        descTypes.emplace_back(static_cast<Alembic::Util::uint8_t>(landmark.second.getDescType()));
+        isParallaxRobust.emplace_back(static_cast<Alembic::Util::bool_t>(landmark.second.isParallaxRobust()));
+        isLocked.emplace_back(static_cast<Alembic::Util::bool_t>(landmark.second.isLocked()));
+        referenceViewIndices.emplace_back(landmark.second.getReferenceViewIndex());
     }
 
     std::vector<Alembic::Util::uint64_t> ids(positions.size());
@@ -527,6 +554,9 @@ void AlembicExporter::addLandmarks(const sfmData::Landmarks& landmarks,
     OCompoundProperty userProps = pSchema.getUserProperties();
 
     OUInt32ArrayProperty(userProps, "mvg_describerType").set(descTypes);
+    OBoolArrayProperty(userProps, "mvg_isParallaxRobust").set(isParallaxRobust);
+    OBoolArrayProperty(userProps, "mvg_isLocked").set(isLocked);
+    OUInt32ArrayProperty(userProps, "mvg_referenceViewIndices").set(referenceViewIndices);
 
     if (withVisibility)
     {
@@ -546,11 +576,13 @@ void AlembicExporter::addLandmarks(const sfmData::Landmarks& landmarks,
 
         std::vector<float> featPos2d;
         std::vector<float> featScale;
+        std::vector<float> featDepth;
         if (withFeatures)
         {
             featPos2d.reserve(nbObservations * 2);
             visibilityFeatId.reserve(nbObservations);
             featScale.reserve(nbObservations);
+            featDepth.reserve(nbObservations);
         }
 
         for (const auto& landmark : landmarks)
@@ -573,6 +605,7 @@ void AlembicExporter::addLandmarks(const sfmData::Landmarks& landmarks,
                     featPos2d.emplace_back(obs.getY());
 
                     featScale.emplace_back(obs.getScale());
+                    featDepth.emplace_back(obs.getDepth());
                 }
             }
         }
@@ -585,6 +618,7 @@ void AlembicExporter::addLandmarks(const sfmData::Landmarks& landmarks,
             OUInt32ArrayProperty(userProps, "mvg_visibilityFeatId").set(visibilityFeatId);
             OFloatArrayProperty(userProps, "mvg_visibilityFeatPos").set(featPos2d);  // feature position (x,y)
             OFloatArrayProperty(userProps, "mvg_visibilityFeatScale").set(featScale);
+            OFloatArrayProperty(userProps, "mvg_visibilityFeatDepth").set(featDepth);
         }
     }
     if (!landmarksUncertainty.empty())
@@ -604,6 +638,53 @@ void AlembicExporter::addLandmarks(const sfmData::Landmarks& landmarks,
     }
 }
 
+void AlembicExporter::addSurveys(const sfmData::SurveyPoints & points)
+{
+    OPoints outPoints(_dataImpl->_mvgSurveys, "surveys");
+    OPointsSchema& pSchema = outPoints.getSchema();
+
+    //Build positions for abc visualisation
+    std::vector<V3f> positions;
+    for (const auto & [viewId, vsp] : points)
+    {
+        for (const auto & sp : vsp)
+        {
+            positions.emplace_back(sp.point3d[0], -sp.point3d[1], -sp.point3d[2]);
+        }
+    }
+
+    //Fake indices
+    std::vector<Alembic::Util::uint64_t> ids(positions.size());
+    std::iota(begin(ids), end(ids), 0);
+    
+    OPointsSchema::Sample psamp(std::move(V3fArraySample(positions)), std::move(UInt64ArraySample(ids)));
+    pSchema.set(psamp);
+
+    //Now, store information useful for AliceVision
+    OCompoundProperty userProps = pSchema.getUserProperties();
+
+    std::vector<IndexT> indices;
+    std::vector<double> data;
+
+    for (const auto & [viewId, vsp] : points)
+    {
+        for (const auto & sp : vsp)
+        {
+            indices.push_back(viewId);
+            data.push_back(sp.point3d.x());
+            data.push_back(sp.point3d.y());
+            data.push_back(sp.point3d.z());
+            data.push_back(sp.survey.x());
+            data.push_back(sp.survey.y());
+            data.push_back(sp.residual.x());
+            data.push_back(sp.residual.y());
+        }
+    }
+
+    OUInt32ArrayProperty(userProps, "mvg_surveyIds").set(indices);
+    ODoubleArrayProperty(userProps, "mvg_surveyData").set(data);
+}
+
 void AlembicExporter::addCamera(const std::string& name,
                                 const sfmData::View& view,
                                 const sfmData::CameraPose* pose,
@@ -613,11 +694,11 @@ void AlembicExporter::addCamera(const std::string& name,
     _dataImpl->addCamera(name, view, pose, intrinsic, uncertainty);
 }
 
-void AlembicExporter::initAnimatedCamera(const std::string& cameraName, std::size_t startFrame)
+void AlembicExporter::initAnimatedCamera(const std::string& cameraName, std::size_t startFrame, double frameRate)
 {
     // Sample the time in order to have one keyframe every frame
     // nb: it HAS TO be attached to EACH keyframed properties
-    TimeSamplingPtr tsp(new TimeSampling(1.0 / 24.0, startFrame / 24.0));
+    TimeSamplingPtr tsp(new TimeSampling(1.0 / frameRate, startFrame / frameRate));
 
     // Create the camera transform object
     std::stringstream ss;
@@ -735,7 +816,7 @@ void AlembicExporter::addCameraKeyframe(const geometry::Pose3& pose,
     // Intrinsic type
     _dataImpl->_mvgIntrinsicType.set(cam->getTypeStr());
     // Intrinsic parameters
-    std::vector<double> intrinsicParams = cam->getParams();
+    std::vector<double> intrinsicParams = cam->getParameters();
     _dataImpl->_mvgIntrinsicParams.set(intrinsicParams);
 
     // Attach intrinsic parameters to camera object

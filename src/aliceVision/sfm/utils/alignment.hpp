@@ -56,6 +56,9 @@ void matchViewsByFilePattern(const sfmData::SfMData& sfmDataA,
                              const std::string& filePatternMatching,
                              std::vector<std::pair<IndexT, IndexT>>& out_commonViewIds);
 
+std::map<std::string, IndexT> retrieveMatchingFilepath(const sfmData::SfMData& sfmData,
+                            const std::string& filePatternMatching);
+
 void matchViewsByMetadataMatching(const sfmData::SfMData& sfmDataA,
                                   const sfmData::SfMData& sfmDataB,
                                   const std::vector<std::string>& metadataList,
@@ -120,6 +123,20 @@ bool computeSimilarityFromCommonMarkers(const sfmData::SfMData& sfmDataA,
                                         Mat3* out_R,
                                         Vec3* out_t);
 
+bool computeSimilarityFromCommonLandmarks(const sfmData::SfMData& sfmDataA,
+                                        const sfmData::SfMData& sfmDataB,
+                                        std::mt19937& randomNumberGenerator,
+                                        double* out_S,
+                                        Mat3* out_R,
+                                        Vec3* out_t);
+
+bool computeSimilarityFromPairs(const std::vector<Vec3> & ptsA,
+                                const std::vector<Vec3> & ptsB,
+                                std::mt19937& randomNumberGenerator,
+                                double* out_S,
+                                Mat3* out_R,
+                                Vec3* out_t);
+
 /**
  * @brief Apply a transformation the given SfMData
  *
@@ -130,11 +147,11 @@ bool computeSimilarityFromCommonMarkers(const sfmData::SfMData& sfmDataA,
  */
 inline void applyTransform(sfmData::SfMData& sfmData, const double S, const Mat3& R, const Vec3& t)
 {
-    for (auto& poseIt : sfmData.getPoses())
+    for (auto& [_, cameraPose] : sfmData.getPoses().valueRange())
     {
-        geometry::Pose3 pose = poseIt.second.getTransform();
+        geometry::Pose3 pose = cameraPose.getTransform();
         pose = pose.transformSRt(S, R, t);
-        poseIt.second.setTransform(pose);
+        cameraPose.setTransform(pose);
     }
 
     for (auto& rigIt : sfmData.getRigs())
@@ -147,7 +164,7 @@ inline void applyTransform(sfmData::SfMData& sfmData, const double S, const Mat3
 
     for (auto& landmark : sfmData.getLandmarks())
     {
-        landmark.second.X = S * R * landmark.second.X + t;
+        landmark.second.setX(S * R * landmark.second.getX() + t);
     }
 }
 

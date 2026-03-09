@@ -8,10 +8,11 @@
 
 #include <aliceVision/sfmData/SfMData.hpp>
 #include <aliceVision/sfm/bundle/BundleAdjustmentCeres.hpp>
-#include <aliceVision/sfm/bundle/BundleAdjustmentSymbolicCeres.hpp>
 #include <aliceVision/geometry/lie.hpp>
 #include <aliceVision/geometry/Intersection.hpp>
 #include <aliceVision/sfm/utils/statistics.hpp>
+#include <aliceVision/camera/Pinhole.hpp>
+#include <aliceVision/camera/Equidistant.hpp>
 
 #include <boost/test/unit_test.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
@@ -99,7 +100,7 @@ void createScene(sfmData::SfMData& sfmData, const camera::IntrinsicBase& intrins
 
         geometry::Pose3 pose(T);
 
-        sfmData.getPoses().emplace(idview, sfmData::CameraPose(pose));
+        sfmData.getPoses().assign(idview, sfmData::CameraPose(pose));
         sfmData.getViews().emplace(idview, std::make_shared<sfmData::View>("", idview, 0, idview, intrinsic.w(), intrinsic.h()));
 
         Vec3 origin = pose(Vec3(0, 0, 0));
@@ -107,7 +108,7 @@ void createScene(sfmData::SfMData& sfmData, const camera::IntrinsicBase& intrins
         int count = 0;
         for (auto& pl : sfmData.getLandmarks())
         {
-            const auto& pt = pl.second.X;
+            const auto& pt = pl.second.getX();
 
             Vec3 cpt = pose(pt);
             Vec3 dir = (cpt - origin).normalized();
@@ -118,7 +119,7 @@ void createScene(sfmData::SfMData& sfmData, const camera::IntrinsicBase& intrins
                 continue;
             }
 
-            Vec2 imagept = intrinsic.project(pose, pt.homogeneous(), true);
+            Vec2 imagept = intrinsic.transformProject(pose, pt.homogeneous(), true);
             if (imagept.x() < 0 || imagept.y() < 0 || imagept.x() >= intrinsic.w() || imagept.y() >= intrinsic.h())
             {
                 continue;
@@ -161,14 +162,6 @@ std::vector<cameraPair> buildIntrinsics()
                                      camera::createPinhole(camera::DISTORTION_FISHEYE1, camera::UNDISTORTION_NONE, 1920, 1080, 1200, 1200, 0, 0, {1.2})));
 
 
-    cameras.push_back(
-      std::make_pair(camera::createPinhole(camera::DISTORTION_3DERADIAL4, camera::UNDISTORTION_NONE, 1920, 1080, 900, 900, 80, 50, {0.2, 0.0, 0.0, 0.0, 0.0, 0.0}),
-                     camera::createPinhole(camera::DISTORTION_3DERADIAL4, camera::UNDISTORTION_NONE, 1920, 1080, 1200, 1200, 0, 0, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0})));
-
-    cameras.push_back(
-      std::make_pair(camera::createPinhole(camera::DISTORTION_3DECLASSICLD, camera::UNDISTORTION_NONE, 1920, 1080, 900, 900, 80, 50, {0.2, 1.0, 0.0, 0.0, 0.0}),
-                     camera::createPinhole(camera::DISTORTION_3DECLASSICLD, camera::UNDISTORTION_NONE, 1920, 1080, 1200, 1200, 0, 0, {0.0, 1.0, 0.0, 0.0, 0.0})));
-
     cameras.push_back(std::make_pair(camera::createEquidistant(camera::DISTORTION_NONE, 1920, 1080, 1500, 80, 50),
                                      camera::createEquidistant(camera::DISTORTION_NONE, 1920, 1080, 1300, 0, 0)));
 
@@ -190,14 +183,14 @@ BOOST_AUTO_TEST_CASE(test_intrinsics)
 
         sfmData.getIntrinsics().at(0) = pairIntrinsics.second;
 
-        sfm::BundleAdjustmentSymbolicCeres::CeresOptions options;
+        sfm::BundleAdjustmentCeres::CeresOptions options;
         sfm::BundleAdjustment::ERefineOptions refineOptions = sfm::BundleAdjustment::REFINE_INTRINSICS_FOCAL |
                                                               sfm::BundleAdjustment::REFINE_INTRINSICS_OPTICALOFFSET_ALWAYS |
                                                               sfm::BundleAdjustment::REFINE_INTRINSICS_DISTORTION;
         options.summary = false;
 
         double rmseBefore = sfm::RMSE(sfmData);
-        sfm::BundleAdjustmentSymbolicCeres BA(options);
+        sfm::BundleAdjustmentCeres BA(options);
         const bool success = BA.adjust(sfmData, refineOptions);
         double rmseAfter = sfm::RMSE(sfmData);
 
@@ -222,15 +215,15 @@ BOOST_AUTO_TEST_CASE(test_landmarks)
         srand(0);
         for (auto& lpt : sfmData.getLandmarks())
         {
-            lpt.second.X += Eigen::Vector3d::Random() * 0.1;
+            lpt.second.setX(lpt.second.getX() + Eigen::Vector3d::Random() * 0.1);
         }
 
-        sfm::BundleAdjustmentSymbolicCeres::CeresOptions options;
+        sfm::BundleAdjustmentCeres::CeresOptions options;
         sfm::BundleAdjustment::ERefineOptions refineOptions = sfm::BundleAdjustment::REFINE_STRUCTURE;
         options.summary = false;
 
         double rmseBefore = sfm::RMSE(sfmData);
-        sfm::BundleAdjustmentSymbolicCeres BA(options);
+        sfm::BundleAdjustmentCeres BA(options);
         const bool success = BA.adjust(sfmData, refineOptions);
         double rmseAfter = sfm::RMSE(sfmData);
 
@@ -253,9 +246,9 @@ BOOST_AUTO_TEST_CASE(test_poses)
         createScene(sfmData, *pairIntrinsics.first);
 
         srand(0);
-        for (auto& lps : sfmData.getPoses())
+        for (auto& [_, pose] : sfmData.getPoses().valueRange())
         {
-            geometry::Pose3 pose3 = lps.second.getTransform();
+            geometry::Pose3 pose3 = pose.getTransform();
             Eigen::Matrix4d T = pose3.getHomogeneous();
 
             Eigen::Vector3d nt = Eigen::Vector3d::Random() * 0.1 + Eigen::Vector3d::UnitZ() * 0.1;
@@ -265,15 +258,15 @@ BOOST_AUTO_TEST_CASE(test_poses)
             U.block<3, 3>(0, 0) = nR;
             U.block<3, 1>(0, 3) = nt;
 
-            lps.second.setTransform(geometry::Pose3(U * T));
+            pose.setTransform(geometry::Pose3(U * T));
         }
 
-        sfm::BundleAdjustmentSymbolicCeres::CeresOptions options;
+        sfm::BundleAdjustmentCeres::CeresOptions options;
         sfm::BundleAdjustment::ERefineOptions refineOptions = sfm::BundleAdjustment::REFINE_ROTATION | sfm::BundleAdjustment::REFINE_TRANSLATION;
         options.summary = false;
 
         double rmseBefore = sfm::RMSE(sfmData);
-        sfm::BundleAdjustmentSymbolicCeres BA(options);
+        sfm::BundleAdjustmentCeres BA(options);
         const bool success = BA.adjust(sfmData, refineOptions);
         double rmseAfter = sfm::RMSE(sfmData);
 

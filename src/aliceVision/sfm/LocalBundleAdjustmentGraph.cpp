@@ -5,7 +5,9 @@
 // You can obtain one at https://mozilla.org/MPL/2.0/.
 
 #include "LocalBundleAdjustmentGraph.hpp"
+
 #include <aliceVision/stl/stl.hpp>
+#include <aliceVision/system/Logger.hpp>
 #include <aliceVision/sfmData/SfMData.hpp>
 #include <aliceVision/utils/filesIO.hpp>
 
@@ -29,7 +31,7 @@ LocalBundleAdjustmentGraph::LocalBundleAdjustmentGraph(const sfmData::SfMData& s
 
         IntrinsicHistory intrinsicHistory;
         intrinsicHistory.nbPoses = 0;
-        intrinsicHistory.focalLength = intrinsicPtr->getParams().at(0);
+        intrinsicHistory.focalLength = intrinsicPtr->getParameters().at(0);
         intrinsicHistory.isConstant = intrinsicPtr->isLocked();
 
         _intrinsicsHistory[intrinsicId].push_back(intrinsicHistory);
@@ -60,10 +62,12 @@ void LocalBundleAdjustmentGraph::setAllParametersToRefine(const sfmData::SfMData
     _statePerLandmarkId.clear();
 
     // poses
-    for (sfmData::Poses::const_iterator itPose = sfmData.getPoses().begin(); itPose != sfmData.getPoses().end(); ++itPose)
-        _statePerPoseId[itPose->first] = EEstimatorParameterState::REFINED;
+    for (const auto & [poseId, _] : sfmData.getPoses())
+    {
+        _statePerPoseId[poseId] = EEstimatorParameterState::REFINED;
+    }
 
-    // instrinsics
+    // intrinsics
     for (const auto& itIntrinsic : sfmData.getIntrinsics())
         _statePerIntrinsicId[itIntrinsic.first] = EEstimatorParameterState::REFINED;
 
@@ -99,7 +103,7 @@ void LocalBundleAdjustmentGraph::saveIntrinsicsToHistory(const sfmData::SfMData&
 
         IntrinsicHistory intrinsicHistory;
         intrinsicHistory.nbPoses = intrinsicUsage[intrinsicId];
-        intrinsicHistory.focalLength = intrinsicPtr->getParams().at(0);
+        intrinsicHistory.focalLength = intrinsicPtr->getParameters().at(0);
         intrinsicHistory.isConstant = isFocalLengthConstant(intrinsicId);
 
         _intrinsicsHistory.at(intrinsicId).push_back(intrinsicHistory);
@@ -376,25 +380,24 @@ void LocalBundleAdjustmentGraph::convertDistancesToStates(sfmData::SfMData& sfmD
     //    - Ignored <=> else (dist = -1 U [D+2; +inf.[)
     //  - an intrinsic is set to:
     //    - Refined by default
-    //    - Constant <=> its focal lenght is considered as stable in its W last saved values
+    //    - Constant <=> its focal length is considered as stable in its W last saved values
     //    according to all of its values.
     //  - a landmarks is set to:
     //    - Ignored by default
     //    - Refined <=> its connected to a refined camera
 
     // poses
-    for (auto& posePair : sfmData.getPoses())
+    for (auto& [poseId, pose] : sfmData.getPoses().valueRange())
     {
-        const IndexT poseId = posePair.first;
         const int distance = getPoseDistance(poseId);
         const EEstimatorParameterState state = getStateFromDistance(distance);
 
-        posePair.second.setState(state);
+        pose.setState(state);
 
         _statePerPoseId[poseId] = state;
     }
 
-    // instrinsics
+    // intrinsics
     checkFocalLengthsConsistency(kWindowSize, kStdevPercentage);
 
     for (auto& itIntrinsic : sfmData.getIntrinsics())
@@ -428,7 +431,7 @@ void LocalBundleAdjustmentGraph::convertDistancesToStates(sfmData::SfMData& sfmD
         }
 
         // in the general case, a landmark can NOT have observations from refined AND ignored cameras.
-        // in pratice, there is a minimal number of common points to declare the connection between images.
+        // in practice, there is a minimal number of common points to declare the connection between images.
         // so we can have some points that are not declared in the graph of cameras connections.
         // for these particular cases, we can have landmarks with refined AND ignored cameras.
         // in this particular case, we prefer to ignore the landmark to avoid wrong/unconstraint refinements.
@@ -436,12 +439,12 @@ void LocalBundleAdjustmentGraph::convertDistancesToStates(sfmData::SfMData& sfmD
         if (!states.at(static_cast<std::size_t>(EEstimatorParameterState::REFINED)) ||
             states.at(static_cast<std::size_t>(EEstimatorParameterState::IGNORED)))
         {
-            itLandmark.second.state = EEstimatorParameterState::IGNORED;
+            itLandmark.second.setState(EEstimatorParameterState::IGNORED);
             _statePerLandmarkId[landmarkId] = EEstimatorParameterState::IGNORED;
         }
         else
         {
-            itLandmark.second.state = EEstimatorParameterState::REFINED;
+            itLandmark.second.setState(EEstimatorParameterState::REFINED);
             _statePerLandmarkId[landmarkId] = EEstimatorParameterState::REFINED;
         }
     }

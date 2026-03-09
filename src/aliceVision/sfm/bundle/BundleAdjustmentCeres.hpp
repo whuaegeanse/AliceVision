@@ -12,6 +12,8 @@
 #include <aliceVision/sfm/bundle/BundleAdjustment.hpp>
 #include <aliceVision/sfm/LocalBundleAdjustmentGraph.hpp>
 #include <aliceVision/numeric/numeric.hpp>
+#include <aliceVision/sfmData/CameraPose.hpp>
+#include <aliceVision/camera/IntrinsicBase.hpp>
 
 #include <ceres/ceres.h>
 
@@ -25,7 +27,7 @@ class SfMData;
 
 namespace sfm {
 
-class BundleAdjustmentCeres : public BundleAdjustment
+class BundleAdjustmentCeres : public BundleAdjustment, ceres::EvaluationCallback
 {
   public:
     /**
@@ -35,8 +37,7 @@ class BundleAdjustmentCeres : public BundleAdjustment
     {
         CeresOptions(bool verbose = true, bool multithreaded = true, unsigned int maxIterations = 50)
           : verbose(verbose),
-            nbThreads(multithreaded ? omp_get_max_threads() : 1)  // set number of threads, 1 if OpenMP is not enabled
-            ,
+            nbThreads(multithreaded ? omp_get_max_threads() : 1),  // set number of threads, 1 if OpenMP is not enabled
             maxNumIterations(maxIterations)
         {
             setDenseBA();  // use dense BA by default
@@ -55,10 +56,12 @@ class BundleAdjustmentCeres : public BundleAdjustment
         bool useParametersOrdering = true;
         bool summary = false;
         bool verbose = true;
+        bool useFocalPrior = true;
+        aliceVision::sfm::TemporalConstraintParams temporalConstraintParams;
     };
 
     /**
-     * @brief Contains all informations related to the performed bundle adjustment.
+     * @brief Contains all information related to the performed bundle adjustment.
      */
     struct Statistics
     {
@@ -73,7 +76,7 @@ class BundleAdjustmentCeres : public BundleAdjustment
 
         /**
          * @brief Export statistics about bundle adjustment in a CSV file
-         *  The contents of the file have been writen such that it is easy to handle it with
+         *  The contents of the file have been written such that it is easy to handle it with
          *  a Python script or any spreadsheets (e.g. by copy/past the full content to LibreOffice)
          * @param[in] folder The folder where you want to save the statistics file
          * @param[in] filename The filename of the statistics file
@@ -134,6 +137,8 @@ class BundleAdjustmentCeres : public BundleAdjustment
      */
     bool adjust(sfmData::SfMData& sfmData, ERefineOptions refineOptions = REFINE_ALL);
 
+    virtual void PrepareForEvaluation(bool evaluate_jacobians, bool new_evaluation_point);
+
     /**
      * @brief Get bundle adjustment statistics structure
      * @return statistics structure const ptr
@@ -156,7 +161,7 @@ class BundleAdjustmentCeres : public BundleAdjustment
      * @brief Create a parameter block for each extrinsics according to the Ceres format: [Rx, Ry, Rz, tx, ty, tz]
      * @param[in] sfmData The input SfMData contains all the information about the reconstruction, notably the poses and sub-poses
      * @param[in] refineOptions The chosen refine flag
-     * @param[out] problem The Ceres bundle adjustement problem
+     * @param[out] problem The Ceres bundle adjustment problem
      */
     void addExtrinsicsToProblem(const sfmData::SfMData& sfmData, ERefineOptions refineOptions, ceres::Problem& problem);
 
@@ -164,7 +169,7 @@ class BundleAdjustmentCeres : public BundleAdjustment
      * @brief Create a parameter block for each intrinsic according to the Ceres format
      * @param[in] sfmData The input SfMData contains all the information about the reconstruction, notably the intrinsics
      * @param[in] refineOptions The chosen refine flag
-     * @param[out] problem The Ceres bundle adjustement problem
+     * @param[out] problem The Ceres bundle adjustment problem
      */
     void addIntrinsicsToProblem(const sfmData::SfMData& sfmData, ERefineOptions refineOptions, ceres::Problem& problem);
 
@@ -172,35 +177,59 @@ class BundleAdjustmentCeres : public BundleAdjustment
      * @brief Create a residual block for each landmarks according to the Ceres format
      * @param[in] sfmData The input SfMData contains all the information about the reconstruction, notably the intrinsics
      * @param[in] refineOptions The chosen refine flag
-     * @param[out] problem The Ceres bundle adjustement problem
+     * @param[out] problem The Ceres bundle adjustment problem
      */
-    void addLandmarksToProblem(const sfmData::SfMData& sfmData, ERefineOptions refineOptions, ceres::Problem& problem);
+    void addLandmarksToProblem(const sfmData::SfMData& sfmData, ERefineOptions refineOptions, ceres::Problem& problem, std::vector<ceres::ResidualBlockId>& blockIds);
+
+    /**
+     * @brief Create a residual block for each survey point according to the Ceres format
+     * @param[in] sfmData The input SfMData contains all the information about the reconstruction, notably the intrinsics
+     * @param[in] refineOptions The chosen refine flag
+     * @param[out] problem The Ceres bundle adjustment problem
+     */
+    void addSurveyPointsToProblem(const sfmData::SfMData& sfmData, ERefineOptions refineOptions, ceres::Problem& problem);
 
     /**
      * @brief Create a residual block for each 2D constraints
      * @param[in] sfmData The input SfMData contains all the information about the reconstruction, notably the intrinsics
      * @param[in] refineOptions The chosen refine flag
-     * @param[out] problem The Ceres bundle adjustement problem
+     * @param[out] problem The Ceres bundle adjustment problem
      */
     void addConstraints2DToProblem(const sfmData::SfMData& sfmData, ERefineOptions refineOptions, ceres::Problem& problem);
+
+    /**
+     * @brief Create a residual block for each point constraints
+     * @param[in] sfmData The input SfMData contains all the information about the reconstruction, notably the intrinsics
+     * @param[in] refineOptions The chosen refine flag
+     * @param[out] problem The Ceres bundle adjustment problem
+     */
+    void addConstraintsPointToProblem(const sfmData::SfMData& sfmData, ERefineOptions refineOptions, ceres::Problem& problem);
 
     /**
      * @brief Create a residual block for each rotation priors
      * @param[in] sfmData The input SfMData contains all the information about the reconstruction, notably the intrinsics
      * @param[in] refineOptions The chosen refine flag
-     * @param[out] problem The Ceres bundle adjustement problem
+     * @param[out] problem The Ceres bundle adjustment problem
      */
     void addRotationPriorsToProblem(const sfmData::SfMData& sfmData, ERefineOptions refineOptions, ceres::Problem& problem);
 
     /**
-     * @brief Create the Ceres bundle adjustement problem with:
+     * @brief Create a residual block for each camera pose to add a temporal smoothness constraint
+     * @param[in] sfmData The input SfMData contains all the information about the reconstruction, notably the intrinsics
+     * @param[in] refineOptions The chosen refine flag
+     * @param[out] problem The Ceres bundle adjustment problem
+     */
+    void addTemporalSmoothnessToProblem(const sfmData::SfMData& sfmData, ERefineOptions refineOptions, ceres::Problem& problem, std::vector<ceres::ResidualBlockId>& blockIds);
+
+    /**
+     * @brief Create the Ceres bundle adjustment problem with:
      *  - extrincics and intrinsics parameters blocks.
      *  - residuals blocks for each observation.
      * @param[in,out] sfmData The input SfMData contains all the information about the reconstruction
      * @param[in] refineOptions The chosen refine flag
-     * @param[out] problem The Ceres bundle adjustement problem
+     * @param[out] problem The Ceres bundle adjustment problem
      */
-    void createProblem(const sfmData::SfMData& sfmData, ERefineOptions refineOptions, ceres::Problem& problem);
+    void createProblem(const sfmData::SfMData& sfmData, ERefineOptions refineOptions, ceres::Problem& problem, std::vector<ceres::ResidualBlockId>& landmarksBlockIds, std::vector<ceres::ResidualBlockId>& temporalConstraintBlockIds);
 
     /**
      * @brief Update The given SfMData with the solver solution
@@ -208,6 +237,12 @@ class BundleAdjustmentCeres : public BundleAdjustment
      * @param[in] refineOptions The chosen refine flag
      */
     void updateFromSolution(sfmData::SfMData& sfmData, ERefineOptions refineOptions) const;
+
+    /**
+    * @brief Print current state of surveys
+    * @param[in] sfmData the current sfmData to get infos from
+    */
+    void surveyInfos(const sfmData::SfMData & sfmData) const;
 
     // private members
 
@@ -218,7 +253,7 @@ class BundleAdjustmentCeres : public BundleAdjustment
     /// user FeatureConstraint options to use
     EFeatureConstraint _featureConstraint;
 
-    /// last adjustment iteration statisics
+    /// last adjustment iteration statistics
     Statistics _statistics;
 
     // data wrappers for refinement
@@ -231,6 +266,10 @@ class BundleAdjustmentCeres : public BundleAdjustment
     /// intrinsics blocks wrapper
     /// block: intrinsics params
     std::map<IndexT, std::vector<double>> _intrinsicsBlocks;
+    std::map<IndexT, std::vector<double>> _distortionsBlocks;
+    std::map<IndexT, std::shared_ptr<camera::IntrinsicBase>> _intrinsicObjects;
+
+    double _fakeDistortionBlock;
     /// landmarks blocks wrapper
     /// block: 3d position(3)
     std::map<IndexT, std::array<double, 3>> _landmarksBlocks;

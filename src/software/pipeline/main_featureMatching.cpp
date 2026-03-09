@@ -32,6 +32,8 @@
 #include <aliceVision/cmdline/cmdline.hpp>
 #include <aliceVision/graph/graph.hpp>
 #include <aliceVision/stl/stl.hpp>
+#include <aliceVision/camera/Pinhole.hpp>
+#include <aliceVision/camera/Equidistant.hpp>
 
 #include <boost/program_options.hpp>
 
@@ -165,7 +167,7 @@ int aliceVision_main(int argc, char** argv)
         ("guidedMatching", po::value<bool>(&guidedMatching)->default_value(guidedMatching),
          "Use the found model to improve the pairwise correspondences.")
         ("crossMatching", po::value<bool>(&crossMatching)->default_value(crossMatching),
-         "Make sure that the matching process is symmetric (same matches for I->J than fo J->I).")
+         "Make sure that the matching process is symmetric (same matches for I->J than for J->I).")
         ("matchFilePerImage", po::value<bool>(&matchFilePerImage)->default_value(matchFilePerImage),
          "Save matches in a separate file per image.")
         ("distanceRatio", po::value<float>(&distRatio)->default_value(distRatio),
@@ -441,7 +443,7 @@ int aliceVision_main(int argc, char** argv)
         case EGeometricFilterType::FUNDAMENTAL_MATRIX:
         {
             matchingImageCollection::robustModelEstimation(geometricMatches,
-                                                           &sfmData,
+                                                           sfmData,
                                                            regionPerView,
                                                            GeometricFilterMatrix_F_AC(geometricErrorMax, maxIteration, geometricEstimator),
                                                            mapPutativesMatches,
@@ -453,7 +455,7 @@ int aliceVision_main(int argc, char** argv)
         case EGeometricFilterType::FUNDAMENTAL_WITH_DISTORTION:
         {
             matchingImageCollection::robustModelEstimation(geometricMatches,
-                                                           &sfmData,
+                                                           sfmData,
                                                            regionPerView,
                                                            GeometricFilterMatrix_F_AC(geometricErrorMax, maxIteration, geometricEstimator, true),
                                                            mapPutativesMatches,
@@ -465,7 +467,7 @@ int aliceVision_main(int argc, char** argv)
         case EGeometricFilterType::ESSENTIAL_MATRIX:
         {
             matchingImageCollection::robustModelEstimation(geometricMatches,
-                                                           &sfmData,
+                                                           sfmData,
                                                            regionPerView,
                                                            GeometricFilterMatrix_E_AC(geometricErrorMax, maxIteration),
                                                            mapPutativesMatches,
@@ -480,7 +482,7 @@ int aliceVision_main(int argc, char** argv)
         {
             const bool onlyGuidedMatching = true;
             matchingImageCollection::robustModelEstimation(geometricMatches,
-                                                           &sfmData,
+                                                           sfmData,
                                                            regionPerView,
                                                            GeometricFilterMatrix_H_AC(geometricErrorMax, maxIteration),
                                                            mapPutativesMatches,
@@ -493,7 +495,7 @@ int aliceVision_main(int argc, char** argv)
         case EGeometricFilterType::HOMOGRAPHY_GROWING:
         {
             matchingImageCollection::robustModelEstimation(geometricMatches,
-                                                           &sfmData,
+                                                           sfmData,
                                                            regionPerView,
                                                            GeometricFilterMatrix_HGrowing(geometricErrorMax, maxIteration),
                                                            mapPutativesMatches,

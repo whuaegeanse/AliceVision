@@ -6,6 +6,7 @@
 // You can obtain one at https://mozilla.org/MPL/2.0/.
 
 #include "tracksUtils.hpp"
+#include <aliceVision/sfmData/SfMData.hpp>
 
 #include <iterator>
 
@@ -170,7 +171,7 @@ void computeTracksPerView(const TracksMap& tracks, TracksPerView& tracksPerView)
 
     // sort tracks Ids in each view
 #pragma omp parallel for
-    for (int i = 0; i < tracksPerView.size(); ++i)
+    for (int i = 0; i < static_cast<int>(tracksPerView.size()); ++i)
     {
         TracksPerView::iterator it = tracksPerView.begin();
         std::advance(it, i);
@@ -185,17 +186,14 @@ void getTracksIdVector(const TracksMap& tracks, std::set<std::size_t>* tracksIds
         tracksIds->insert(iterT->first);
 }
 
-bool getFeatureIdInViewPerTrack(const TracksMap& allTracks,
-                                       const std::set<std::size_t>& trackIds,
-                                       IndexT viewId,
-                                       std::vector<FeatureId>& out_featId)
+bool getFeatureIdInViewPerTrack(const TracksMap& allTracks, const std::set<std::size_t>& trackIds, IndexT viewId, std::vector<FeatureId>& out_featId)
 {
-    for(std::size_t trackId : trackIds)
+    for (std::size_t trackId : trackIds)
     {
         TracksMap::const_iterator iterT = allTracks.find(trackId);
 
         // ignore it if the track doesn't exist
-        if(iterT == allTracks.end())
+        if (iterT == allTracks.end())
         {
             continue;
         }
@@ -261,6 +259,112 @@ void imageIdInTracks(const TracksMap& tracks, std::set<std::size_t>& imagesId)
         const Track& mapRef = iterT->second;
         for (auto iter = mapRef.featPerView.begin(); iter != mapRef.featPerView.end(); ++iter)
             imagesId.insert(iter->first);
+    }
+}
+
+void computeCovisibility(std::map<Pair, unsigned int>& covisibility, const track::TracksMap& mapTracks)
+{
+    for (const auto& item : mapTracks)
+    {
+        const auto& track = item.second;
+
+        for (auto it = track.featPerView.begin(); it != track.featPerView.end(); it++)
+        {
+            Pair p;
+            p.first = it->first;
+
+            for (auto next = std::next(it); next != track.featPerView.end(); next++)
+            {
+                p.second = next->first;
+
+                if (covisibility.find(p) == covisibility.end())
+                {
+                    covisibility[p] = 0;
+                }
+                else
+                {
+                    covisibility[p]++;
+                }
+            }
+        }
+    }
+}
+
+void simulateTracks(const sfmData::SfMData& sfmData, double sigmaNoise, double outlierRatio, double outlierEpipolarRatio, bool randomNoiseVariancePerView, TracksMap &mapTracks)
+{
+    std::mt19937 generator;
+    std::uniform_real_distribution<double> rand(0, 1);
+    std::uniform_real_distribution<double> randDepth(0.1, 100.0);
+    std::normal_distribution<double> randNoise(0.0, sigmaNoise);
+
+    std::map<IndexT, std::normal_distribution<double>> viewRandNoise;
+    if (randomNoiseVariancePerView)
+    {
+        for (const auto viewId : sfmData.getViewsKeys())
+        {
+            double viewSigma = std::abs(randNoise(generator));
+            viewRandNoise.emplace(viewId, std::normal_distribution<double>(0.0, viewSigma));
+        }
+    }
+
+    for (const auto & [landmarkId, landmark] : sfmData.getLandmarks())
+    {
+        const Vec3 point = landmark.getX();
+
+        track::Track track;
+        track.descType = landmark.getDescType();
+
+        for (const auto & [viewId, observation] : landmark.getObservations())
+        {
+            const auto & view = sfmData.getView(viewId);
+            const auto & intrinsic = sfmData.getIntrinsic(view.getIntrinsicId());
+            const auto & pose = sfmData.getAbsolutePose(view.getPoseId());
+
+            Vec2 obs;
+
+            if (rand(generator) < outlierRatio)
+            {
+                //This is an outlier
+                if (rand(generator) < outlierEpipolarRatio)
+                {
+                    //Outlier but on the epipolar line
+                    Vec3 fakePoint = point * randDepth(generator) / point(2);
+                    obs = intrinsic.transformProject(pose.getTransform(), fakePoint.homogeneous(), true);
+                }
+                else
+                {
+                    std::uniform_real_distribution<double> randWidth(0.0, intrinsic.w());
+                    std::uniform_real_distribution<double> randHeight(0.0, intrinsic.h());
+
+                    obs.x() = randWidth(generator);
+                    obs.y() = randHeight(generator);
+                }
+            }
+            else
+            {
+                obs = intrinsic.transformProject(pose.getTransform(), point.homogeneous(), true);
+            }
+
+            if (randomNoiseVariancePerView)
+            {
+                obs.x() += viewRandNoise.at(viewId)(generator);
+                obs.y() += viewRandNoise.at(viewId)(generator);
+            }
+            else
+            {
+                obs.x() += randNoise(generator);
+                obs.y() += randNoise(generator);
+            }
+
+            TrackItem item;
+            item.coords = obs;
+            item.featureId = observation.getFeatureId();
+            item.scale = observation.getScale();
+
+            track.featPerView[viewId] = item;
+        }
+
+        mapTracks[landmarkId] = track;
     }
 }
 

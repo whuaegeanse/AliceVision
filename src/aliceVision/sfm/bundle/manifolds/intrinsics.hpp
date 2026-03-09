@@ -14,23 +14,20 @@
 namespace aliceVision {
 namespace sfm {
 
-class IntrinsicsManifoldSymbolic : public ceres::Manifold
+class IntrinsicsManifold : public ceres::Manifold
 {
   public:
-    explicit IntrinsicsManifoldSymbolic(size_t parametersSize,
-                                        double focalRatio,
-                                        bool lockFocal,
-                                        bool lockFocalRatio,
-                                        bool lockCenter,
-                                        bool lockDistortion)
+    explicit IntrinsicsManifold(size_t parametersSize,
+                                double focalRatio,
+                                bool lockFocal,
+                                bool lockFocalRatio,
+                                bool lockCenter)
       : _ambientSize(parametersSize),
         _focalRatio(focalRatio),
         _lockFocal(lockFocal),
         _lockFocalRatio(lockFocalRatio),
-        _lockCenter(lockCenter),
-        _lockDistortion(lockDistortion)
+        _lockCenter(lockCenter)
     {
-        _distortionSize = _ambientSize - 4;
         _tangentSize = 0;
 
         if (!_lockFocal)
@@ -49,14 +46,9 @@ class IntrinsicsManifoldSymbolic : public ceres::Manifold
         {
             _tangentSize += 2;
         }
-
-        if (!_lockDistortion)
-        {
-            _tangentSize += _distortionSize;
-        }
     }
 
-    virtual ~IntrinsicsManifoldSymbolic() = default;
+    virtual ~IntrinsicsManifold() = default;
 
     bool Plus(const double* x, const double* delta, double* x_plus_delta) const override
     {
@@ -70,8 +62,8 @@ class IntrinsicsManifoldSymbolic : public ceres::Manifold
         {
             if (_lockFocalRatio)
             {
-                x_plus_delta[0] = x[0] + delta[posDelta];
-                x_plus_delta[1] = x[1] + _focalRatio * delta[posDelta];
+                x_plus_delta[0] = (x[1] + delta[posDelta]) * _focalRatio ;
+                x_plus_delta[1] = x[1] + delta[posDelta];
                 ++posDelta;
             }
             else
@@ -90,15 +82,6 @@ class IntrinsicsManifoldSymbolic : public ceres::Manifold
 
             x_plus_delta[3] = x[3] + delta[posDelta];
             ++posDelta;
-        }
-
-        if (!_lockDistortion)
-        {
-            for (int i = 0; i < _distortionSize; i++)
-            {
-                x_plus_delta[4 + i] = x[4 + i] + delta[posDelta];
-                ++posDelta;
-            }
         }
 
         return true;
@@ -137,15 +120,6 @@ class IntrinsicsManifoldSymbolic : public ceres::Manifold
             ++posDelta;
         }
 
-        if (!_lockDistortion)
-        {
-            for (int i = 0; i < _distortionSize; i++)
-            {
-                J(4 + i, posDelta) = 1.0;
-                ++posDelta;
-            }
-        }
-
         return true;
     }
 
@@ -164,14 +138,12 @@ class IntrinsicsManifoldSymbolic : public ceres::Manifold
     int TangentSize() const override { return _tangentSize; }
 
   private:
-    size_t _distortionSize;
     size_t _ambientSize;
     size_t _tangentSize;
     double _focalRatio;
     bool _lockFocal;
     bool _lockFocalRatio;
     bool _lockCenter;
-    bool _lockDistortion;
 };
 
 }  // namespace sfm

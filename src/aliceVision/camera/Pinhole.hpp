@@ -49,6 +49,8 @@ class Pinhole : public IntrinsicScaleOffsetDisto
 
     void assign(const IntrinsicBase& other) override { *this = dynamic_cast<const Pinhole&>(other); }
 
+    static std::shared_ptr<Pinhole> cast(std::shared_ptr<IntrinsicBase> sptr);
+
     double getFocalLengthPixX() const { return _scale(0); }
 
     double getFocalLengthPixY() const { return _scale(1); }
@@ -63,34 +65,37 @@ class Pinhole : public IntrinsicScaleOffsetDisto
 
     void setK(const Mat3& K);
 
-    Vec2 project(const geometry::Pose3& pose, const Vec4& pt3D, bool applyDistortion = true) const
+    Vec2 transformProject(const geometry::Pose3& pose, const Vec4& pt3D, bool applyDistortion = true) const
     {
-        return project(pose.getHomogeneous(), pt3D, applyDistortion);
+        return transformProject(pose.getHomogeneous(), pt3D, applyDistortion);
     }
 
-    Vec2 project(const Eigen::Matrix4d& pose, const Vec4& pt, bool applyDistortion = true) const override;
+    Vec2 transformProject(const Eigen::Matrix4d& pose, const Vec4& pt, bool applyDistortion = true) const override;
 
-    Eigen::Matrix<double, 2, 9> getDerivativeProjectWrtRotation(const Eigen::Matrix4d& pose, const Vec4& pt);
+    Vec2 project(const Vec4& pt, bool applyDistortion = true) const override;
 
-    Eigen::Matrix<double, 2, 16> getDerivativeProjectWrtPose(const Eigen::Matrix4d& pose, const Vec4& pt) const override;
+    Eigen::Matrix<double, 2, 3> getDerivativeTransformProjectWrtPoint3(const Eigen::Matrix4d& pose, const Vec4& pt) const override;
 
-    Eigen::Matrix<double, 2, 16> getDerivativeProjectWrtPoseLeft(const Eigen::Matrix4d& pose, const Vec4& pt) const override;
+    Eigen::Matrix<double, 2, 2> getDerivativeTransformProjectWrtPrincipalPoint(const Eigen::Matrix4d& pose, const Vec4& pt) const;
 
-    Eigen::Matrix<double, 2, 4> getDerivativeProjectWrtPoint(const Eigen::Matrix4d& pose, const Vec4& pt) const override;
+    Eigen::Matrix<double, 2, 2> getDerivativeTransformProjectWrtScale(const Eigen::Matrix4d& pose, const Vec4& pt) const;
 
-    Eigen::Matrix<double, 2, 3> getDerivativeProjectWrtPoint3(const Eigen::Matrix4d& pose, const Vec4& pt) const override;
+    Eigen::Matrix<double, 2, Eigen::Dynamic> getDerivativeTransformProjectWrtParams(const Eigen::Matrix4d& pose, const Vec4& pt3D) const override;
 
-    Eigen::Matrix<double, 2, Eigen::Dynamic> getDerivativeProjectWrtDisto(const Eigen::Matrix4d& pose, const Vec4& pt) const;
+    Eigen::Matrix<double, 2, Eigen::Dynamic> getDerivativeTransformProjectWrtDistortion(const Eigen::Matrix4d& pose, const Vec4& pt) const override;
 
-    Eigen::Matrix<double, 2, 2> getDerivativeProjectWrtPrincipalPoint(const Eigen::Matrix4d& pose, const Vec4& pt) const;
-
-    Eigen::Matrix<double, 2, 2> getDerivativeProjectWrtScale(const Eigen::Matrix4d& pose, const Vec4& pt) const;
-
-    Eigen::Matrix<double, 2, Eigen::Dynamic> getDerivativeProjectWrtParams(const Eigen::Matrix4d& pose, const Vec4& pt3D) const override;
+    Eigen::Matrix<double, 3, Eigen::Dynamic> getDerivativeBackProjectUnitWrtDistortion(const Vec2& pt2D) const override;
 
     Vec3 toUnitSphere(const Vec2& pt) const override;
 
     Eigen::Matrix<double, 3, 2> getDerivativetoUnitSphereWrtPoint(const Vec2& pt) const;
+
+    /**
+     * @brief Get the derivative of the unit sphere backprojection
+     * @param[in] pt2D The 2D point
+     * @return The backproject jacobian with respect to the pose
+     */
+    Eigen::Matrix<double, 3, Eigen::Dynamic> getDerivativeBackProjectUnitWrtParams(const Vec2& pt2D) const override;
 
     double imagePlaneToCameraPlaneError(double value) const override;
 
@@ -114,6 +119,12 @@ class Pinhole : public IntrinsicScaleOffsetDisto
      * @return Vertical FOV in radians
      */
     double getVerticalFov() const override;
+
+    /**
+     * @brief how a one pixel change relates to an angular change
+     * @return a value in radians
+     */
+    double pixelProbability() const override;
 };
 
 }  // namespace camera

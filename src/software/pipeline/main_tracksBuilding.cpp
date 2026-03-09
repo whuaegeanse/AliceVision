@@ -130,30 +130,12 @@ int aliceVision_main(int argc, char** argv)
     tracksBuilder.build(pairwiseMatches);
 
     ALICEVISION_LOG_INFO("Track filtering");
-    tracksBuilder.filter(filterTrackForks, minInputTrackLength);
+    size_t countFiltered = 0;
+    tracksBuilder.filter(countFiltered, filterTrackForks, minInputTrackLength);
 
     ALICEVISION_LOG_INFO("Track export to structure");
     track::TracksMap mapTracks;
-    tracksBuilder.exportToSTL(mapTracks);
-
-    //Fill additional data
-    for (auto & ptrack : mapTracks)
-    {
-        auto & track = ptrack.second;
-
-        for (auto & pitem : track.featPerView)
-        {
-            IndexT viewId = pitem.first;
-            track::TrackItem & item = pitem.second;
-            const auto & feats = featuresPerView.getFeaturesPerDesc(viewId);
-
-            const feature::PointFeatures & features = feats.at(track.descType);
-            const feature::PointFeature & feature = features.at(item.featureId);
-
-            item.coords = feature.coords().cast<double>();
-            item.scale = feature.scale();
-        }
-    }
+    tracksBuilder.exportToSTL(mapTracks, &featuresPerView);
 
     // write the json file with the tree
     ALICEVISION_LOG_INFO("Export to file");
@@ -163,6 +145,15 @@ int aliceVision_main(int argc, char** argv)
     std::ofstream of(tracksFilename);
     of << boost::json::serialize(jv);
     of.close();
+
+    ///////// Statistics
+
+    ALICEVISION_LOG_INFO("Number of pairs processed : " << pairwiseMatches.size());
+    matching::displayStats(pairwiseMatches);
+
+    ALICEVISION_LOG_INFO("Number of tracks : " << mapTracks.size());
+    tracksBuilder.displayStats(mapTracks);
+
 
     return EXIT_SUCCESS;
 }

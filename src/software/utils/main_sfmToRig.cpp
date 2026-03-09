@@ -71,17 +71,15 @@ int aliceVision_main(int argc, char** argv)
     size_t indexRig = 0;
     int index = 0;
     std::map<IndexT, int> mapPoseToSubPose;
-    for (const auto& pp : sfmData.getPoses())
+    for (const auto& [poseId, pose] : sfmData.getPoses().valueRange())
     {
-        const auto& pose = pp.second;
-
         sfmData::RigSubPose subPose(pose.getTransform(), sfmData::ERigSubPoseStatus::CONSTANT);
         rig.setSubPose(index, subPose);
 
         // Rig id is the combination of uid of poses
-        stl::hash_combine(indexRig, pp.first);
+        stl::hash_combine(indexRig, poseId);
 
-        mapPoseToSubPose[pp.first] = index;
+        mapPoseToSubPose[poseId] = index;
         index++;
     }
 
@@ -100,7 +98,7 @@ int aliceVision_main(int argc, char** argv)
         const IndexT poseId = view->getPoseId();
         const int subPoseId = mapPoseToSubPose[poseId];
 
-        // New commmon pose id is the same than the rig id for convenience
+        // New common pose id is the same than the rig id for convenience
         view->setPoseId(indexRig);
         view->setRigAndSubPoseId(indexRig, subPoseId);
         view->setIndependantPose(false);

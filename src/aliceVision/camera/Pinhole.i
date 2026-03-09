@@ -4,11 +4,15 @@
 // v. 2.0. If a copy of the MPL was not distributed with this file,
 // You can obtain one at https://mozilla.org/MPL/2.0/.
 
-%include <aliceVision/camera/IntrinsicScaleOffsetDisto.i>
-%include <aliceVision/camera/Pinhole.hpp>
+%include <std_shared_ptr.i>
+%shared_ptr(aliceVision::camera::Pinhole)
+
 
 %{
 #include <aliceVision/camera/Pinhole.hpp>
 using namespace aliceVision;
 using namespace aliceVision::camera;
 %}
+
+%include <aliceVision/camera/IntrinsicScaleOffsetDisto.i>
+%include <aliceVision/camera/Pinhole.hpp>

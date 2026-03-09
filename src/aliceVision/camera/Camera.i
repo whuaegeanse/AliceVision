@@ -4,9 +4,17 @@
 // v. 2.0. If a copy of the MPL was not distributed with this file,
 // You can obtain one at https://mozilla.org/MPL/2.0/.
 
-%module (module="pyalicevision") camera
+%module (package="pyalicevision") camera
 
 %include <aliceVision/global.i>
+
+%include <aliceVision/numeric/eigen.i>
+%eigen_typemaps(Vec2)
+%eigen_typemaps(Vec3)
+%eigen_typemaps(Vec4)
+%eigen_typemaps(Mat3)
+%eigen_typemaps(Eigen::Matrix2d)
+%eigen_typemaps(Eigen::MatrixXd)
 
 %{
 #include <aliceVision/camera/camera.hpp>
@@ -20,7 +28,6 @@ using namespace aliceVision::camera;
 %include <aliceVision/camera/cameraCommon.hpp>
 %include <aliceVision/camera/cameraUndistortImage.hpp>
 
-%include <aliceVision/camera/Distortion3DE.i>
 %include <aliceVision/camera/DistortionBrown.i>
 %include <aliceVision/camera/DistortionFisheye.i>
 %include <aliceVision/camera/DistortionFisheye1.i>
@@ -30,4 +37,5 @@ using namespace aliceVision::camera;
 
 %include <aliceVision/camera/IntrinsicInitMode.i>
 %include <aliceVision/camera/Equidistant.i>
+%include <aliceVision/camera/Equirectangular.i>
 %include <aliceVision/camera/Pinhole.i>

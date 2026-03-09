@@ -11,6 +11,8 @@
 #include <aliceVision/system/main.hpp>
 #include <aliceVision/utils/filesIO.hpp>
 #include <aliceVision/cmdline/cmdline.hpp>
+#include <aliceVision/camera/IntrinsicScaleOffsetDisto.hpp>
+
 #include <boost/program_options.hpp>
 
 #include <filesystem>
@@ -50,7 +52,7 @@ bool exportToMatlab(const SfMData& sfm_data, const std::string& outDirectory)
         {
             const IndexT landmarkId = s.first;
             const Landmark& landmark = s.second;
-            landmarksFile << landmarkId << " " << landmark.X[0] << " " << landmark.X[1] << " " << landmark.X[2] << "\n";
+            landmarksFile << landmarkId << " " << landmark.getX()[0] << " " << landmark.getX()[1] << " " << landmark.getX()[2] << "\n";
             for (const auto& obs : landmark.getObservations())
             {
                 const IndexT obsView = obs.first;  // The ID of the view that provides this 2D observation.
@@ -84,7 +86,7 @@ bool exportToMatlab(const SfMData& sfm_data, const std::string& outDirectory)
         for (const auto& v : sfm_data.getViews())
         {
             const View& view = *v.second.get();
-            if (!sfm_data.isPoseAndIntrinsicDefined(&view))
+            if (!sfm_data.isPoseAndIntrinsicDefined(view))
                 continue;
 
             const Pose3 pose = sfm_data.getPose(view).getTransform();
@@ -111,12 +113,31 @@ bool exportToMatlab(const SfMData& sfm_data, const std::string& outDirectory)
         for (const auto& v : sfm_data.getViews())
         {
             const View& view = *v.second.get();
-            if (!sfm_data.isPoseAndIntrinsicDefined(&view))
+            if (!sfm_data.isPoseAndIntrinsicDefined(view))
+            {
                 continue;
-            const IntrinsicBase& intrinsics = *sfm_data.getIntrinsics().at(view.getIntrinsicId()).get();
-            cameraIntrinsicsFile << view.getViewId() << " " << camera::EINTRINSIC_enumToString(intrinsics.getType());
-            for (double p : intrinsics.getParams())
+            }
+
+            const auto & intrinsics = sfm_data.getIntrinsicSharedPtr(view.getIntrinsicId());
+            cameraIntrinsicsFile << view.getViewId() << " " << camera::EINTRINSIC_enumToString(intrinsics->getType());
+            for (double p : intrinsics->getParameters())
+            {
                 cameraIntrinsicsFile << " " << p;
+            }
+
+            auto casted = camera::IntrinsicScaleOffsetDisto::cast(intrinsics);
+            if (casted)
+            {
+                auto disto = casted->getDistortion();
+                if (disto)
+                {
+                    for (double p : disto->getParameters())
+                    {
+                        cameraIntrinsicsFile << " " << p;
+                    }
+                }
+            }
+
             cameraIntrinsicsFile << "\n";
         }
         cameraIntrinsicsFile.close();

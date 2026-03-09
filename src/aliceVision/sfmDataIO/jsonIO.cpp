@@ -5,7 +5,10 @@
 // You can obtain one at https://mozilla.org/MPL/2.0/.
 
 #include "jsonIO.hpp"
+
+#include <aliceVision/system/Logger.hpp>
 #include <aliceVision/camera/camera.hpp>
+#include <aliceVision/camera/Equidistant.hpp>
 #include <aliceVision/sfmDataIO/viewIO.hpp>
 
 #include <boost/property_tree/json_parser.hpp>
@@ -160,20 +163,13 @@ void saveIntrinsic(const std::string& name, IndexT intrinsicId, const std::share
 
     std::shared_ptr<camera::IntrinsicScaleOffset> intrinsicScaleOffset = std::dynamic_pointer_cast<camera::IntrinsicScaleOffset>(intrinsic);
     if (intrinsicScaleOffset)
-    {
-        const double initialFocalLengthMM =
-          (intrinsicScaleOffset->getInitialScale().x() > 0)
-            ? intrinsicScaleOffset->sensorWidth() * intrinsicScaleOffset->getInitialScale().x() / double(intrinsic->w())
-            : -1;
-        const double focalLengthMM = intrinsicScaleOffset->sensorWidth() * intrinsicScaleOffset->getScale().x() / double(intrinsic->w());
-        const double focalRatio = intrinsicScaleOffset->getScale().x() / intrinsicScaleOffset->getScale().y();
-        const double pixelAspectRatio = 1.0 / focalRatio;
-        
-        intrinsicTree.put("initialFocalLength", initialFocalLengthMM);
-        intrinsicTree.put("focalLength", focalLengthMM);
-        intrinsicTree.put("pixelRatio", pixelAspectRatio);
+    {           
+        intrinsicTree.put("initialFocalLength", intrinsicScaleOffset->getInitialFocalLength());
+        intrinsicTree.put("focalLength", intrinsicScaleOffset->getFocalLength());
+        intrinsicTree.put("pixelRatio", intrinsicScaleOffset->getPixelAspectRatio());
         intrinsicTree.put("pixelRatioLocked", intrinsicScaleOffset->isRatioLocked());
-
+        intrinsicTree.put("offsetLocked", intrinsicScaleOffset->isOffsetLocked());
+        intrinsicTree.put("scaleLocked", intrinsicScaleOffset->isScaleLocked());
         saveMatrix("principalPoint", intrinsicScaleOffset->getOffset(), intrinsicTree);
     }
 
@@ -196,7 +192,10 @@ void saveIntrinsic(const std::string& name, IndexT intrinsicId, const std::share
                 paramTree.put("", param);
                 distParamsTree.push_back(std::make_pair("", paramTree));
             }
+
+            intrinsicTree.put("distortionLocked", distortionObject->isLocked());
         }
+
         intrinsicTree.put("distortionInitializationMode",
                           camera::EInitMode_enumToString(intrinsicScaleOffsetDisto->getDistortionInitializationMode()));
 
@@ -211,6 +210,9 @@ void saveIntrinsic(const std::string& name, IndexT intrinsicId, const std::share
             undistortionType = undistortionObject->getType();
             saveMatrix("undistortionOffset", undistortionObject->getOffset(), intrinsicTree);
             intrinsicTree.put("undistortionDiagonal", undistortionObject->getDiagonal());
+            intrinsicTree.put("pixelAspectRatio", undistortionObject->getPixelAspectRatio());
+            intrinsicTree.put("isDesqueezed", undistortionObject->isDesqueezed());
+            intrinsicTree.put("isLocked", undistortionObject->isLocked());
 
             for (double param : undistortionObject->getParameters())
             {
@@ -281,46 +283,10 @@ void loadIntrinsic(const Version& version, IndexT& intrinsicId, std::shared_ptr<
         principalPoint[1] -= (double(height) / 2.0);
     }
 
-    // Focal length
-    Vec2 pxFocalLength;
-    if (version < Version(1, 2, 0))
-    {
-        pxFocalLength(0) = intrinsicTree.get<double>("pxFocalLength", -1);
-        // Only one focal value for X and Y in previous versions
-        pxFocalLength(1) = pxFocalLength(0);
-    }
-    else if (version < Version(1, 2, 2))  // version >= 1.2
-    {
-        loadMatrix("pxFocalLength", pxFocalLength, intrinsicTree);
-    }
-    else if (version < Version(1, 2, 5))
-    {
-        const double fmm = intrinsicTree.get<double>("focalLength", 1.0);
-        // pixelRatio field was actually storing the focalRatio before version 1.2.5
-        const double focalRatio = intrinsicTree.get<double>("pixelRatio", 1.0);
-
-        const double fx = (fmm / sensorWidth) * double(width);
-        const double fy = fx / focalRatio;
-
-        pxFocalLength(0) = fx;
-        pxFocalLength(1) = fy;
-    }
-    else
-    {
-        const double fmm = intrinsicTree.get<double>("focalLength", 1.0);
-        const double pixelAspectRatio = intrinsicTree.get<double>("pixelRatio", 1.0);
-
-        const double focalRatio = 1.0 / pixelAspectRatio;
-        const double fx = (fmm / sensorWidth) * double(width);
-        const double fy = fx / focalRatio;
-
-        pxFocalLength(0) = fx;
-        pxFocalLength(1) = fy;
-    }
 
     // pinhole parameters
-    intrinsic = camera::createIntrinsic(intrinsicType, distortionType, undistortionType, width, height, pxFocalLength(0), pxFocalLength(1), principalPoint(0), principalPoint(1));
-
+    intrinsic = camera::createIntrinsic(intrinsicType, distortionType, undistortionType, width, height, 1.0, 1.0, principalPoint(0), principalPoint(1));
+    
     intrinsic->setSerialNumber(intrinsicTree.get<std::string>("serialNumber"));
     intrinsic->setInitializationMode(initializationMode);
     intrinsic->setSensorWidth(sensorWidth);
@@ -336,26 +302,79 @@ void loadIntrinsic(const Version& version, IndexT& intrinsicId, std::shared_ptr<
         intrinsic->unlock();
     }
 
+
     std::shared_ptr<camera::IntrinsicScaleOffset> intrinsicWithScale = std::dynamic_pointer_cast<camera::IntrinsicScaleOffset>(intrinsic);
     if (intrinsicWithScale != nullptr)
     {
+        // Focal length
+        if (version < Version(1, 2, 0))
+        {
+            Vec2 pxFocalLength;
+            pxFocalLength(0) = intrinsicTree.get<double>("pxFocalLength", -1);
+            // Only one focal value for X and Y in previous versions
+            pxFocalLength(1) = pxFocalLength(0);
+            intrinsicWithScale->setScale(pxFocalLength);
+        }
+        else if (version < Version(1, 2, 2))  // version >= 1.2
+        {
+            Vec2 pxFocalLength;
+            loadMatrix("pxFocalLength", pxFocalLength, intrinsicTree);
+            intrinsicWithScale->setScale(pxFocalLength);
+        }
+        else if (version < Version(1, 2, 5))
+        {
+            // pixelRatio field was actually storing the focalRatio before version 1.2.5
+            const double fmm = intrinsicTree.get<double>("focalLength", 1.0);
+            const double focalRatio = intrinsicTree.get<double>("pixelRatio", 1.0);
+            const double fx = (fmm / sensorWidth) * double(width);
+            const double fy = fx / focalRatio;
+
+            Vec2 pxFocalLength;
+            pxFocalLength(0) = fx;
+            pxFocalLength(1) = fy;
+            intrinsicWithScale->setScale(pxFocalLength);
+        }
+        else if (version < Version(1, 2, 11))
+        {
+            const double fmm = intrinsicTree.get<double>("focalLength", 1.0);
+            const double pixelAspectRatio = intrinsicTree.get<double>("pixelRatio", 1.0);
+            intrinsicWithScale->setFocalLength(fmm, pixelAspectRatio, true);
+        }
+        else
+        {
+            const double fmm = intrinsicTree.get<double>("focalLength", 1.0);
+            const double pixelAspectRatio = intrinsicTree.get<double>("pixelRatio", 1.0);
+            intrinsicWithScale->setFocalLength(fmm, pixelAspectRatio);
+        }
+
+
         if (version < Version(1, 2, 2))
         {
             Vec2 initialFocalLengthPx;
+            const Vec2 pxFocalLength = intrinsicWithScale->getScale();
             initialFocalLengthPx(0) = intrinsicTree.get<double>("pxInitialFocalLength");
             initialFocalLengthPx(1) = (initialFocalLengthPx(0) > 0) ? initialFocalLengthPx(0) * pxFocalLength(1) / pxFocalLength(0) : -1;
             intrinsicWithScale->setInitialScale(initialFocalLengthPx);
         }
+        else if (version < Version(1, 2, 11))
+        {
+            const double initialFocalLengthMM = intrinsicTree.get<double>("initialFocalLength");
+            const double pixelAspectRatio = intrinsicTree.get<double>("pixelRatio", 1.0);
+            intrinsicWithScale->setInitialFocalLength(initialFocalLengthMM, pixelAspectRatio, true);
+            intrinsicWithScale->setRatioLocked(intrinsicTree.get<bool>("pixelRatioLocked"));
+        }
         else
         {
-            double initialFocalLengthMM = intrinsicTree.get<double>("initialFocalLength");
-
-            Vec2 initialFocalLengthPx;
-            initialFocalLengthPx(0) = (initialFocalLengthMM / sensorWidth) * double(width);
-            initialFocalLengthPx(1) = (initialFocalLengthPx(0) > 0) ? initialFocalLengthPx(0) * pxFocalLength(1) / pxFocalLength(0) : -1;
-
-            intrinsicWithScale->setInitialScale(initialFocalLengthPx);
+            const double initialFocalLengthMM = intrinsicTree.get<double>("initialFocalLength");
+            const double pixelAspectRatio = intrinsicTree.get<double>("pixelRatio", 1.0);
+            intrinsicWithScale->setInitialFocalLength(initialFocalLengthMM, pixelAspectRatio);
             intrinsicWithScale->setRatioLocked(intrinsicTree.get<bool>("pixelRatioLocked"));
+        }
+
+        if (version >= Version(1, 2, 10))
+        {
+            intrinsicWithScale->setOffsetLocked(intrinsicTree.get<bool>("offsetLocked"));
+            intrinsicWithScale->setScaleLocked(intrinsicTree.get<bool>("scaleLocked"));
         }
     }
 
@@ -385,10 +404,17 @@ void loadIntrinsic(const Version& version, IndexT& intrinsicId, std::shared_ptr<
                 Vec2 offset;
                 loadMatrix("undistortionOffset", offset, intrinsicTree);
                 undistortionObject->setOffset(offset);
+                undistortionObject->setLocked(intrinsicTree.get<bool>("isLocked", true));
 
                 if (version >= Version(1, 2, 7))
                 {
                     undistortionObject->setDiagonal(intrinsicTree.get<double>("undistortionDiagonal"));
+                }
+
+                if (version >= Version(1, 2, 9))
+                {
+                    undistortionObject->setPixelAspectRatio(intrinsicTree.get<double>("pixelAspectRatio"));
+                    undistortionObject->setDesqueezed(intrinsicTree.get<bool>("isDesqueezed"));
                 }
             }
         }
@@ -406,6 +432,11 @@ void loadIntrinsic(const Version& version, IndexT& intrinsicId, std::shared_ptr<
             if (distortionParams.size() == distortionObject->getParameters().size())
             {
                 distortionObject->setParameters(distortionParams);
+            }
+
+            if (version >= Version(1, 2, 10))
+            {
+                distortionObject->setLocked(intrinsicTree.get<bool>("distortionLocked"));
             }
         }
     }
@@ -472,10 +503,13 @@ void saveLandmark(const std::string& name,
     bpt::ptree landmarkTree;
 
     landmarkTree.put("landmarkId", landmarkId);
-    landmarkTree.put("descType", feature::EImageDescriberType_enumToString(landmark.descType));
-
-    saveMatrix("color", landmark.rgb, landmarkTree);
-    saveMatrix("X", landmark.X, landmarkTree);
+    landmarkTree.put("referenceViewIndex", landmark.getReferenceViewIndex());
+    landmarkTree.put("descType", feature::EImageDescriberType_enumToString(landmark.getDescType()));
+    landmarkTree.put("isParallaxRobust", landmark.isParallaxRobust());
+    landmarkTree.put("isLocked", landmark.isLocked());
+    
+    saveMatrix("color", landmark.getRgb(), landmarkTree);
+    saveMatrix("X", landmark.getX(), landmarkTree);
 
     // observations
     if (saveObservations)
@@ -495,6 +529,7 @@ void saveLandmark(const std::string& name,
                 obsTree.put("featureId", observation.getFeatureId());
                 saveMatrix("x", observation.getCoordinates(), obsTree);
                 obsTree.put("scale", observation.getScale());
+                obsTree.put("depth", observation.getDepth());
             }
 
             observationsTree.push_back(std::make_pair("", obsTree));
@@ -506,13 +541,22 @@ void saveLandmark(const std::string& name,
     parentTree.push_back(std::make_pair(name, landmarkTree));
 }
 
-void loadLandmark(IndexT& landmarkId, sfmData::Landmark& landmark, bpt::ptree& landmarkTree, bool loadObservations, bool loadFeatures)
+void loadLandmark(sfmData::SfMData& sfmData, IndexT& landmarkId, sfmData::Landmark& landmark, bpt::ptree& landmarkTree, bool loadObservations, bool loadFeatures)
 {
     landmarkId = landmarkTree.get<IndexT>("landmarkId");
-    landmark.descType = feature::EImageDescriberType_stringToEnum(landmarkTree.get<std::string>("descType"));
+    landmark.setDescType(feature::EImageDescriberType_stringToEnum(landmarkTree.get<std::string>("descType")));
+    landmark.setParallaxRobust(landmarkTree.get<bool>("isParallaxRobust", false));
+    landmark.setLocked(landmarkTree.get<bool>("isLocked", false));
 
-    loadMatrix("color", landmark.rgb, landmarkTree);
-    loadMatrix("X", landmark.X, landmarkTree);
+    IndexT referenceViewIndex = landmarkTree.get<IndexT>("referenceViewIndex", UndefinedIndexT);
+    if (referenceViewIndex != UndefinedIndexT)
+    {
+        sfmData::View::sptr view = sfmData.getViews().at(referenceViewIndex);
+        landmark.setReferenceView(view);
+    }
+
+    loadMatrix("color", landmark.getRgb(), landmarkTree);
+    loadMatrix("X", landmark.getX(), landmarkTree);
 
     // observations
     if (loadObservations)
@@ -528,9 +572,63 @@ void loadLandmark(IndexT& landmarkId, sfmData::Landmark& landmark, bpt::ptree& l
                 observation.setFeatureId(obsTree.get<IndexT>("featureId"));
                 loadMatrix("x", observation.getCoordinates(), obsTree);
                 observation.setScale(obsTree.get<double>("scale", 0.0));
+                observation.setDepth(obsTree.get<double>("depth", -1.0));
             }
 
             landmark.getObservations().emplace(obsTree.get<IndexT>("observationId"), observation);
+        }
+    }
+}
+
+void saveSurveyPoints(const sfmData::SurveyPoints& spoints, bpt::ptree& parentTree)
+{
+    for (const auto & [viewId, vPoints]: spoints)
+    {
+        bpt::ptree viewTree;
+
+        viewTree.put("viewId", viewId);
+
+        bpt::ptree pointsTree;
+        for (const auto & point : vPoints)
+        {
+            bpt::ptree pointTree;
+
+            pointTree.put("X", point.point3d.x());
+            pointTree.put("Y", point.point3d.y());
+            pointTree.put("Z", point.point3d.z());
+            pointTree.put("u", point.survey.x());
+            pointTree.put("v", point.survey.y());
+            pointTree.put("ru", point.residual.x());
+            pointTree.put("rv", point.residual.y());
+            
+            pointsTree.push_back(std::make_pair("", pointTree));
+        }
+
+        viewTree.add_child("points", pointsTree);
+
+        parentTree.push_back(std::make_pair("", viewTree));
+    }
+}
+
+void loadSurveyPoints(sfmData::SurveyPoints& spoints, bpt::ptree& parentTree)
+{
+    for (const bpt::ptree::value_type& viewTree : parentTree.get_child(""))
+    {
+        IndexT viewId = viewTree.second.get<IndexT>("viewId");
+        
+        for (const bpt::ptree::value_type& pointTree : viewTree.second.get_child("points"))
+        {
+            sfmData::SurveyPoint p;
+
+            p.point3d.x() = pointTree.second.get<double>("X");
+            p.point3d.y() = pointTree.second.get<double>("Y");
+            p.point3d.z() = pointTree.second.get<double>("Z");
+            p.survey.x() = pointTree.second.get<double>("u");
+            p.survey.y() = pointTree.second.get<double>("v");
+            p.residual.x() = pointTree.second.get<double>("ru");
+            p.residual.y() = pointTree.second.get<double>("rv");
+
+            spoints[viewId].push_back(p);
         }
     }
 }
@@ -545,6 +643,7 @@ bool saveJSON(const sfmData::SfMData& sfmData, const std::string& filename, ESfM
     const bool saveIntrinsics = (partFlag & INTRINSICS) == INTRINSICS;
     const bool saveExtrinsics = (partFlag & EXTRINSICS) == EXTRINSICS;
     const bool saveStructure = (partFlag & STRUCTURE) == STRUCTURE;
+    const bool saveSurveys = (partFlag & SURVEYS) == SURVEYS;
     const bool saveFeatures = (partFlag & OBSERVATIONS_WITH_FEATURES) == OBSERVATIONS_WITH_FEATURES;
     const bool saveObservations = saveFeatures || ((partFlag & OBSERVATIONS) == OBSERVATIONS);
 
@@ -624,12 +723,12 @@ bool saveJSON(const sfmData::SfMData& sfmData, const std::string& filename, ESfM
         {
             bpt::ptree posesTree;
 
-            for (const auto& posePair : sfmData.getPoses())
+            for (const auto& [poseId, pose] : sfmData.getPoses().valueRange())
             {
                 bpt::ptree poseTree;
 
-                poseTree.put("poseId", posePair.first);
-                saveCameraPose("pose", posePair.second, poseTree);
+                poseTree.put("poseId", poseId);
+                saveCameraPose("pose", pose, poseTree);
                 posesTree.push_back(std::make_pair("", poseTree));
             }
 
@@ -659,6 +758,16 @@ bool saveJSON(const sfmData::SfMData& sfmData, const std::string& filename, ESfM
         fileTree.add_child("structure", structureTree);
     }
 
+    // surveys
+    if (saveSurveys)
+    {
+        bpt::ptree surveyTree;
+
+        saveSurveyPoints(sfmData.getSurveyPoints(), surveyTree);
+
+        fileTree.add_child("surveys", surveyTree);
+    }
+
     // write the json file with the tree
 
     bpt::write_json(filename, fileTree);
@@ -681,6 +790,7 @@ bool loadJSON(sfmData::SfMData& sfmData,
     const bool loadIntrinsics = (partFlag & INTRINSICS) == INTRINSICS;
     const bool loadExtrinsics = (partFlag & EXTRINSICS) == EXTRINSICS;
     const bool loadStructure = (partFlag & STRUCTURE) == STRUCTURE;
+    const bool loadSurveys = (partFlag & SURVEYS) == SURVEYS;
     const bool loadFeatures = (partFlag & OBSERVATIONS_WITH_FEATURES) == OBSERVATIONS_WITH_FEATURES;
     const bool loadObservations = loadFeatures || ((partFlag & OBSERVATIONS) == OBSERVATIONS);
 
@@ -781,7 +891,7 @@ bool loadJSON(sfmData::SfMData& sfmData,
                     view->getImage().setWidth(intrinsics->w());
                     view->getImage().setHeight(intrinsics->h());
                 }
-                updateIncompleteView(*view, viewIdMethod, viewIdRegex);
+                bootstrapView(*view, viewIdMethod, viewIdRegex);
 
 #pragma omp critical
                 {
@@ -816,7 +926,7 @@ bool loadJSON(sfmData::SfMData& sfmData,
 
                 loadCameraPose("pose", pose, poseTree);
 
-                poses.emplace(poseTree.get<IndexT>("poseId"), pose);
+                poses.assign(poseTree.get<IndexT>("poseId"), pose);
             }
         }
 
@@ -847,11 +957,20 @@ bool loadJSON(sfmData::SfMData& sfmData,
             IndexT landmarkId;
             sfmData::Landmark landmark;
 
-            loadLandmark(landmarkId, landmark, landmarkNode.second, loadObservations, loadFeatures);
+            loadLandmark(sfmData, landmarkId, landmark, landmarkNode.second, loadObservations, loadFeatures);
 
             structure.emplace(landmarkId, landmark);
         }
     }
+
+    // surveyx
+    if (loadSurveys && fileTree.count("surveys"))
+    {
+        sfmData::SurveyPoints& surveyPoints = sfmData.getSurveyPoints();
+
+        loadSurveyPoints(surveyPoints, fileTree.get_child("surveys"));
+    }
+    
 
     return true;
 }

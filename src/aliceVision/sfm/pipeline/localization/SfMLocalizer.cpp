@@ -6,9 +6,9 @@
 // You can obtain one at https://mozilla.org/MPL/2.0/.
 
 #include "SfMLocalizer.hpp"
+
 #include <aliceVision/config.hpp>
 #include <aliceVision/sfm/bundle/BundleAdjustmentCeres.hpp>
-#include <aliceVision/sfm/bundle/BundleAdjustmentSymbolicCeres.hpp>
 #include <aliceVision/robustEstimation/ACRansac.hpp>
 #include <aliceVision/robustEstimation/LORansac.hpp>
 #include <aliceVision/robustEstimation/ScoreEvaluator.hpp>
@@ -19,6 +19,7 @@
 #include <aliceVision/multiview/resection/ProjectionDistanceError.hpp>
 #include <aliceVision/multiview/Unnormalizer.hpp>
 #include <aliceVision/multiview/ResectionKernel.hpp>
+#include <aliceVision/camera/Pinhole.hpp>
 
 namespace aliceVision {
 namespace sfm {
@@ -206,7 +207,7 @@ bool SfMLocalizer::refinePose(camera::IntrinsicBase* intrinsics,
     {
         const std::size_t idx = matchingData.vec_inliers[i];
         sfmData::Landmark landmark;
-        landmark.X = matchingData.pt3D.col(idx);
+        landmark.setX(matchingData.pt3D.col(idx));
         landmark.getObservations()[0] = sfmData::Observation(matchingData.pt2D.col(idx), UndefinedIndexT, unknownScale);  // TODO-SCALE
         tinyScene.getLandmarks()[i] = std::move(landmark);
     }

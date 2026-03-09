@@ -106,6 +106,8 @@ inline void saveCameraPose(const std::string& name, const sfmData::CameraPose& c
     bpt::ptree cameraPoseTree;
     savePose3("transform", cameraPose.getTransform(), cameraPoseTree);
     cameraPoseTree.put("locked", cameraPose.isLocked());
+    cameraPoseTree.put("rotationOnly", cameraPose.isRotationOnly());
+    cameraPoseTree.put("removable", cameraPose.isRemovable());
     parentTree.add_child(name, cameraPoseTree);
 }
 
@@ -133,6 +135,9 @@ inline void loadCameraPose(const std::string& name, sfmData::CameraPose& cameraP
     {
         cameraPose.unlock();
     }
+
+    cameraPose.setRotationOnly(poseTree.get<bool>("rotationOnly", false));
+    cameraPose.setRemovable(poseTree.get<bool>("removable", false));
 }
 
 /**
@@ -203,8 +208,10 @@ void saveLandmark(const std::string& name,
                   bool saveObservations = true,
                   bool saveFeatures = true);
 
+
 /**
  * @brief Load a Landmark from a boost property tree.
+ * @param[in] sfmData The SfMData to which the landmark belongs
  * @param[out] landmarkId The output Landmark Id
  * @param[out] landmark The output Landmmark
  * @param[in,out] landmarkTree The input tree
@@ -213,7 +220,23 @@ void saveLandmark(const std::string& name,
  * @param[in] loadObservations Load landmark observations (default: true)
  * @param[in] loadFeatures Load landmark observations features (default: true)
  */
-void loadLandmark(IndexT& landmarkId, sfmData::Landmark& landmark, bpt::ptree& landmarkTree, bool loadObservations = true, bool loadFeatures = true);
+void loadLandmark(sfmData::SfMData& sfmData, IndexT& landmarkId, sfmData::Landmark& landmark, bpt::ptree& landmarkTree, bool loadObservations = true, bool loadFeatures = true);
+
+/**
+ * @brief Save survey points in a boost property tree.
+ * @param[in] spoints The survey points
+ * @param[out] parentTree The parent tree
+ */
+void saveSurveyPoints(const sfmData::SurveyPoints& spoints,
+                  bpt::ptree& parentTree);
+
+/**
+ * @brief Load survey points from a boost property tree.
+ * @param[in] spoints The survey points
+ * @param[out] parentTree The parent tree
+ */
+void loadSurveyPoints(sfmData::SurveyPoints& spoints,
+                  bpt::ptree& parentTree);
 
 /**
  * @brief Save an SfMData in a JSON file with a boost property tree.

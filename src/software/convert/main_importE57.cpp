@@ -13,6 +13,7 @@
 #include <aliceVision/fuseCut/InputSet.hpp>
 #include <aliceVision/dataio/E57Reader.hpp>
 #include <aliceVision/camera/camera.hpp>
+#include <aliceVision/camera/Equidistant.hpp>
 #include <filesystem>
 
 #include <boost/program_options.hpp>
@@ -59,10 +60,12 @@ struct PointInfoVectorAdaptator
 using PointInfoKdTree =
   nanoflann::KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<double, PointInfoVectorAdaptator>, PointInfoVectorAdaptator, 3>;
 
-template<typename DistanceType, typename IndexType = size_t>
+template<typename _DistanceType, typename IndexType = size_t>
 class BestPointInRadius
 {
   public:
+    // Necessary since nanoflann 1.7.0: https://github.com/jlblancoc/nanoflann/commit/9c84c4c32c2bfa7077cc8873dd3b5bcbb557da90
+    using DistanceType = _DistanceType;
     const DistanceType m_radius;
     const std::vector<dataio::E57Reader::PointInfo>& m_points;
     const std::map<int, Eigen::Vector3d>& m_cameras;
@@ -122,6 +125,9 @@ class BestPointInRadius
 
     // Upper bound on distance
     inline DistanceType worstDist() const { return m_radius; }
+
+    // Necessary since nanoflann 1.6.0: https://github.com/jlblancoc/nanoflann/commit/a74fc3b5b359c941d9a00eb9d92c2202c22eca3a
+    inline void sort() {}
 };
 
 // convert from a SfMData format to another
@@ -196,7 +202,7 @@ int aliceVision_main(int argc, char** argv)
         correctedSensorPosition.z() = sensorPosition.y();
 
         geometry::Pose3 pose(Eigen::Matrix3d::Identity(), correctedSensorPosition);
-        sfmData.getPoses().emplace(idMesh, pose);
+        sfmData.getPoses().assign(idMesh, sfmData::CameraPose(pose));
 
         // Create view for sfmData
         sfmData::View::sptr view = std::make_shared<sfmData::View>("nopath", idMesh, 0, idMesh, 1, 1);
@@ -234,13 +240,13 @@ int aliceVision_main(int argc, char** argv)
 
         std::vector<std::vector<dataio::E57Reader::PointInfo>> vec_allVertices(omp_get_max_threads());
 
-// Loop trough all vertices
+// Loop through all vertices
 #pragma omp parallel for
         for (int vIndex = 0; vIndex < vertices.size(); ++vIndex)
         {
             bool found = true;
 
-            // Check if the point is close to the sensor enough to be theorically close to a neighboor
+            // Check if the point is close to the sensor enough to be theoretically close to a neighbor
             double length = (vertices[vIndex].coords - sensorPosition).norm();
             if (length < maxLength)
             {
@@ -336,7 +342,7 @@ int aliceVision_main(int argc, char** argv)
     fuseCut::SimpleNode octree(bbmin, bbmax);
     for (const auto& pt : sfmData.getLandmarks())
     {
-        octree.store(pt.second.X);
+        octree.store(pt.second.getX());
     }
 
     // Now regroup cells as much as we can

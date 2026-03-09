@@ -12,8 +12,9 @@
 #include <aliceVision/sfmDataIO/sfmDataIO.hpp>
 
 // Image
-#include <aliceVision/image/all.hpp>
+#include <aliceVision/image/Image.hpp>
 #include <aliceVision/image/imageAlgo.hpp>
+#include <aliceVision/image/io.hpp>
 
 // System
 #include <aliceVision/system/Logger.hpp>
@@ -242,6 +243,11 @@ int aliceVision_main(int argc, char** argv)
     for (auto& iter : fs::directory_iterator(p))
     {
         if (!fs::is_regular_file(iter))
+        {
+            continue;
+        }
+
+        if (fs::file_size(iter.path()) == 0)
         {
             continue;
         }

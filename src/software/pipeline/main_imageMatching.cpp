@@ -191,6 +191,16 @@ int aliceVision_main(int argc, char** argv)
 
     switch (method)
     {
+        case EImageMatchingMethod::MIRROR:
+            if (!useMultiSfM)
+            {
+                generateMirrorsMatches(sfmDataA, selectedPairs);
+            }
+            else
+            {
+                ALICEVISION_THROW_ERROR("Invalid mirror mode for multisfm");
+            }
+            break;
         case EImageMatchingMethod::EXHAUSTIVE:
         {
             ALICEVISION_LOG_INFO("Use EXHAUSTIVE method.");
@@ -256,7 +266,7 @@ int aliceVision_main(int argc, char** argv)
                 throw std::runtime_error("No camera with valid pose and intrinsic.");
             }
             // For all cameras with valid extrinsic/intrinsic, we select the camera with common visibilities based on cameras' frustum.
-            // We use an epsilon near value for the frustum, to ensure that mulitple images with a pure rotation will not intersect at the nodal
+            // We use an epsilon near value for the frustum, to ensure that multiple images with a pure rotation will not intersect at the nodal
             // point.
             PairSet pairs = sfm::FrustumFilter(sfmDataA, 0.01).getFrustumIntersectionPairs();
             for (const auto& p : pairs)

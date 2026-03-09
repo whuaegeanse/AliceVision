@@ -10,6 +10,7 @@
 #include <aliceVision/system/Timer.hpp>
 #include <aliceVision/system/Logger.hpp>
 #include <aliceVision/system/main.hpp>
+#include <aliceVision/system/Parallelization.hpp>
 #include <aliceVision/cmdline/cmdline.hpp>
 
 #include <aliceVision/sfmData/SfMData.hpp>
@@ -19,22 +20,22 @@
 #include <aliceVision/track/TracksBuilder.hpp>
 #include <aliceVision/track/tracksUtils.hpp>
 #include <aliceVision/track/trackIO.hpp>
+#include <aliceVision/track/TracksHandler.hpp>
 
 #include <aliceVision/camera/Pinhole.hpp>
 
-#include <aliceVision/robustEstimation/ACRansac.hpp>
-#include <aliceVision/multiview/essential.hpp>
-#include <aliceVision/multiview/relativePose/FundamentalError.hpp>
-#include <aliceVision/multiview/RelativePoseKernel.hpp>
+#include <aliceVision/robustEstimation/NACRansac.hpp>
 #include <aliceVision/multiview/triangulation/triangulationDLT.hpp>
-#include <aliceVision/multiview/relativePose/Rotation3PSolver.hpp>
-#include <aliceVision/multiview/relativePose/Essential5PSolver.hpp>
+#include <aliceVision/multiview/relativePose/RelativeSphericalKernel.hpp>
+#include <aliceVision/multiview/relativePose/RotationSphericalKernel.hpp>
 
+#include <aliceVision/matchingImageCollection/ImagePairListIO.hpp>
+
+#include <aliceVision/multiview/essential.hpp>
 #include <aliceVision/geometry/lie.hpp>
+#include <aliceVision/sfm/utils/statistics.hpp>
 
 #include <boost/program_options.hpp>
-#include <boost/geometry.hpp>
-#include <boost/geometry/geometries/geometries.hpp>
 
 #include <aliceVision/sfm/pipeline/relativePoses.hpp>
 
@@ -42,111 +43,63 @@
 
 // These constants define the current software version.
 // They must be updated when the command line is changed.
-#define ALICEVISION_SOFTWARE_VERSION_MAJOR 2
-#define ALICEVISION_SOFTWARE_VERSION_MINOR 0
+#define ALICEVISION_SOFTWARE_VERSION_MAJOR 3
+#define ALICEVISION_SOFTWARE_VERSION_MINOR 1
 
 using namespace aliceVision;
 
 namespace po = boost::program_options;
 
-bool getPoseStructure(Mat3& R,
-                      Vec3& t,
-                      std::vector<Vec3>& structure,
-                      std::vector<size_t>& newVecInliers,
-                      const Mat3& E,
-                      const std::vector<size_t>& vecInliers,
-                      const Mat3& K1,
-                      const Mat3& K2,
-                      const Mat& x1,
-                      const Mat& x2)
-{
-    // Find set of analytical solutions
-    std::vector<Mat3> Rs;
-    std::vector<Vec3> ts;
-    motionFromEssential(E, &Rs, &ts);
 
-    Mat34 P1, P2;
-    Mat3 R1 = Mat3::Identity();
-    Vec3 t1 = Vec3::Zero();
-    P_from_KRt(K1, R1, t1, P1);
-
-    size_t bestCoundValid = 0;
-
-    for (int it = 0; it < Rs.size(); it++)
-    {
-        const Mat3& R2 = Rs[it];
-        const Vec3& t2 = ts[it];
-
-        P_from_KRt(K2, R2, t2, P2);
-
-        std::vector<Vec3> points;
-        std::vector<size_t> updatedInliers;
-
-        size_t countValid = 0;
-        for (size_t k = 0; k < vecInliers.size(); ++k)
-        {
-            const Vec2& pt1 = x1.col(vecInliers[k]);
-            const Vec2& pt2 = x2.col(vecInliers[k]);
-
-            Vec3 X;
-            multiview::TriangulateDLT(P1, pt1, P2, pt2, X);
-
-            // Test if point is front to the two cameras.
-            if (Depth(R1, t1, X) > 0 && Depth(R2, t2, X) > 0)
-            {
-                countValid++;
-            }
-
-            updatedInliers.push_back(vecInliers[k]);
-            points.push_back(X);
-        }
-
-        if (countValid > bestCoundValid)
-        {
-            bestCoundValid = countValid;
-            structure = points;
-            newVecInliers = updatedInliers;
-            R = Rs[it];
-            t = ts[it];
-        }
-    }
-
-    if (newVecInliers.size() < 10)
-    {
-        return false;
-    }
-
-    return true;
-}
-
+/**
+ * @brief Estimate the relative essential matrix between two cameras
+ * @param E the output Essential matrix
+ * @param vecInliers the input list of inliers (set of indices in the coordinates vectors)
+ * @param errorMax the allowed error for an inlier
+ * @param cam1 the first camera intrinsic object
+ * @param cam2 the second camera intrinsic object
+ * @param x1 the observed points coordinates in the first camera
+ * @param x2 the observed points coordinates in the second camera
+ * @param randomNumberGenerator a random number generator object shared among objects
+ * @param maxIterationsCount how many iterations are allowed during ransac
+ * @param minInliers what is the minimal number of inliers required to consider the estimation successful
+ * @param distanceThreshold minimal distance allowed for epipolar line to point distance in pixels
+ * @return true if estimation succeeded
+*/
 bool robustEssential(Mat3& E,
                      std::vector<size_t>& vecInliers,
+                     double & errorMax,
                      const camera::IntrinsicBase & cam1,
                      const camera::IntrinsicBase & cam2,
-                     const Mat& x1,
-                     const Mat& x2,
+                     const std::vector<Vec2>& x1,
+                     const std::vector<Vec2>& x2,
                      std::mt19937& randomNumberGenerator,
                      const size_t maxIterationCount,
-                     const size_t minInliers)
+                     const size_t minInliers,
+                     const double distanceThreshold)
 {
-    // use the 5 point solver to estimate E
-    using SolverT = multiview::relativePose::Essential5PSolver;
+    multiview::relativePose::RelativeSphericalKernel kernel(cam1, cam2, x1, x2);
 
-    // define the kernel
-    using KernelT =
-      multiview::RelativePoseKernel_K<SolverT, multiview::relativePose::FundamentalSymmetricEpipolarDistanceError, robustEstimation::Mat3Model>;
-
-    const camera::Pinhole & pinhole1 = dynamic_cast<const camera::Pinhole &>(cam1);
-    const camera::Pinhole & pinhole2 = dynamic_cast<const camera::Pinhole &>(cam2);
-
-    KernelT kernel(x1, cam1.w(), cam1.h(), x2, cam2.w(), cam2.h(), pinhole1.K(), pinhole2.K());
+    double threshold = std::numeric_limits<double>::infinity();
+    if (distanceThreshold > 0.0)
+    {
+        //From pixel distance to angular error
+        double angularError1 = cam1.getHorizontalFov() * distanceThreshold / cam1.w();
+        double angularError2 = cam2.getHorizontalFov() * distanceThreshold / cam2.w();
+        threshold = std::max(angularError1, angularError2);
+    }
 
     robustEstimation::Mat3Model model;
     vecInliers.clear();
 
     // robustly estimation of the Essential matrix and its precision
     const std::pair<double, double> acRansacOut =
-      robustEstimation::ACRANSAC(kernel, randomNumberGenerator, vecInliers, maxIterationCount, &model);
+      robustEstimation::NACRANSAC(kernel, 
+                                randomNumberGenerator, 
+                                vecInliers, 
+                                maxIterationCount, 
+                                &model, 
+                                threshold);
 
     if (vecInliers.size() < minInliers)
     {
@@ -155,27 +108,60 @@ bool robustEssential(Mat3& E,
 
     E = model.getMatrix();
 
+    errorMax = acRansacOut.first;
+
     return true;
 }
 
+/**
+ * @brief Estimate the relative rortation matrix between two cameras
+ * @param R the output Rotation matrix
+ * @param vecInliers the input list of inliers (set of indices in the coordinates vectors)
+ * @param errorMax the allowed error for an inlier
+ * @param cam1 the first camera intrinsic object
+ * @param cam2 the second camera intrinsic object
+ * @param x1 the observed points coordinates in the first camera
+ * @param x2 the observed points coordinates in the second camera
+ * @param randomNumberGenerator a random number generator object shared among objects
+ * @param maxIterationsCount how many iterations are allowed during ransac
+ * @param minInliers what is the minimal number of inliers required to consider the estimation successful
+ * @param distanceThreshold minimal distance allowed to reprojection
+ * @return true if estimation succeeded
+*/
 bool robustRotation(Mat3& R,
                     std::vector<size_t>& vecInliers,
-                    const Mat& x1,
-                    const Mat& x2,
-                    std::mt19937& randomNumberGenerator,
-                    const size_t maxIterationCount,
-                    const size_t minInliers)
+                    double & errorMax,
+                     const camera::IntrinsicBase & cam1,
+                     const camera::IntrinsicBase & cam2,
+                     const std::vector<Vec2>& x1,
+                     const std::vector<Vec2>& x2,
+                     std::mt19937& randomNumberGenerator,
+                     const size_t maxIterationCount,
+                     const size_t minInliers,
+                     const double distanceThreshold)
 {
-    using KernelType = multiview::
-      RelativePoseSphericalKernel<multiview::relativePose::Rotation3PSolver, multiview::relativePose::RotationError, robustEstimation::Mat3Model>;
+    multiview::relativePose::RotationSphericalKernel kernel(cam1, cam2, x1, x2);
 
-    KernelType kernel(x1, x2);
+    double threshold = std::numeric_limits<double>::infinity();
+    if (distanceThreshold > 0.0)
+    {
+        //From pixel distance to angular error
+        double angularError1 = cam1.getHorizontalFov() * distanceThreshold / cam1.w();
+        double angularError2 = cam2.getHorizontalFov() * distanceThreshold / cam2.w();
+        threshold = std::max(angularError1, angularError2);
+    }
 
     robustEstimation::Mat3Model model;
     vecInliers.clear();
 
     // robustly estimation of the Essential matrix and its precision
-    robustEstimation::ACRANSAC(kernel, randomNumberGenerator, vecInliers, 1024, &model, std::numeric_limits<double>::infinity());
+    const std::pair<double, double> acRansacOut =
+      robustEstimation::NACRANSAC(kernel,
+                                randomNumberGenerator, 
+                                vecInliers, 
+                                maxIterationCount, 
+                                &model, 
+                                threshold);
 
     if (vecInliers.size() < minInliers)
     {
@@ -184,63 +170,9 @@ bool robustRotation(Mat3& R,
 
     R = model.getMatrix();
 
+    errorMax = acRansacOut.first;
+
     return true;
-}
-
-void computeCovisibility(std::map<Pair, unsigned int>& covisibility, const track::TracksMap& mapTracks)
-{
-    for (const auto& item : mapTracks)
-    {
-        const auto& track = item.second;
-
-        for (auto it = track.featPerView.begin(); it != track.featPerView.end(); it++)
-        {
-            Pair p;
-            p.first = it->first;
-
-            for (auto next = std::next(it); next != track.featPerView.end(); next++)
-            {
-                p.second = next->first;
-
-                if (covisibility.find(p) == covisibility.end())
-                {
-                    covisibility[p] = 0;
-                }
-                else
-                {
-                    covisibility[p]++;
-                }
-            }
-        }
-    }
-}
-
-double computeAreaScore(const std::vector<Eigen::Vector2d>& refPts, const std::vector<Eigen::Vector2d>& nextPts, double refArea, double nextArea)
-{
-    namespace bg = boost::geometry;
-
-    typedef boost::geometry::model::point<double, 2, boost::geometry::cs::cartesian> point_t;
-    typedef boost::geometry::model::multi_point<point_t> mpoint_t;
-    typedef boost::geometry::model::polygon<point_t> polygon;
-    mpoint_t mpt1, mpt2;
-
-    for (int idx = 0; idx < refPts.size(); idx++)
-    {
-        const auto& refPt = refPts[idx];
-        const auto& nextPt = nextPts[idx];
-
-        boost::geometry::append(mpt1, point_t(refPt(0), refPt(1)));
-        boost::geometry::append(mpt2, point_t(nextPt(0), nextPt(1)));
-    }
-
-    polygon hull1, hull2;
-    boost::geometry::convex_hull(mpt1, hull1);
-    boost::geometry::convex_hull(mpt2, hull2);
-    double area1 = boost::geometry::area(hull1);
-    double area2 = boost::geometry::area(hull1);
-    double score = (area1 + area2) / (refArea + nextArea);
-
-    return score;
 }
 
 int aliceVision_main(int argc, char** argv)
@@ -249,10 +181,13 @@ int aliceVision_main(int argc, char** argv)
     std::string sfmDataFilename;
     std::string tracksFilename;
     std::string outputDirectory;
-    int rangeStart = -1;
-    int rangeSize = 1;
-    const size_t minInliers = 35;
+    int rangeIteration = 0;
+    int rangeBlocksCount = 1;
+    size_t minInliers = 35;
     bool enforcePureRotation = false;
+    size_t countIterations = 1024;
+    std::vector<std::string> predefinedPairList;
+    double distanceThreshold = 4.0;
 
     // user optional parameters
     std::string describerTypesName = feature::EImageDescriberType_enumToString(feature::EImageDescriberType::SIFT);
@@ -262,21 +197,20 @@ int aliceVision_main(int argc, char** argv)
     // clang-format off
     po::options_description requiredParams("Required parameters");
         requiredParams.add_options()
-        ("input,i", po::value<std::string>(&sfmDataFilename)->required(),
-         "SfMData file.")
-        ("tracksFilename,t", po::value<std::string>(&tracksFilename)->required(),
-         "Tracks file.")
-        ("output,o", po::value<std::string>(&outputDirectory)->required(),
-         "Path to the output directory.");
+        ("input,i", po::value<std::string>(&sfmDataFilename)->required(), "SfMData file.")
+        ("tracksFilename,t", po::value<std::string>(&tracksFilename)->required(), "Tracks file.")
+        ("output,o", po::value<std::string>(&outputDirectory)->required(),"Path to the output directory.");
 
     po::options_description optionalParams("Optional parameters");
     optionalParams.add_options()
-        ("enforcePureRotation,e", po::value<bool>(&enforcePureRotation)->default_value(enforcePureRotation),
-         "Enforce pure rotation in estimation.")
-        ("rangeStart", po::value<int>(&rangeStart)->default_value(rangeStart),
-         "Range image index start.")
-        ("rangeSize", po::value<int>(&rangeSize)->default_value(rangeSize),
-         "Range size.");
+        ("enforcePureRotation,e", po::value<bool>(&enforcePureRotation)->default_value(enforcePureRotation), "Enforce pure rotation in estimation.")
+        ("countIterations", po::value<size_t>(&countIterations)->default_value(countIterations), "Maximal number of iterations.")
+        ("minInliers", po::value<size_t>(&minInliers)->default_value(minInliers), "Minimal number of inliers for a valid ransac.")
+        ("distanceThreshold", po::value<double>(&distanceThreshold)->default_value(distanceThreshold), "Threshold on geometric distance (epipolar distance or reprojection distance for pure rotation)")
+        ("imagePairsList,l", po::value<std::vector<std::string>>(&predefinedPairList)->multitoken(),
+         "Path(s) to one or more files which contain the list of image pairs to match.")
+        ("rangeIteration", po::value<int>(&rangeIteration)->default_value(rangeIteration), "Chunk id.")
+        ("rangeBlocksCount", po::value<int>(&rangeBlocksCount)->default_value(rangeBlocksCount), "Chunk count.");
     // clang-format on
 
     CmdLine cmdline("AliceVision relativePoseEstimating");
@@ -292,7 +226,13 @@ int aliceVision_main(int argc, char** argv)
     HardwareContext hwc = cmdline.getHardwareContext();
     omp_set_num_threads(hwc.getMaxThreads());
 
-    std::mt19937 randomNumberGenerator(randomSeed);
+    // Generate one number generator per thread to enable repetability
+    // Without thread concurrency
+    std::vector<std::mt19937> randomNumberGenerators;
+    for (int i = 0; i < omp_get_max_threads(); i++)
+    {
+        randomNumberGenerators.emplace_back(randomSeed);
+    }
 
     // load input SfMData scene
     sfmData::SfMData sfmData;
@@ -302,78 +242,80 @@ int aliceVision_main(int argc, char** argv)
         return EXIT_FAILURE;
     }
 
-    // Define range to compute
-    if(rangeStart != -1)
-    {
-        if(rangeStart < 0 || rangeSize < 0)
-        {
-            ALICEVISION_LOG_ERROR("Range is incorrect");
-            return EXIT_FAILURE;
-        }
-
-        if (rangeStart > sfmData.getViews().size())
-        {
-            ALICEVISION_LOG_INFO("Empty range to compute");
-            return EXIT_SUCCESS;
-        }
-
-        if(rangeStart + rangeSize > sfmData.getViews().size())
-        {
-            rangeSize = sfmData.getViews().size() - rangeStart;
-        }
-    }
-    else
-    {
-        rangeStart = 0;
-        rangeSize = sfmData.getViews().size();
-    }
-    ALICEVISION_LOG_DEBUG("Range to compute: rangeStart=" << rangeStart << ", rangeSize=" << rangeSize);
-
 
     // Load tracks
-    ALICEVISION_LOG_INFO("Load tracks");
-    std::ifstream tracksFile(tracksFilename);
-    if (tracksFile.is_open() == false)
+    ALICEVISION_LOG_INFO("Load tracks from " << tracksFilename << ".");
+    track::TracksHandler tracksHandler;
+    if (!tracksHandler.load(tracksFilename, sfmData.getViewsKeys()))
     {
         ALICEVISION_LOG_ERROR("The input tracks file '" + tracksFilename + "' cannot be read.");
         return EXIT_FAILURE;
-    }
-    std::stringstream buffer;
-    buffer << tracksFile.rdbuf();
-    boost::json::value jv = boost::json::parse(buffer.str());
-    track::TracksMap mapTracks(track::flat_map_value_to<track::Track>(jv));
-
-    // Compute tracks per view
-    ALICEVISION_LOG_INFO("Estimate tracks per view");
-    track::TracksPerView mapTracksPerView;
-    for (const auto& viewIt : sfmData.getViews())
-    {
-        // create an entry in the map
-        mapTracksPerView[viewIt.first];
-    }
-    track::computeTracksPerView(mapTracks, mapTracksPerView);
+    }   
 
     ALICEVISION_LOG_INFO("Compute co-visibility");
     std::map<Pair, unsigned int> covisibility;
-    computeCovisibility(covisibility, mapTracks);
+
+    
+        
+    if (predefinedPairList.empty())
+    {
+        //Compute covisibility for tracks
+        //This will get the list of pair of views which observe common features
+        ALICEVISION_LOG_INFO("Automatically select pairs.");
+        track::computeCovisibility(covisibility, tracksHandler.getAllTracks());
+    }
+    else
+    {
+        //Load pairs from file
+        for (const std::string& imagePairsFile : predefinedPairList)
+        {
+            PairSet pairs;
+                
+            ALICEVISION_LOG_INFO("Load pair list from file: " << imagePairsFile);
+            if (!matchingImageCollection::loadPairsFromFile(imagePairsFile, pairs, 0, -1))
+            {
+                return EXIT_FAILURE;
+            }
+
+            //Reformat to the same structure than track::computeCovisibility
+            for (const auto & pair : pairs)
+            {
+                covisibility[pair] = 1;
+
+                //Make sure we test symmetrically too
+                Pair other;
+                other.first = pair.second;
+                other.second = pair.first;
+                covisibility[other] = 1;
+            }
+        }
+    }
+
+    int chunkStart, chunkEnd;
+    if (!rangeComputation(chunkStart, chunkEnd, rangeIteration, rangeBlocksCount, covisibility.size()))
+    {
+        ALICEVISION_LOG_INFO("Nothing to compute in this chunk");
+    }
+
+    ALICEVISION_LOG_INFO("A total of " << covisibility.size() << " pairs has to be processed.");
+    ALICEVISION_LOG_INFO("Current chunk will analyze pairs from " << chunkStart << " to " << chunkEnd << ".");
+
+    //Output container
+    std::vector<sfm::ReconstructedPair> reconstructedPairs;
 
     ALICEVISION_LOG_INFO("Process co-visibility");
     std::stringstream ss;
-    ss << outputDirectory << "/pairs_" << rangeStart << ".json";
+    ss << outputDirectory << "/pairs_" << rangeIteration << ".json";
     std::ofstream of(ss.str());
 
-    std::vector<sfm::ReconstructedPair> reconstructedPairs;
-
-    double ratioChunk = double(covisibility.size()) / double(sfmData.getViews().size());
-    int chunkStart = int(double(rangeStart) * ratioChunk);
-    int chunkEnd = int(double(rangeStart + rangeSize) * ratioChunk);
-
     // For each covisible pair
-#pragma omp parallel for
+#pragma omp parallel for //schedule(dynamic)
     for (int posPairs = chunkStart; posPairs < chunkEnd; posPairs++)
     {
         auto iterPairs = covisibility.begin();
         std::advance(iterPairs, posPairs);
+
+        std::mt19937 & randomNumberGenerator = randomNumberGenerators[omp_get_thread_num()];
 
         // Retrieve pair information
         IndexT refImage = iterPairs->first.first;
@@ -384,45 +326,45 @@ int aliceVision_main(int argc, char** argv)
 
         std::shared_ptr<camera::IntrinsicBase> refIntrinsics = sfmData.getIntrinsicSharedPtr(refView.getIntrinsicId());
         std::shared_ptr<camera::IntrinsicBase> nextIntrinsics = sfmData.getIntrinsicSharedPtr(nextView.getIntrinsicId());
-        std::shared_ptr<camera::Pinhole> refPinhole = std::dynamic_pointer_cast<camera::Pinhole>(refIntrinsics);
-        std::shared_ptr<camera::Pinhole> nextPinhole = std::dynamic_pointer_cast<camera::Pinhole>(nextIntrinsics);
+        
 
         aliceVision::track::TracksMap mapTracksCommon;
-        track::getCommonTracksInImagesFast({refImage, nextImage}, mapTracks, mapTracksPerView, mapTracksCommon);
+        track::getCommonTracksInImagesFast({refImage, nextImage}, tracksHandler.getAllTracks(), tracksHandler.getTracksPerView(), mapTracksCommon);
+
+        if (mapTracksCommon.size() == 0)
+        {
+            continue;
+        }
 
         // Build features coordinates matrices
         const std::size_t n = mapTracksCommon.size();
-        Mat refX(2, n);
-        Mat nextX(2, n);
-        IndexT pos = 0;
+        std::vector<Eigen::Vector2d> refpts, nextpts;
         for (const auto& commonItem : mapTracksCommon)
         {
-            const track::Track& track = commonItem.second;
-
-            refX.col(pos) = track.featPerView.at(refImage).coords;
-            nextX.col(pos) = track.featPerView.at(nextImage).coords;
-
-            pos++;
+            const track::Track & track = commonItem.second;
+            refpts.push_back(track.featPerView.at(refImage).coords);
+            nextpts.push_back(track.featPerView.at(nextImage).coords);
         }
 
         std::vector<size_t> vecInliers;
         sfm::ReconstructedPair reconstructed;
+        double errorMax = 0.0;
 
         if (enforcePureRotation)
         {
-            // Transform to vector
-            Mat refVecs(3, n);
-            Mat nextVecs(3, n);
-            for (int idx = 0; idx < n; idx++)
-            {
-                // Lift to unit sphere
-                refVecs.col(idx) = refIntrinsics->toUnitSphere(refIntrinsics->removeDistortion(refIntrinsics->ima2cam(refX.col(idx))));
-                nextVecs.col(idx) = nextIntrinsics->toUnitSphere(nextIntrinsics->removeDistortion(nextIntrinsics->ima2cam(nextX.col(idx))));
-            }
-
             // Try to fit an essential matrix (we assume we are approx. calibrated)
             Mat3 R;
-            const bool relativeSuccess = robustRotation(R, vecInliers, refVecs, nextVecs, randomNumberGenerator, 1024, minInliers);
+            const bool relativeSuccess = robustRotation(R, 
+                                                        vecInliers, 
+                                                        errorMax,
+                                                        *refIntrinsics,
+                                                        *nextIntrinsics, 
+                                                        refpts, 
+                                                        nextpts, 
+                                                        randomNumberGenerator, 
+                                                        countIterations, 
+                                                        minInliers,
+                                                        distanceThreshold);
             if (!relativeSuccess)
             {
                 continue;
@@ -430,8 +372,8 @@ int aliceVision_main(int argc, char** argv)
 
             reconstructed.reference = refImage;
             reconstructed.next = nextImage;
-            reconstructed.R = R;
-            reconstructed.t.fill(0);
+            reconstructed.pose.setRotation(R);
+            reconstructed.errorMax = errorMax;
         }
         else
         {
@@ -440,13 +382,15 @@ int aliceVision_main(int argc, char** argv)
             std::vector<size_t> inliers;
             const bool essentialSuccess = robustEssential(E,
                                                           inliers,
+                                                          errorMax,
                                                           *refIntrinsics,
                                                           *nextIntrinsics,
-                                                          refX,
-                                                          nextX,
+                                                          refpts,
+                                                          nextpts,
                                                           randomNumberGenerator,
-                                                          1024,
-                                                          minInliers);
+                                                          countIterations,
+                                                          minInliers,
+                                                          distanceThreshold);
             if (!essentialSuccess)
             {
                 continue;
@@ -455,30 +399,39 @@ int aliceVision_main(int argc, char** argv)
             std::vector<Vec3> structure;
             reconstructed.reference = refImage;
             reconstructed.next = nextImage;
+            reconstructed.errorMax = errorMax;
 
-            if (!getPoseStructure(
-                  reconstructed.R, reconstructed.t, structure, vecInliers, E, inliers, refPinhole->K(), nextPinhole->K(), refX, nextX))
+            Mat4 T;
+            if (!estimateTransformStructureFromEssential(T, structure, vecInliers, E, inliers, 
+                                                      *refIntrinsics, *nextIntrinsics, 
+                                                      refpts, nextpts))
             {
                 continue;
             }
-        }
 
-        std::vector<Vec2> refpts, nextpts;
+            if (vecInliers.size() < minInliers)
+            {
+                continue;
+            }
+
+            reconstructed.pose = geometry::Pose3(T);
+        }
+        
+        // Extract inliers
+        std::vector<Vec2> refPtsValid, nextPtsValid;
         for (auto id : vecInliers)
         {
-            refpts.push_back(refX.col(id));
-            nextpts.push_back(nextX.col(id));
+            refPtsValid.push_back(refpts[id]);
+            nextPtsValid.push_back(nextpts[id]);
         }
 
         // Compute matched points coverage of image
-        double areaRef = refIntrinsics->w() * refIntrinsics->h();
-        double areaNext = nextIntrinsics->w() * nextIntrinsics->h();
-        double areaScore = computeAreaScore(refpts, nextpts, areaRef, areaNext);
+        const double areaScore = sfm::computeAreaScore(refPtsValid, nextPtsValid, refIntrinsics->w(), refIntrinsics->h(), nextIntrinsics->w(), nextIntrinsics->h());
 
         // Compute ratio of matched points
-        double iunion = n;
-        double iinter = vecInliers.size();
-        double score = iinter / iunion;
+        const double iunion = n;
+        const double iinter = vecInliers.size();
+        const double score = iinter / iunion;
         reconstructed.score = 0.5 * score + 0.5 * areaScore;
 
 // Buffered output to avoid lo

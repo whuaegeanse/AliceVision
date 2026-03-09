@@ -8,6 +8,7 @@ Learn more details about the pipeline and tools based on it on [AliceVision webs
 
 See [results of the pipeline on sketchfab](http://sketchfab.com/AliceVision).
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/alicevision/AliceVision)
 
 ## Photogrammetry
 
@@ -50,12 +51,12 @@ Get the source code: `git clone --recursive git://github.com/alicevision/AliceVi
 
 See [**INSTALL.md**](INSTALL.md) to build the project.
 
-Continuous integration status: [![Build Status](https://travis-ci.org/alicevision/AliceVision.png?branch=develop)](https://travis-ci.org/alicevision/AliceVision) [![Coverage Status](https://coveralls.io/repos/github/alicevision/AliceVision/badge.png?branch=develop)](https://coveralls.io/github/alicevision/AliceVision?branch=develop).
+Continuous integration status: [![Build Status](https://github.com/alicevision/AliceVision/actions/workflows/continuous-integration.yml/badge.svg?branch=develop)](https://github.com/alicevision/AliceVision/actions/workflows/continuous-integration.yml)
 
 
 ## Launch 3D reconstructions
 
-Use [Meshroom](https://github.com/alicevision/meshroom) to launch the AliceVision pipeline.
+Use [Meshroom](https://github.com/alicevision/Meshroom) to launch the AliceVision pipeline.
  - Meshroom provides a User Interface to create 3D reconstructions.
  - Meshroom provides a command line to launch all the steps of the pipeline.
  - Meshroom is written in python and can be used to create your own python scripts to customize the pipeline or create custom automation.
@@ -77,7 +78,7 @@ You can also contact the core team privately on: [alicevision-team@googlegroups.
 [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/2995/badge)](https://bestpractices.coreinfrastructure.org/projects/2995)
 
 Beyond open source interest to foster developments, open source is a way of life. The project has started as a collaborative project and aims to continue. We love to exchange ideas, improve ourselves while making improvements for other people and discover new collaboration opportunities to expand everybody’s horizon.
-Contributions are welcome. We integrate all contributions as soon as it is useful for someone, don't create troubles for others and the code quality is good enough for maintainance.
+Contributions are welcome. We integrate all contributions as soon as it is useful for someone, don't create troubles for others and the code quality is good enough for maintenance.
 
 Please have a look at the [project code of conduct](CODE_OF_CONDUCT.md) to provide a friendly, motivating and welcoming environment for all.
 Please have a look at the [project contributing guide](CONTRIBUTING.md) to provide an efficient workflow that minimize waste of time for contributors and maintainers as well as maximizing the project quality and efficiency.

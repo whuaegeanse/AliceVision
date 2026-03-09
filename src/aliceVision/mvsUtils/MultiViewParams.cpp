@@ -5,6 +5,7 @@
 // You can obtain one at https://mozilla.org/MPL/2.0/.
 
 #include "MultiViewParams.hpp"
+
 #include <aliceVision/sfmData/SfMData.hpp>
 #include <aliceVision/system/Logger.hpp>
 #include <aliceVision/image/io.hpp>
@@ -17,6 +18,7 @@
 #include <aliceVision/numeric/projection.hpp>
 #include <aliceVision/utils/filesIO.hpp>
 #include <aliceVision/camera/camera.hpp>
+#include <aliceVision/camera/Pinhole.hpp>
 
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics.hpp>
@@ -38,7 +40,7 @@ MultiViewParams::MultiViewParams(const sfmData::SfMData& sfmData,
                                  const std::string& imagesFolder,
                                  const std::string& depthMapsFolder,
                                  const std::string& depthMapsFilterFolder,
-                                 bool readFromDepthMaps,
+                                 mvsUtils::EFileType fileType,
                                  int downscale)
   : _sfmData(sfmData),
     _imagesFolder(imagesFolder + "/"),
@@ -58,12 +60,12 @@ MultiViewParams::MultiViewParams(const sfmData::SfMData& sfmData,
         {
             const sfmData::View& view = *(viewPair.second.get());
 
-            if (!sfmData.isPoseAndIntrinsicDefined(&view))
+            if (!sfmData.isPoseAndIntrinsicDefined(view))
                 continue;
 
             std::string path = view.getImage().getImagePath();
 
-            if (readFromDepthMaps)
+            if (fileType == mvsUtils::EFileType::depthMap)
             {
                 if (depthMapsFolder.empty())
                 {
@@ -76,6 +78,10 @@ MultiViewParams::MultiViewParams(const sfmData::SfMData& sfmData,
                     path = getFileNameFromViewId(*this, view.getViewId(), mvsUtils::EFileType::depthMap);
                 }
             }
+            else if (fileType == mvsUtils::EFileType::normalMap)
+            {
+                path = getFileNameFromViewId(*this, view.getViewId(), mvsUtils::EFileType::normalMap);
+            }
             else if (_imagesFolder != "/" && !_imagesFolder.empty() && fs::is_directory(_imagesFolder) && !fs::is_empty(_imagesFolder))
             {
                 // find folder file extension
@@ -86,7 +92,7 @@ MultiViewParams::MultiViewParams(const sfmData::SfMData& sfmData,
                 // if path was not found
                 if (paths.empty())
                 {
-                    throw std::runtime_error("Cannot find image file coresponding to the view '" + std::to_string(view.getViewId()) +
+                    throw std::runtime_error("Cannot find image file corresponding to the view '" + std::to_string(view.getViewId()) +
                                              "' in folder '" + _imagesFolder + "'.");
                 }
                 else if (paths.size() > 1)
@@ -240,7 +246,7 @@ void MultiViewParams::loadMatricesFromTxtFile(int index, const std::string& file
     std::ifstream in{fileNameP};
     char fc;
     in >> fc;
-    if (fc == 'C')  // FURUKAWA'S PROJCTION MATRIX FILE FORMAT
+    if (fc == 'C')  // FURUKAWA'S PROJECTION MATRIX FILE FORMAT
     {
         in >> fc;  // O
         in >> fc;  // N

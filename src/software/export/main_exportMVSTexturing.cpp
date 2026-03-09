@@ -12,6 +12,7 @@
 #include <aliceVision/utils/filesIO.hpp>
 #include <aliceVision/cmdline/cmdline.hpp>
 #include <boost/program_options.hpp>
+#include <aliceVision/camera/Pinhole.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -108,7 +109,7 @@ int aliceVision_main(int argc, char** argv)
     }
 
     const std::string sUndistMsg = bOneHaveDisto ? "undistorded" : "";
-    const std::string sQuitMsg = std::string("Your SfMData file was succesfully converted!\n") + "Now you can copy your " + sUndistMsg +
+    const std::string sQuitMsg = std::string("Your SfMData file was successfully converted!\n") + "Now you can copy your " + sUndistMsg +
                                  " images in the \"" + outDirectory + "\" folder and run MVS Texturing";
     std::cout << sQuitMsg << std::endl;
     return EXIT_SUCCESS;
